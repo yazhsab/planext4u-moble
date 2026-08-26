@@ -10,9 +10,14 @@ Create behavioural and visual evidence for parity without inspecting or reusing 
 | --- | --- | --- |
 | Administrator | `https://www.planext4u.net/login` | Admin email/password, customer and vendor entry links, teal branded portal |
 | Customer | `https://www.planext4u.net/app/login` | Phone OTP and email/password tabs, registration/reset/policy links |
-| Vendor | `https://www.planext4u.net/vendor/login` | Linked from administrator login; authenticated inventory pending |
+| Vendor | `https://www.planext4u.net/vendor/login` | Phone OTP and email/password tabs plus registration entry |
+| Rider | `https://www.planext4u.net/rider/login` | Email/password login plus rider-registration entry |
 
 The product owner also referenced `planext4.net`; DNS/product ownership must be confirmed before canonical-link and deep-link specifications are frozen.
+
+## 2026-08-26 execution
+
+The product owner explicitly authorised credential submission for a read-only audit. The supplied administrator and customer accounts were used to catalogue 64 authenticated administrator routes and 39 customer/role surfaces. No live mutation was submitted. Sanitised findings are recorded in [Authenticated POC findings](AUTHENTICATED_POC_FINDINGS.md).
 
 ## Safety and privacy
 
@@ -65,3 +70,5 @@ Notes and open questions:
 - All status values and transition actions have an owner and proposed state machine.
 - All reports/filters/exports and configuration fields are documented.
 - Visual references cover priority, empty, error and permission states—not only happy paths.
+
+The accessible-route inventory for the supplied accounts is complete. State-changing journeys, non-super-admin permission comparisons, authenticated vendor/rider dashboards and responsive golden references remain separate exit-gate work.

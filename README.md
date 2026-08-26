@@ -23,6 +23,7 @@ Phase 1 product archaeology and target-definition work is in progress. Applicati
 - [Screen and flow inventory](docs/phase-1/SCREEN_AND_FLOW_INVENTORY.md)
 - [Role and permission matrix](docs/phase-1/ROLE_PERMISSION_MATRIX.md)
 - [POC audit runbook](docs/phase-1/POC_AUDIT_RUNBOOK.md)
+- [Authenticated POC findings](docs/phase-1/AUTHENTICATED_POC_FINDINGS.md)
 - [Decision log](docs/phase-1/DECISION_LOG.md)
 - [Feature catalogue](docs/FEATURE_CATALOGUE.md)
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)

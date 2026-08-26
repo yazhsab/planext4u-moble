@@ -11,17 +11,17 @@
 | --- | --- | --- | --- |
 | Source hierarchy and greenfield boundary | Product + Architecture | Complete | ADR-0001 accepted |
 | Document requirements extraction | Product | Baseline complete | Feature catalogue and traceability v0.1 created |
-| Public POC audit | Product design | Started | Customer and admin login surfaces captured |
-| Authenticated POC audit | Product design + QA | Blocked | Requires explicit approval before credentials are transmitted to the live site |
-| Screen and flow inventory | Product design | In progress | Document-derived inventory created; POC parity columns pending |
-| Role and permission matrix | Security + Product | In progress | Baseline roles/actions created; live permission evidence pending |
+| Public POC audit | Product design | Complete | Customer, admin, vendor and rider entry surfaces catalogued |
+| Authenticated POC audit | Product design + QA | Baseline complete | 64 admin routes and 39 customer/role surfaces inspected read-only; mutation journeys excluded |
+| Screen and flow inventory | Product design | Baseline complete | Document inventory reconciled with authenticated POC findings; golden references pending |
+| Role and permission matrix | Security + Product | In progress | Super Admin and customer visibility observed; scoped admin/vendor/rider accounts pending |
 | Visual/design-system baseline | Design | Baseline complete | Document tokens captured; Figma and golden references pending |
 | Business-rule conflict resolution | Product | In progress | Points-only/hybrid proposal recorded; product decision pending |
-| Service boundaries and state machines | Backend architecture | In progress | Initial bounded contexts and critical state machines being defined |
-| Data classification and retention | Security + Legal | In progress | Draft classification/retention matrix being defined |
-| Capacity, SLO and workload model | Platform | In progress | Document baselines captured; traffic assumptions pending |
-| Migration/coexistence | Data + Platform | In progress | Export-first, no-code-coupling strategy being defined |
-| Figma foundations and golden screens | Design | Not started | Begins after authenticated visual inventory |
+| Service boundaries and state machines | Backend architecture | Baseline complete | Initial bounded contexts/state machines documented; approval pending |
+| Data classification and retention | Security + Legal | Baseline complete | Draft classification/retention matrix documented; approval pending |
+| Capacity, SLO and workload model | Platform | Baseline complete | Document baselines captured; production workload inputs pending |
+| Migration/coexistence | Data + Platform | Baseline complete | Export-first/no-code-coupling strategy documented; authorised export inventory pending |
+| Figma foundations and golden screens | Design | Ready to start | Authenticated visual inventory is available; sanitised priority references pending |
 
 ## Evidence rules
 
