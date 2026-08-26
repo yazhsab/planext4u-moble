@@ -15,9 +15,15 @@ The administrator console is planned as a separately deployable web workspace un
 
 ## Current status
 
-Planning baseline only. Implementation begins after Phase 1 feature inventory and architecture sign-off.
+Phase 1 product archaeology and target-definition work is in progress. Application feature coding begins after its inventory and architecture gates are signed off.
 
 - [Six-phase delivery plan](docs/PROGRAM_PLAN.md)
+- [Phase 1 discovery status](docs/phase-1/DISCOVERY_STATUS.md)
+- [Requirements traceability](docs/phase-1/REQUIREMENTS_TRACEABILITY.md)
+- [Screen and flow inventory](docs/phase-1/SCREEN_AND_FLOW_INVENTORY.md)
+- [Role and permission matrix](docs/phase-1/ROLE_PERMISSION_MATRIX.md)
+- [POC audit runbook](docs/phase-1/POC_AUDIT_RUNBOOK.md)
+- [Decision log](docs/phase-1/DECISION_LOG.md)
 - [Feature catalogue](docs/FEATURE_CATALOGUE.md)
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)
 - [Greenfield boundary ADR](docs/adr/0001-greenfield-boundary.md)
