@@ -15,7 +15,7 @@ The administrator console is planned as a separately deployable web workspace un
 
 ## Current status
 
-Phase 1 product archaeology and target-definition work is in progress. Application feature coding begins after its inventory and architecture gates are signed off.
+Phase 1 product archaeology and target definition is complete. The approved Phase 2 backlog establishes the Flutter foundation and first staging vertical slice.
 
 - [Six-phase delivery plan](docs/PROGRAM_PLAN.md)
 - [Phase 1 discovery status](docs/phase-1/DISCOVERY_STATUS.md)
@@ -24,6 +24,11 @@ Phase 1 product archaeology and target-definition work is in progress. Applicati
 - [Role and permission matrix](docs/phase-1/ROLE_PERMISSION_MATRIX.md)
 - [POC audit runbook](docs/phase-1/POC_AUDIT_RUNBOOK.md)
 - [Authenticated POC findings](docs/phase-1/AUTHENTICATED_POC_FINDINGS.md)
+- [Golden screen specifications](docs/phase-1/GOLDEN_SCREEN_SPECIFICATIONS.md)
+- [Test strategy](docs/phase-1/TEST_STRATEGY.md)
+- [Deferred validation register](docs/phase-1/DEFERRED_VALIDATION_REGISTER.md)
+- [Phase 2 executable backlog](docs/phase-1/PHASE_2_BACKLOG.md)
+- [Phase 1 exit review](docs/phase-1/PHASE_1_EXIT_REVIEW.md)
 - [Decision log](docs/phase-1/DECISION_LOG.md)
 - [Feature catalogue](docs/FEATURE_CATALOGUE.md)
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)

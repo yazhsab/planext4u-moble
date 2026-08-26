@@ -1,4 +1,6 @@
-# Role and permission matrix v0.1
+# Role and permission matrix v1.0
+
+Approval: accepted as the target authorisation baseline on 2026-08-26. Server-side denial tests and scoped-role staging evidence are mandatory Phase 2/role-delivery gates.
 
 Backend policies are authoritative. Mobile/admin clients use permissions only to shape navigation and prevent confusing actions; hidden controls never replace authorisation.
 

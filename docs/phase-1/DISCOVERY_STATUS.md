@@ -2,7 +2,7 @@
 
 - Phase: Product archaeology and target definition
 - Planned window: 2026-08-26 to 2026-09-23
-- Overall state: In progress
+- Overall state: Complete
 - Greenfield rule: No Lovable/Vercel source code may be inspected, copied, imported or used as a runtime dependency.
 
 ## Workstream status
@@ -10,18 +10,18 @@
 | Workstream | Owner | State | Evidence / next action |
 | --- | --- | --- | --- |
 | Source hierarchy and greenfield boundary | Product + Architecture | Complete | ADR-0001 accepted |
-| Document requirements extraction | Product | Baseline complete | Feature catalogue and traceability v0.1 created |
+| Document requirements extraction | Product | Complete | Feature catalogue and 71-ID traceability matrix approved |
 | Public POC audit | Product design | Complete | Customer, admin, vendor and rider entry surfaces catalogued |
-| Authenticated POC audit | Product design + QA | Baseline complete | 64 admin routes and 39 customer/role surfaces inspected read-only; mutation journeys excluded |
-| Screen and flow inventory | Product design | Baseline complete | Document inventory reconciled with authenticated POC findings; golden references pending |
-| Role and permission matrix | Security + Product | In progress | Super Admin and customer visibility observed; scoped admin/vendor/rider accounts pending |
-| Visual/design-system baseline | Design | Baseline complete | Document tokens captured; Figma and golden references pending |
-| Business-rule conflict resolution | Product | In progress | Points-only/hybrid proposal recorded; product decision pending |
-| Service boundaries and state machines | Backend architecture | Baseline complete | Initial bounded contexts/state machines documented; approval pending |
-| Data classification and retention | Security + Legal | Baseline complete | Draft classification/retention matrix documented; approval pending |
-| Capacity, SLO and workload model | Platform | Baseline complete | Document baselines captured; production workload inputs pending |
-| Migration/coexistence | Data + Platform | Baseline complete | Export-first/no-code-coupling strategy documented; authorised export inventory pending |
-| Figma foundations and golden screens | Design | Ready to start | Authenticated visual inventory is available; sanitised priority references pending |
+| Authenticated POC audit | Product design + QA | Complete | 64 admin routes and 39 customer/role surfaces inspected read-only; later role validation is registered |
+| Screen and flow inventory | Product design | Complete | Document/POC union approved; state and role validation has named delivery gates |
+| Role and permission matrix | Security + Product | Complete | Target matrix and privileged controls approved; denial tests are Phase 2 evidence |
+| Visual/design-system baseline | Design | Complete | Tokens, component rules, responsive states and five Figma-importable golden SVGs approved |
+| Business-rule conflict resolution | Product | Complete | Twelve defaults accepted in the decision log |
+| Service boundaries and state machines | Backend architecture | Complete | Approved in the paired backend exit review |
+| Data classification and retention | Security + Legal | Complete for engineering | Release/legal validations remain named gates |
+| Capacity, SLO and workload model | Platform | Complete for baseline | Production calibration is a Phase 3 gate |
+| Migration/coexistence | Data + Platform | Complete for baseline | Migration stays disabled until authorised Phase 6 exports |
+| Phase 2 backlog and test strategy | Product + Engineering | Complete | Estimated stories, dependencies and named acceptance suites published |
 
 ## Evidence rules
 

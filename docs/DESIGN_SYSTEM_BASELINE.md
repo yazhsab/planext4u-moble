@@ -1,6 +1,6 @@
 # Design-system baseline
 
-The supplied UI Design Requirements are the initial visual contract. Phase 1 will supplement them with an approved screenshot inventory of the live POC and a Figma component library.
+The supplied UI Design Requirements are the initial visual contract. Phase 1 supplements them with sanitised black-box observations, a platform-neutral component contract and Figma-importable SVG golden references. Flutter widgets and generated design tokens remain the implementation authority.
 
 ## Foundations
 
@@ -33,7 +33,7 @@ The supplied UI Design Requirements are the initial visual contract. Phase 1 wil
 
 ## Fidelity gates
 
-1. Figma component and token approval.
+1. Token/component contract and Figma-importable golden-reference approval.
 2. Flutter widget catalogue on phone and tablet breakpoints.
 3. Golden tests in light/dark themes and EN plus one long-string locale.
 4. Accessibility scan and keyboard/screen-reader walkthrough.

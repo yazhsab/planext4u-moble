@@ -1,6 +1,6 @@
-# Screen and flow inventory v0.1
+# Screen and flow inventory v1.0
 
-Status legend: `D` documented, `P` publicly observed, `O` observed with the supplied authenticated accounts, `A` authenticated audit pending, `G` golden reference pending. `O` confirms the visible route/control, not an executed mutation or backend invariant.
+Approval: Phase 1 target inventory accepted on 2026-08-26. Status legend: `D` documented, `P` publicly observed, `O` observed with the supplied authenticated accounts, `A` deferred authenticated parity validation and `G` mapped to the approved golden/design contract. `O` confirms the visible route/control, not an executed mutation or backend invariant.
 
 ## Customer application
 

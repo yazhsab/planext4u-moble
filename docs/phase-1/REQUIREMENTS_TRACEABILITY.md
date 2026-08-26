@@ -1,4 +1,6 @@
-# Requirements traceability matrix v0.1
+# Requirements traceability matrix v1.0
+
+Approval: the 71-requirement Phase 1 target baseline was accepted on 2026-08-26. Row status records specification/POC evidence state; it does not mean unspecified rows are unapproved.
 
 ## Source codes
 
