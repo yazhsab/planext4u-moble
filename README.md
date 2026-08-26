@@ -17,6 +17,34 @@ The administrator console is planned as a separately deployable web workspace un
 
 Phase 1 product archaeology and target definition is complete. The approved Phase 2 backlog establishes the Flutter foundation and first staging vertical slice.
 
+Phase 2 implementation has started with one Dart workspace containing the three
+role-specific Flutter applications and shared configuration, core, and design
+system packages. The foundation is intentionally greenfield and does not import
+the Lovable proof-of-concept source.
+
+## Local development
+
+Prerequisites: Flutter 3.41.4 or newer on the stable channel and Dart 3.11.1 or
+newer.
+
+```sh
+dart pub get
+dart run melos bootstrap
+dart run melos run verify
+```
+
+Run an application from its directory. Typed compile-time configuration defaults
+to a local development API and rejects insecure HTTP URLs outside development.
+
+```sh
+cd apps/customer
+flutter run \
+  --dart-define=APP_ENV=development \
+  --dart-define=API_BASE_URL=http://localhost:8080
+```
+
+Use `apps/vendor` or `apps/rider` for the other role-specific applications.
+
 - [Six-phase delivery plan](docs/PROGRAM_PLAN.md)
 - [Phase 1 discovery status](docs/phase-1/DISCOVERY_STATUS.md)
 - [Requirements traceability](docs/phase-1/REQUIREMENTS_TRACEABILITY.md)

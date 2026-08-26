@@ -1,16 +1,11 @@
 .dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
 .idea/
 .vscode/
-.DS_Store
 build/
 coverage/
 *.iml
-*.jks
-*.keystore
-*.p12
-*.mobileprovision
-*.env
-*.env.*
-!.env.example
+*.log
+.DS_Store
+
+# Local, non-secret developer overrides. Typed compile-time configuration is preferred.
+*.local.json

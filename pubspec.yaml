@@ -1,0 +1,38 @@
+name: planext4u_workspace
+description: Greenfield Flutter workspace for the Planext4u customer, vendor, and rider applications.
+publish_to: none
+
+environment:
+  sdk: ^3.11.1
+
+workspace:
+  - apps/customer
+  - apps/vendor
+  - apps/rider
+  - packages/config
+  - packages/core
+  - packages/design_system
+
+dev_dependencies:
+  melos: ^8.5.0
+
+melos:
+  command:
+    bootstrap:
+      runPubGetInParallel: false
+  scripts:
+    format:
+      description: Format all Dart sources and fail when changes are needed.
+      run: dart format --output=none --set-exit-if-changed .
+    analyze:
+      description: Analyze every Flutter application and shared package.
+      run: dart run melos exec --concurrency=1 --fail-fast -- flutter analyze
+    test:
+      description: Run all Flutter and Dart tests.
+      run: dart run melos exec --concurrency=1 --fail-fast --dir-exists=test -- flutter test
+    verify:
+      description: Run the complete local Phase 2 foundation gate.
+      steps:
+        - dart run melos run format
+        - dart run melos run analyze
+        - dart run melos run test
