@@ -120,4 +120,3 @@ Business, engineering, security, finance and operations sign the production-read
 - Money, points, stock, settlement and status transitions use server-owned state machines, idempotency keys, immutable ledgers and auditable events.
 - Secrets never enter mobile binaries, source control, logs or client-managed configuration.
 - Every production mutation has an actor, correlation ID and audit record.
-

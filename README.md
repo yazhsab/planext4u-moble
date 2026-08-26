@@ -22,4 +22,3 @@ Planning baseline only. Implementation begins after Phase 1 feature inventory an
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)
 - [Greenfield boundary ADR](docs/adr/0001-greenfield-boundary.md)
 - [Backend platform](https://github.com/yazhsab/planext4u-backend)
-

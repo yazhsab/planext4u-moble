@@ -24,4 +24,3 @@ Nothing in this catalogue may be removed without a recorded product decision. Ph
 ## Conflict retained as configuration
 
 The updated BRD describes a points-only economy while the PRD/FRD describes points combined with Razorpay/Paystack/COD. The new platform will support administrator-controlled `POINTS_ONLY` and `HYBRID_PAYMENT` modes by country/tenant until product selects the launch policy. This preserves both requirements without hard-coding a contradiction.
-

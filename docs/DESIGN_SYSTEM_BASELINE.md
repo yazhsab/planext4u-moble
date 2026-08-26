@@ -38,4 +38,3 @@ The supplied UI Design Requirements are the initial visual contract. Phase 1 wil
 3. Golden tests in light/dark themes and EN plus one long-string locale.
 4. Accessibility scan and keyboard/screen-reader walkthrough.
 5. Approved visual comparison against the live POC for every retained flow.
-

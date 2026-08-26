@@ -33,4 +33,3 @@ The explicit Go microservices requirement therefore supersedes the Node.js refer
 - All API and data contracts are newly specified and versioned.
 - Visual parity is measured with approved screenshots and golden tests.
 - Existing data is migrated through reviewed export/transform/import jobs, never through direct coupling to legacy application code.
-
