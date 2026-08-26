@@ -1,0 +1,17 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+.vscode/
+.DS_Store
+build/
+coverage/
+*.iml
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.env
+*.env.*
+!.env.example
+
