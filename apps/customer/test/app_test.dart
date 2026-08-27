@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:planext4u_config/planext4u_config.dart';
 import 'package:planext4u_customer/main.dart';
@@ -28,6 +29,33 @@ void main() {
     expect(find.text('Explore'), findsOneWidget);
     expect(find.text('Activity'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
+  });
+
+  testWidgets('customer product grid fits a narrow Android viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pumpWidget(
+      CustomerApp(
+        config: AppConfig.parse(
+          rawEnvironment: 'development',
+          rawApiBaseUrl: 'http://localhost:8080',
+        ),
+        catalogController: CatalogController(
+          remote: SyntheticCatalogRemote(),
+          cache: MemoryCustomerHomeCache(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Available'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('catalog deep link opens the explore destination', (

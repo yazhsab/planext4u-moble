@@ -92,6 +92,25 @@ void main() {
     }
   });
 
+  testWidgets('status remains readable in a compact product card', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _testApp(
+        const SizedBox(
+          width: 72,
+          child: Planext4uStatusPill(
+            label: 'Available',
+            tone: Planext4uStatusTone.success,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Available'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final state in Planext4uViewState.values) {
     testWidgets('$state has a stable accessible rendering at 130% text', (
       tester,

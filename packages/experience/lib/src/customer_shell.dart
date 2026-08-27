@@ -172,6 +172,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       );
     }
     final home = state.home!;
+    final wideLayout = MediaQuery.sizeOf(context).width >= 720;
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.15;
     return RefreshIndicator(
       onRefresh: widget.controller.loadHome,
       child: CustomScrollView(
@@ -238,10 +240,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             ),
             sliver: SliverGrid.builder(
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: MediaQuery.sizeOf(context).width >= 720 ? 3 : 2,
+                crossAxisCount: wideLayout ? 3 : 2,
                 crossAxisSpacing: Planext4uSpacing.x3,
                 mainAxisSpacing: Planext4uSpacing.x3,
-                childAspectRatio: 0.62,
+                childAspectRatio: wideLayout
+                    ? (largeText ? 0.60 : 0.68)
+                    : (largeText ? 0.46 : 0.52),
               ),
               itemCount: home.featuredItems.length,
               itemBuilder: (context, index) {

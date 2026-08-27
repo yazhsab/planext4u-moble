@@ -144,25 +144,36 @@ class Planext4uStatusPill extends StatelessWidget {
           borderRadius: BorderRadius.circular(Planext4uRadii.pill),
           border: Border.all(color: color),
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Planext4uSpacing.x3,
-            vertical: Planext4uSpacing.x2,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: Planext4uSpacing.x1),
-              Text(
-                label,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onSurface,
-                  fontWeight: FontWeight.w700,
-                ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact =
+                constraints.hasBoundedWidth && constraints.maxWidth < 96;
+            final text = Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w700,
               ),
-            ],
-          ),
+            );
+            return Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? Planext4uSpacing.x2 : Planext4uSpacing.x3,
+                vertical: Planext4uSpacing.x2,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!compact) ...[
+                    Icon(icon, size: 16, color: color),
+                    const SizedBox(width: Planext4uSpacing.x1),
+                  ],
+                  if (compact) Flexible(child: text) else text,
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
