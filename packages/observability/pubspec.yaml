@@ -1,0 +1,17 @@
+name: planext4u_observability
+description: Consent-aware structured telemetry and correlation for Planext4u apps.
+version: 0.1.0
+publish_to: none
+
+resolution: workspace
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  planext4u_api_client: ^0.1.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter

@@ -16,6 +16,7 @@ workspace:
   - packages/identity
   - packages/experience
   - packages/storage
+  - packages/observability
 
 dev_dependencies:
   melos: ^8.5.0
