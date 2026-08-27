@@ -1,0 +1,8 @@
+{
+  "source_repository": "https://github.com/yazhsab/planext4u-backend",
+  "source_commit": "3c3114b",
+  "contract_path": "api/openapi/common.openapi.json",
+  "contract_sha256": "332ef63e39ef8f7e4dc13a25709b697f288fbb66061f29f73ecf0ee7a8db4b0f",
+  "fixture_path": "api/fixtures/problem.json",
+  "fixture_sha256": "825ac6e3ae62d63e74556fc54a82f0ddfd09fdf86edfdb9c82d00995072a927e"
+}
