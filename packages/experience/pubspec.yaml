@@ -14,6 +14,7 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  geolocator: ^14.0.3
   planext4u_api_client: ^0.1.0
   planext4u_design_system: ^0.1.0
 

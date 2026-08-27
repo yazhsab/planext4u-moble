@@ -56,6 +56,8 @@ void main() {
       r'${deepLinkScheme}',
       r'${deepLinkPathPrefix}',
       'android:autoVerify="true"',
+      'android.permission.ACCESS_COARSE_LOCATION',
+      'android.permission.ACCESS_FINE_LOCATION',
     ]) {
       expectContains(
         failures,
@@ -64,6 +66,12 @@ void main() {
         '$appName Android deep-link manifest',
       );
     }
+    expectAbsent(
+      failures,
+      manifest,
+      'android.permission.ACCESS_BACKGROUND_LOCATION',
+      '$appName foreground-only location boundary',
+    );
 
     final infoPlist = read('apps/$appName/ios/Runner/Info.plist');
     final entitlements = read('apps/$appName/ios/Runner/Runner.entitlements');
@@ -72,6 +80,18 @@ void main() {
       infoPlist,
       r'$(DEEPLINK_SCHEME)',
       '$appName iOS custom scheme',
+    );
+    expectContains(
+      failures,
+      infoPlist,
+      'NSLocationWhenInUseUsageDescription',
+      '$appName iOS location purpose',
+    );
+    expectAbsent(
+      failures,
+      infoPlist,
+      'NSLocationAlwaysUsageDescription',
+      '$appName foreground-only location boundary',
     );
     expectContains(
       failures,
