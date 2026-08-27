@@ -38,7 +38,9 @@ dart run melos run verify
 ```
 
 The committed goldens cover phone/tablet, light/dark and text scales 1.0/1.3.
-Only regenerate them after intentional visual review:
+macOS and Linux baselines are kept separately because Skia font rasterization
+is platform-specific. Only regenerate the baseline for the current platform
+after intentional visual review:
 
 ```sh
 cd packages/design_system

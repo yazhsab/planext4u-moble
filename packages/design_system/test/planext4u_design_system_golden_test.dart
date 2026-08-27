@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
@@ -47,7 +49,7 @@ void main() {
             await expectLater(
               find.byType(Planext4uWidgetCatalogue),
               matchesGoldenFile(
-                'goldens/catalogue_${viewport.key}_${brightness.key}_${textScale.key}.png',
+                'goldens/catalogue_${Platform.operatingSystem}_${viewport.key}_${brightness.key}_${textScale.key}.png',
               ),
             );
           },
