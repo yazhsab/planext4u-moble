@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
 import 'catalog.dart';
+import 'commerce.dart';
 import 'localization.dart';
+import 'marketplace.dart';
+import 'marketplace_screen.dart';
 
 enum CustomerDestination { home, explore, activity, profile }
 
@@ -51,12 +54,18 @@ final class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({
     required this.controller,
     this.initialDestination = CustomerDestination.home,
+    this.initialItemId,
+    this.marketplaceController,
+    this.cartController,
     this.onItemSelected,
     super.key,
   });
 
   final CatalogController controller;
   final CustomerDestination initialDestination;
+  final String? initialItemId;
+  final MarketplaceController? marketplaceController;
+  final CartController? cartController;
   final ValueChanged<CatalogItem>? onItemSelected;
 
   @override
@@ -71,6 +80,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     super.initState();
     widget.controller.addListener(_changed);
     if (widget.controller.state.home == null) widget.controller.loadHome();
+    if (widget.initialItemId != null &&
+        widget.marketplaceController != null &&
+        widget.cartController != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openProduct(widget.initialItemId!);
+      });
+    }
   }
 
   @override
@@ -103,6 +119,14 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           CustomerDestination.activity => 'Activity',
           CustomerDestination.profile => 'Profile',
         }),
+        actions: [
+          if (widget.cartController != null)
+            IconButton(
+              tooltip: 'Open cart',
+              onPressed: _openCart,
+              icon: const Icon(Icons.shopping_cart_outlined),
+            ),
+        ],
       ),
       body: SafeArea(child: _body(strings)),
       bottomNavigationBar: NavigationBar(
@@ -130,6 +154,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 
   Widget _body(Planext4uLocalizations strings) {
+    if (_destination == CustomerDestination.explore &&
+        widget.marketplaceController != null) {
+      return MarketplaceExploreScreen(
+        controller: widget.marketplaceController!,
+        onItemSelected: _openProduct,
+      );
+    }
     if (_destination != CustomerDestination.home) {
       return Planext4uStatePanel(
         state: Planext4uViewState.empty,
@@ -256,13 +287,45 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   price: item.price.display(),
                   status: item.available ? 'Available' : 'Unavailable',
                   onPressed: item.available
-                      ? () => widget.onItemSelected?.call(item)
+                      ? () {
+                          if (widget.onItemSelected != null) {
+                            widget.onItemSelected!(item);
+                          } else {
+                            _openProduct(item.id);
+                          }
+                        }
                       : null,
                 );
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _openProduct(String itemId) {
+    final marketplace = widget.marketplaceController;
+    final cart = widget.cartController;
+    if (marketplace == null || cart == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProductDetailScreen(
+          itemId: itemId,
+          marketplace: marketplace,
+          cart: cart,
+          onViewCart: _openCart,
+        ),
+      ),
+    );
+  }
+
+  void _openCart() {
+    final cart = widget.cartController;
+    if (cart == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CustomerCartScreen(controller: cart),
       ),
     );
   }

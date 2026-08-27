@@ -169,7 +169,10 @@ class Planext4uStatusPill extends StatelessWidget {
                     Icon(icon, size: 16, color: color),
                     const SizedBox(width: Planext4uSpacing.x1),
                   ],
-                  if (compact) Flexible(child: text) else text,
+                  if (constraints.hasBoundedWidth)
+                    Flexible(child: text)
+                  else
+                    text,
                 ],
               ),
             );

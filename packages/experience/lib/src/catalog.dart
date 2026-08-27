@@ -52,6 +52,46 @@ final class CatalogCategory {
   final String? iconRef;
 }
 
+final class CatalogVariant {
+  const CatalogVariant({
+    required this.id,
+    required this.label,
+    required this.price,
+    required this.available,
+    required this.stockQuantity,
+    required this.maxPerOrder,
+    this.compareAtPrice,
+  });
+
+  factory CatalogVariant.fromJson(Object? value) {
+    final json = _object(value, 'catalog variant');
+    final stock = _integer(json, 'stock_quantity');
+    final maximum = _integer(json, 'max_per_order');
+    if (stock < 0 || maximum < 1 || maximum > 999) {
+      throw const FormatException('Variant availability is invalid.');
+    }
+    return CatalogVariant(
+      id: _string(json, 'id'),
+      label: _string(json, 'label'),
+      price: CatalogMoney.fromJson(json['price']),
+      compareAtPrice: json['compare_at_price'] == null
+          ? null
+          : CatalogMoney.fromJson(json['compare_at_price']),
+      available: _boolean(json, 'available'),
+      stockQuantity: stock,
+      maxPerOrder: maximum,
+    );
+  }
+
+  final String id;
+  final String label;
+  final CatalogMoney price;
+  final CatalogMoney? compareAtPrice;
+  final bool available;
+  final int stockQuantity;
+  final int maxPerOrder;
+}
+
 final class CatalogItem {
   const CatalogItem({
     required this.id,
@@ -61,6 +101,13 @@ final class CatalogItem {
     required this.price,
     required this.available,
     this.mediaRef,
+    this.sellerName,
+    this.verifiedLocalSeller = false,
+    this.description,
+    this.specifications = const {},
+    this.ratingAverage,
+    this.reviewCount = 0,
+    this.variants = const [],
   });
 
   factory CatalogItem.fromJson(Object? value) {
@@ -73,6 +120,17 @@ final class CatalogItem {
       mediaRef: json['media_ref'] as String?,
       price: CatalogMoney.fromJson(json['price']),
       available: _boolean(json, 'available'),
+      sellerName: json['seller_name'] as String?,
+      verifiedLocalSeller: json['verified_local_seller'] as bool? ?? false,
+      description: json['description'] as String?,
+      specifications: _stringMap(json['specifications']),
+      ratingAverage: _optionalNumber(json['rating_average']),
+      reviewCount: json['review_count'] as int? ?? 0,
+      variants: List<CatalogVariant>.unmodifiable(
+        (json['variants'] as List<Object?>? ?? const []).map(
+          CatalogVariant.fromJson,
+        ),
+      ),
     );
   }
 
@@ -83,6 +141,13 @@ final class CatalogItem {
   final String? mediaRef;
   final CatalogMoney price;
   final bool available;
+  final String? sellerName;
+  final bool verifiedLocalSeller;
+  final String? description;
+  final Map<String, String> specifications;
+  final double? ratingAverage;
+  final int reviewCount;
+  final List<CatalogVariant> variants;
 }
 
 final class CatalogPage<T> {
@@ -338,4 +403,27 @@ DateTime _instant(Map<String, Object?> json, String key) {
     throw FormatException('$key must be a UTC date-time.');
   }
   return value;
+}
+
+Map<String, String> _stringMap(Object? value) {
+  if (value == null) return const {};
+  if (value is! Map<String, Object?>) {
+    throw const FormatException('Specifications must be an object.');
+  }
+  final result = <String, String>{};
+  for (final entry in value.entries) {
+    if (entry.key.trim().isEmpty || entry.value is! String) {
+      throw const FormatException('Specification values are invalid.');
+    }
+    result[entry.key] = entry.value! as String;
+  }
+  return Map<String, String>.unmodifiable(result);
+}
+
+double? _optionalNumber(Object? value) {
+  if (value == null) return null;
+  if (value is! num || value < 0 || value > 5) {
+    throw const FormatException('Rating must be between zero and five.');
+  }
+  return value.toDouble();
 }

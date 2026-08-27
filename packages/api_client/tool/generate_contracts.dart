@@ -4,21 +4,38 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = '3c3114b';
+const _sourceCommit = '5bb8125';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
+const _catalogContractPath = 'api/openapi/catalog.openapi.json';
+const _commerceContractPath = 'api/openapi/commerce.openapi.json';
+const _commerceFixturePath = 'api/fixtures/commerce_cart.json';
 
 void main(List<String> arguments) {
   final check = arguments.contains('--check');
   final syncFrom = _argumentValue(arguments, '--sync-from=');
   final fixtureFrom = _argumentValue(arguments, '--fixture-from=');
-  if (check && (syncFrom != null || fixtureFrom != null)) {
+  final catalogFrom = _argumentValue(arguments, '--catalog-from=');
+  final commerceFrom = _argumentValue(arguments, '--commerce-from=');
+  final commerceFixtureFrom = _argumentValue(
+    arguments,
+    '--commerce-fixture-from=',
+  );
+  final syncArguments = [
+    syncFrom,
+    fixtureFrom,
+    catalogFrom,
+    commerceFrom,
+    commerceFixtureFrom,
+  ];
+  final syncing = syncArguments.any((value) => value != null);
+  if (check && syncing) {
     stderr.writeln('--check cannot be combined with sync arguments.');
     exitCode = 64;
     return;
   }
-  if ((syncFrom == null) != (fixtureFrom == null)) {
-    stderr.writeln('--sync-from and --fixture-from must be supplied together.');
+  if (syncing && syncArguments.any((value) => value == null)) {
+    stderr.writeln('All common, catalog and commerce sync paths are required.');
     exitCode = 64;
     return;
   }
@@ -30,14 +47,32 @@ void main(List<String> arguments) {
   final fixtureFile = File(
     '${packageRoot.path}/contracts/problem.fixture.json',
   );
+  final catalogFile = File(
+    '${packageRoot.path}/contracts/catalog.openapi.json',
+  );
+  final commerceFile = File(
+    '${packageRoot.path}/contracts/commerce.openapi.json',
+  );
+  final commerceFixtureFile = File(
+    '${packageRoot.path}/contracts/commerce_cart.fixture.json',
+  );
   final provenanceFile = File('${packageRoot.path}/contracts/provenance.json');
 
-  if (syncFrom != null) {
+  if (syncing) {
     contractFile.parent.createSync(recursive: true);
-    contractFile.writeAsBytesSync(File(syncFrom).readAsBytesSync());
+    contractFile.writeAsBytesSync(File(syncFrom!).readAsBytesSync());
     fixtureFile.writeAsBytesSync(File(fixtureFrom!).readAsBytesSync());
+    catalogFile.writeAsBytesSync(File(catalogFrom!).readAsBytesSync());
+    commerceFile.writeAsBytesSync(File(commerceFrom!).readAsBytesSync());
+    commerceFixtureFile.writeAsBytesSync(
+      File(commerceFixtureFrom!).readAsBytesSync(),
+    );
   }
-  if (!contractFile.existsSync() || !fixtureFile.existsSync()) {
+  if (!contractFile.existsSync() ||
+      !fixtureFile.existsSync() ||
+      !catalogFile.existsSync() ||
+      !commerceFile.existsSync() ||
+      !commerceFixtureFile.existsSync()) {
     stderr.writeln('Contract snapshots are missing. Run with sync arguments.');
     exitCode = 1;
     return;
@@ -45,13 +80,26 @@ void main(List<String> arguments) {
 
   final contractBytes = contractFile.readAsBytesSync();
   final fixtureBytes = fixtureFile.readAsBytesSync();
+  final catalogBytes = catalogFile.readAsBytesSync();
+  final commerceBytes = commerceFile.readAsBytesSync();
+  final commerceFixtureBytes = commerceFixtureFile.readAsBytesSync();
   final contract = _decodeObject(contractBytes, 'common OpenAPI contract');
   final fixture = _decodeObject(fixtureBytes, 'problem fixture');
+  final catalog = _decodeObject(catalogBytes, 'catalog OpenAPI contract');
+  final commerce = _decodeObject(commerceBytes, 'commerce OpenAPI contract');
+  final commerceFixture = _decodeObject(
+    commerceFixtureBytes,
+    'commerce cart fixture',
+  );
   _validateContract(contract);
   _validateFixture(fixture);
+  _validateMarketplaceContracts(catalog, commerce, commerceFixture);
 
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
+  final catalogHash = sha256.convert(catalogBytes).toString();
+  final commerceHash = sha256.convert(commerceBytes).toString();
+  final commerceFixtureHash = sha256.convert(commerceFixtureBytes).toString();
   final provenance = <String, Object>{
     'source_repository': _sourceRepository,
     'source_commit': _sourceCommit,
@@ -59,6 +107,12 @@ void main(List<String> arguments) {
     'contract_sha256': contractHash,
     'fixture_path': _fixturePath,
     'fixture_sha256': fixtureHash,
+    'catalog_contract_path': _catalogContractPath,
+    'catalog_contract_sha256': catalogHash,
+    'commerce_contract_path': _commerceContractPath,
+    'commerce_contract_sha256': commerceHash,
+    'commerce_fixture_path': _commerceFixturePath,
+    'commerce_fixture_sha256': commerceFixtureHash,
   };
   final expectedProvenance =
       '${const JsonEncoder.withIndent('  ').convert(provenance)}\n';
@@ -167,6 +221,40 @@ void _validateFixture(Map<String, Object?> fixture) {
       error['details'] is! Map) {
     throw const FormatException(
       'Problem fixture does not match the common envelope.',
+    );
+  }
+}
+
+void _validateMarketplaceContracts(
+  Map<String, Object?> catalog,
+  Map<String, Object?> commerce,
+  Map<String, Object?> cartFixture,
+) {
+  if (catalog['openapi'] != '3.1.0' || commerce['openapi'] != '3.1.0') {
+    throw const FormatException(
+      'Marketplace contracts must use OpenAPI 3.1.0.',
+    );
+  }
+  final catalogPaths = catalog['paths'] as Map<String, Object?>?;
+  if (catalogPaths == null ||
+      !catalogPaths.containsKey('/v1/catalog/search') ||
+      !catalogPaths.containsKey('/v1/catalog/items/{item_id}')) {
+    throw const FormatException('Catalog contract is missing search or PDP.');
+  }
+  final commercePaths = commerce['paths'] as Map<String, Object?>?;
+  if (commercePaths == null ||
+      !commercePaths.containsKey('/v1/cart') ||
+      !commercePaths.containsKey('/v1/cart/items/{variant_id}')) {
+    throw const FormatException(
+      'Commerce contract is missing cart operations.',
+    );
+  }
+  if (cartFixture['revision'] is! int ||
+      cartFixture['items'] is! List ||
+      cartFixture['total'] is! Map ||
+      cartFixture['allowed_actions'] is! List) {
+    throw const FormatException(
+      'Commerce fixture is missing authoritative cart fields.',
     );
   }
 }

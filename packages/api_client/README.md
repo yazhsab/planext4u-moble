@@ -34,7 +34,10 @@ workspace root, refresh them with:
 ```sh
 dart run packages/api_client/tool/generate_contracts.dart \
   --sync-from=/absolute/path/to/planext4u-backend/api/openapi/common.openapi.json \
-  --fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/problem.json
+  --fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/problem.json \
+  --catalog-from=/absolute/path/to/planext4u-backend/api/openapi/catalog.openapi.json \
+  --commerce-from=/absolute/path/to/planext4u-backend/api/openapi/commerce.openapi.json \
+  --commerce-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/commerce_cart.json
 ```
 
 Do not hand-edit `lib/src/generated/*.g.dart`. CI and the root verification gate

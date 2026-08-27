@@ -1,8 +1,14 @@
 {
   "source_repository": "https://github.com/yazhsab/planext4u-backend",
-  "source_commit": "3c3114b",
+  "source_commit": "5bb8125",
   "contract_path": "api/openapi/common.openapi.json",
   "contract_sha256": "332ef63e39ef8f7e4dc13a25709b697f288fbb66061f29f73ecf0ee7a8db4b0f",
   "fixture_path": "api/fixtures/problem.json",
-  "fixture_sha256": "825ac6e3ae62d63e74556fc54a82f0ddfd09fdf86edfdb9c82d00995072a927e"
+  "fixture_sha256": "825ac6e3ae62d63e74556fc54a82f0ddfd09fdf86edfdb9c82d00995072a927e",
+  "catalog_contract_path": "api/openapi/catalog.openapi.json",
+  "catalog_contract_sha256": "d8fe66d96007e2bb9c3b9cb432bc15f2cc300399ae07fab6f0d24f24f49fc17e",
+  "commerce_contract_path": "api/openapi/commerce.openapi.json",
+  "commerce_contract_sha256": "7dbc2922c549690ba1be5b45a14c36f847d66d36112b04ad87332bb91d8de5a1",
+  "commerce_fixture_path": "api/fixtures/commerce_cart.json",
+  "commerce_fixture_sha256": "8a70fa0c45a62230c546b80989a752adc6a6b06e4322002d83e8b3ccb8475721"
 }
