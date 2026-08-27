@@ -35,15 +35,19 @@ dart run melos run verify
 
 Run an application from its directory. Typed compile-time configuration defaults
 to a local development API and rejects insecure HTTP URLs outside development.
+The native flavor and public `APP_ENV` must match.
 
 ```sh
 cd apps/customer
 flutter run \
+  --flavor development \
   --dart-define=APP_ENV=development \
   --dart-define=API_BASE_URL=http://localhost:8080
 ```
 
 Use `apps/vendor` or `apps/rider` for the other role-specific applications.
+See the [flavor and identity matrix](docs/phase-2/FLAVOR_MATRIX.md) for all
+development, staging and production identifiers, links and build commands.
 
 - [Six-phase delivery plan](docs/PROGRAM_PLAN.md)
 - [Phase 1 discovery status](docs/phase-1/DISCOVERY_STATUS.md)

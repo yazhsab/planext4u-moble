@@ -1,4 +1,4 @@
-package net.planext4u.planext4u_rider
+package net.planext4u.rider
 
 import io.flutter.embedding.android.FlutterActivity
 

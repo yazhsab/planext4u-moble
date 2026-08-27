@@ -34,5 +34,6 @@ melos:
       description: Run the complete local Phase 2 foundation gate.
       steps:
         - dart run melos run format
+        - dart run tool/validate_flavors.dart
         - dart run melos run analyze
         - dart run melos run test

@@ -1,12 +1,11 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
-    namespace = "net.planext4u.planext4u_customer"
+    namespace = "net.planext4u.customer"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,21 +19,43 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "net.planext4u.planext4u_customer"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        applicationId = "net.planext4u.customer"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    flavorDimensions += "environment"
+    productFlavors {
+        create("development") {
+            dimension = "environment"
+            applicationIdSuffix = ".dev"
+            resValue("string", "app_name", "Planext4u Customer Dev")
+            manifestPlaceholders["deepLinkHost"] = "dev.planext4u.net"
+            manifestPlaceholders["deepLinkScheme"] = "planext4u-customer-dev"
+            manifestPlaceholders["deepLinkPathPrefix"] = "/app"
+        }
+        create("staging") {
+            dimension = "environment"
+            applicationIdSuffix = ".staging"
+            resValue("string", "app_name", "Planext4u Customer Staging")
+            manifestPlaceholders["deepLinkHost"] = "staging.planext4u.net"
+            manifestPlaceholders["deepLinkScheme"] = "planext4u-customer-staging"
+            manifestPlaceholders["deepLinkPathPrefix"] = "/app"
+        }
+        create("production") {
+            dimension = "environment"
+            resValue("string", "app_name", "Planext4u Customer")
+            manifestPlaceholders["deepLinkHost"] = "planext4u.net"
+            manifestPlaceholders["deepLinkScheme"] = "planext4u-customer"
+            manifestPlaceholders["deepLinkPathPrefix"] = "/app"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Release signing is injected by protected CI and never stored here.
         }
     }
 }

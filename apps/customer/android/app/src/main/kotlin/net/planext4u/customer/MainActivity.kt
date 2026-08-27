@@ -1,4 +1,4 @@
-package net.planext4u.planext4u_vendor
+package net.planext4u.customer
 
 import io.flutter.embedding.android.FlutterActivity
 

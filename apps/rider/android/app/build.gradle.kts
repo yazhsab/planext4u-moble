@@ -1,12 +1,11 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
-    namespace = "net.planext4u.planext4u_rider"
+    namespace = "net.planext4u.rider"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,21 +19,43 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "net.planext4u.planext4u_rider"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        applicationId = "net.planext4u.rider"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    flavorDimensions += "environment"
+    productFlavors {
+        create("development") {
+            dimension = "environment"
+            applicationIdSuffix = ".dev"
+            resValue("string", "app_name", "Planext4u Rider Dev")
+            manifestPlaceholders["deepLinkHost"] = "dev.planext4u.net"
+            manifestPlaceholders["deepLinkScheme"] = "planext4u-rider-dev"
+            manifestPlaceholders["deepLinkPathPrefix"] = "/rider"
+        }
+        create("staging") {
+            dimension = "environment"
+            applicationIdSuffix = ".staging"
+            resValue("string", "app_name", "Planext4u Rider Staging")
+            manifestPlaceholders["deepLinkHost"] = "staging.planext4u.net"
+            manifestPlaceholders["deepLinkScheme"] = "planext4u-rider-staging"
+            manifestPlaceholders["deepLinkPathPrefix"] = "/rider"
+        }
+        create("production") {
+            dimension = "environment"
+            resValue("string", "app_name", "Planext4u Rider")
+            manifestPlaceholders["deepLinkHost"] = "planext4u.net"
+            manifestPlaceholders["deepLinkScheme"] = "planext4u-rider"
+            manifestPlaceholders["deepLinkPathPrefix"] = "/rider"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Release signing is injected by protected CI and never stored here.
         }
     }
 }
