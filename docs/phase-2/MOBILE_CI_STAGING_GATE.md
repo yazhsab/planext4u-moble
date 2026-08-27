@@ -6,9 +6,12 @@ drift checks, formatting, flavor validation, static analysis, unit tests,
 widget tests and golden tests. Separate matrix jobs compile customer, vendor
 and rider for development, staging and production on Android and iOS.
 
-`MOB-E2E-001` runs on an Android emulator with deterministic synthetic data. It
-exercises the fresh-install consent, login, foreground-location, customer-home
-and catalog-read boundaries without embedding a real person's credentials.
+`MOB-E2E-001` runs on a KVM-accelerated Android emulator with deterministic
+synthetic data. The workflow explicitly enables and verifies `/dev/kvm` before
+boot so a hosted-runner permission regression cannot silently fall back to
+unreliable software emulation. It exercises the fresh-install consent, login,
+foreground-location, customer-home and catalog-read boundaries without
+embedding a real person's credentials.
 
 The staging smoke workflow performs the complete synthetic customer journey
 every day and on demand: readiness, staging-only login, Chennai location and

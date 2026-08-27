@@ -17,6 +17,8 @@ void main() {
     '--flavor staging',
     '--flavor production',
     'MOB-E2E-001 Android emulator',
+    'Enable KVM acceleration',
+    'test -r /dev/kvm && test -w /dev/kvm',
     'customer_vertical_slice_test.dart',
   ]) {
     _expect(failures, mobile, required, 'mobile CI');
