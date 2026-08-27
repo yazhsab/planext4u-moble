@@ -1,0 +1,22 @@
+name: planext4u_identity
+description: Secure, role-aware identity and mobile session foundation for Planext4u.
+version: 0.1.0
+publish_to: none
+
+resolution: workspace
+
+environment:
+  sdk: ^3.11.1
+  flutter: ">=3.41.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: ^11.0.0
+  planext4u_api_client: ^0.1.0
+  planext4u_core: ^0.1.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
