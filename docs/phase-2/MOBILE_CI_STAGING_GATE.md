@@ -10,13 +10,14 @@ and rider for development, staging and production on Android and iOS.
 exercises the fresh-install consent, login, foreground-location, customer-home
 and catalog-read boundaries without embedding a real person's credentials.
 
-The staging smoke workflow probes readiness and bootstrap every day. A manual
-release-candidate run requires the protected staging environment secret
-`STAGING_SYNTHETIC_ACCESS_TOKEN` and additionally verifies the authenticated
-home projection. The smoke tool accepts HTTPS origins only, bounds responses,
-does not print the token or response body, and emits a correlation ID.
+The staging smoke workflow performs the complete synthetic customer journey
+every day and on demand: readiness, staging-only login, Chennai location and
+serviceability, authenticated bootstrap, home, and catalog read. It obtains a
+short-lived token from the staging-only exchange endpoint and never stores or
+prints that token. The smoke tool accepts HTTPS origins only, bounds responses,
+and verifies correlation-ID propagation for every request.
 
 Required branch protection checks are `quality`, all three Android build jobs,
 all three iOS build jobs and `MOB-E2E-001 Android emulator`. Deployment remains
-blocked until the paired backend staging slice is available and the manual
-authenticated smoke run passes.
+blocked until the paired backend staging slice is available and the complete
+smoke journey passes.

@@ -2,12 +2,6 @@ name: Mobile staging smoke
 
 on:
   workflow_dispatch:
-    inputs:
-      require_authenticated_slice:
-        description: Fail unless the protected synthetic-user token is configured
-        required: true
-        type: boolean
-        default: true
   schedule:
     - cron: '17 2 * * *'
 
@@ -24,17 +18,13 @@ jobs:
     timeout-minutes: 10
     environment: staging
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2.23.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: 3.41.4
           channel: stable
           cache: true
-      - name: Probe public and authenticated mobile contracts
-        env:
-          STAGING_SYNTHETIC_ACCESS_TOKEN: ${{ secrets.STAGING_SYNTHETIC_ACCESS_TOKEN }}
-          REQUIRE_AUTHENTICATED_SLICE: ${{ github.event_name == 'schedule' && 'false' || inputs.require_authenticated_slice }}
+      - name: Run the complete synthetic customer journey
         run: >-
           dart run tool/staging_smoke.dart
           --base-url=https://staging-api.planext4u.net
-          --require-auth=${REQUIRE_AUTHENTICATED_SLICE}

@@ -23,7 +23,7 @@ void main() {
   }
   for (final required in [
     'environment: staging',
-    'STAGING_SYNTHETIC_ACCESS_TOKEN',
+    'complete synthetic customer journey',
     'tool/staging_smoke.dart',
     'https://staging-api.planext4u.net',
   ]) {
@@ -33,6 +33,27 @@ void main() {
     _expect(failures, integration, stage, 'MOB-E2E-001');
   }
   _expect(failures, root, 'dart run tool/validate_ci.dart', 'root gate');
+
+  for (final workflow in {
+    'mobile CI': mobile,
+    'staging smoke': smoke,
+  }.entries) {
+    for (final line in workflow.value.split('\n')) {
+      final trimmed = line.trim();
+      if (!trimmed.startsWith('- uses:') && !trimmed.startsWith('uses:')) {
+        continue;
+      }
+      final reference = trimmed
+          .substring(trimmed.indexOf('uses:') + 'uses:'.length)
+          .trim()
+          .split(RegExp(r'\s+'))
+          .first;
+      final revision = reference.split('@').last;
+      if (!RegExp(r'^[a-f0-9]{40}$').hasMatch(revision)) {
+        failures.add('${workflow.key} action is not commit-pinned: $reference');
+      }
+    }
+  }
 
   final combined = '$mobile\n$smoke';
   for (final prohibited in [
