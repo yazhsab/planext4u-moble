@@ -11,9 +11,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  planext4u_api_client: ^0.1.0
   planext4u_config: ^0.1.0
   planext4u_core: ^0.1.0
   planext4u_design_system: ^0.1.0
+  planext4u_experience: ^0.1.0
 
 dev_dependencies:
   flutter_test:
