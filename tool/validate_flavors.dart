@@ -75,6 +75,16 @@ void main() {
 
     final infoPlist = read('apps/$appName/ios/Runner/Info.plist');
     final entitlements = read('apps/$appName/ios/Runner/Runner.entitlements');
+    final podfile = read('apps/$appName/ios/Podfile');
+    final xcodeProject = read(
+      'apps/$appName/ios/Runner.xcodeproj/project.pbxproj',
+    );
+    expectContains(
+      failures,
+      podfile,
+      "platform :ios, '13.0'",
+      '$appName iOS deployment target',
+    );
     expectContains(
       failures,
       infoPlist,
@@ -130,6 +140,30 @@ void main() {
           '$appName iOS $flavorName scheme',
         );
       }
+      expectContains(
+        failures,
+        scheme,
+        'buildConfiguration = "Debug-$flavorName"',
+        '$appName iOS $flavorName test action',
+      );
+      expectContains(
+        failures,
+        scheme,
+        'BuildableName = "RunnerTests.xctest"',
+        '$appName iOS $flavorName test target',
+      );
+      expectContains(
+        failures,
+        podfile,
+        "'Debug-$flavorName' => :debug",
+        '$appName CocoaPods $flavorName mapping',
+      );
+      expectContains(
+        failures,
+        xcodeProject,
+        '/* Debug-$flavorName */',
+        '$appName Xcode test configuration',
+      );
 
       for (final mode in ['Debug', 'Profile', 'Release']) {
         final configPath =

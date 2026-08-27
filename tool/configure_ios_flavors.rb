@@ -88,7 +88,9 @@ APPS.each do |app_name, app|
   project_path = File.join(app_dir, 'ios', 'Runner.xcodeproj')
   project = Xcodeproj::Project.open(project_path)
   runner = project.targets.find { |target| target.name == 'Runner' }
+  runner_tests = project.targets.find { |target| target.name == 'RunnerTests' }
   raise "Runner target missing in #{project_path}" unless runner
+  raise "RunnerTests target missing in #{project_path}" unless runner_tests
 
   flutter_group = project.main_group.find_subpath('Flutter', true)
 
@@ -97,7 +99,10 @@ APPS.each do |app_name, app|
       configuration_name = "#{mode}-#{flavor_name}"
       source_project_config = project.build_configurations.find { |config| config.name == mode }
       source_target_config = runner.build_configurations.find { |config| config.name == mode }
-      raise "Source #{mode} configuration missing in #{project_path}" unless source_project_config && source_target_config
+      source_test_config = runner_tests.build_configurations.find { |config| config.name == mode }
+      unless source_project_config && source_target_config && source_test_config
+        raise "Source #{mode} configuration missing in #{project_path}"
+      end
 
       write_xcconfig(app_dir, app_name, app, flavor_name, flavor, mode)
       config_filename = "#{configuration_name}.xcconfig"
@@ -120,12 +125,18 @@ APPS.each do |app_name, app|
       target_config.build_settings['DEEPLINK_PATH_PREFIX'] = app[:path_prefix]
       target_config.build_settings['DEEPLINK_SCHEME'] = "planext4u-#{app_name}#{flavor[:scheme_suffix]}"
       target_config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = "#{app[:bundle_id]}#{flavor[:identifier_suffix]}"
+
+      test_config = runner_tests.add_build_configuration(configuration_name, type)
+      test_config.build_settings = deep_copy(source_test_config.build_settings)
+      test_config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = "#{app[:bundle_id]}#{flavor[:identifier_suffix]}.RunnerTests"
+      test_config.build_settings['SWIFT_VERSION'] = '5.0'
     end
 
     scheme = Xcodeproj::XCScheme.new
     scheme.add_build_target(runner)
+    scheme.add_test_target(runner_tests)
     scheme.set_launch_target(runner)
-    scheme.test_action.build_configuration = 'Debug'
+    scheme.test_action.build_configuration = "Debug-#{flavor_name}"
     scheme.launch_action.build_configuration = "Debug-#{flavor_name}"
     scheme.profile_action.build_configuration = "Profile-#{flavor_name}"
     scheme.analyze_action.build_configuration = "Debug-#{flavor_name}"

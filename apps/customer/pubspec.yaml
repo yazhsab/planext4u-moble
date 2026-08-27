@@ -20,6 +20,8 @@ dependencies:
   planext4u_experience: ^0.1.0
 
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0

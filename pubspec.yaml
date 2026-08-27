@@ -42,5 +42,6 @@ melos:
         - dart run packages/design_system/tool/generate_tokens.dart --check
         - dart run melos run format
         - dart run tool/validate_flavors.dart
+        - dart run tool/validate_ci.dart
         - dart run melos run analyze
         - dart run melos run test
