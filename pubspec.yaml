@@ -33,6 +33,7 @@ melos:
     verify:
       description: Run the complete local Phase 2 foundation gate.
       steps:
+        - dart run packages/design_system/tool/generate_tokens.dart --check
         - dart run melos run format
         - dart run tool/validate_flavors.dart
         - dart run melos run analyze

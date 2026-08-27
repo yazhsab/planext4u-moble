@@ -1,0 +1,54 @@
+{
+  "colors": {
+    "navy": "011D33",
+    "teal": "009999",
+    "tealDark": "007A7A",
+    "amber": "F89F03",
+    "canvas": "FAFBFC",
+    "surface": "FFFFFF",
+    "softSurface": "F4F7FA",
+    "darkCanvas": "001521",
+    "darkSurface": "0A2A3F",
+    "darkBorder": "23475C",
+    "border": "E5E7EB",
+    "textMuted": "5F6B76",
+    "success": "16A34A",
+    "warning": "F59E0B",
+    "danger": "DC2626",
+    "info": "2563EB"
+  },
+  "spacing": {
+    "x1": 4,
+    "x2": 8,
+    "x3": 12,
+    "x4": 16,
+    "x5": 20,
+    "x6": 24,
+    "x8": 32,
+    "x10": 40,
+    "x12": 48
+  },
+  "radii": {
+    "control": 12,
+    "card": 16,
+    "hero": 20,
+    "sheet": 24,
+    "pill": 999
+  },
+  "motionMilliseconds": {
+    "fast": 200,
+    "standard": 250,
+    "slow": 300
+  },
+  "breakpoints": {
+    "compact": 390,
+    "tablet": 768,
+    "desktop": 1200
+  },
+  "typography": {
+    "displayFamily": "Plus Jakarta Sans",
+    "bodyFamily": "Inter",
+    "identifierFamily": "JetBrains Mono",
+    "tamilFallbackFamily": "Noto Sans Tamil"
+  }
+}

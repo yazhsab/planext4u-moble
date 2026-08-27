@@ -15,39 +15,165 @@ abstract final class Planext4uTheme {
           brightness: brightness,
         ).copyWith(
           primary: Planext4uColors.teal,
+          // Navy on brand teal is 4.91:1; white on brand teal is only 3.49:1.
+          onPrimary: Planext4uColors.navy,
           secondary: Planext4uColors.amber,
+          onSecondary: Planext4uColors.navy,
           error: Planext4uColors.danger,
-          surface: isDark ? Planext4uColors.navy : Planext4uColors.surface,
+          surface: isDark
+              ? Planext4uColors.darkSurface
+              : Planext4uColors.surface,
+          onSurface: isDark ? Colors.white : Planext4uColors.navy,
+          outline: isDark ? Planext4uColors.darkBorder : Planext4uColors.border,
+          surfaceContainerLow: isDark
+              ? Planext4uColors.darkCanvas
+              : Planext4uColors.softSurface,
         );
+    final baseTextTheme = ThemeData(
+      brightness: brightness,
+    ).textTheme.apply(fontFamily: Planext4uTypography.bodyFamily);
+    final textTheme = baseTextTheme.copyWith(
+      displayLarge: baseTextTheme.displayLarge?.copyWith(
+        fontFamily: Planext4uTypography.displayFamily,
+        fontWeight: FontWeight.w800,
+      ),
+      displayMedium: baseTextTheme.displayMedium?.copyWith(
+        fontFamily: Planext4uTypography.displayFamily,
+        fontWeight: FontWeight.w800,
+      ),
+      displaySmall: baseTextTheme.displaySmall?.copyWith(
+        fontFamily: Planext4uTypography.displayFamily,
+        fontWeight: FontWeight.w800,
+      ),
+      headlineLarge: baseTextTheme.headlineLarge?.copyWith(
+        fontFamily: Planext4uTypography.displayFamily,
+        fontWeight: FontWeight.w800,
+      ),
+      headlineMedium: baseTextTheme.headlineMedium?.copyWith(
+        fontFamily: Planext4uTypography.displayFamily,
+        fontWeight: FontWeight.w700,
+      ),
+      headlineSmall: baseTextTheme.headlineSmall?.copyWith(
+        fontFamily: Planext4uTypography.displayFamily,
+        fontWeight: FontWeight.w700,
+      ),
+      titleLarge: baseTextTheme.titleLarge?.copyWith(
+        fontFamily: Planext4uTypography.displayFamily,
+        fontWeight: FontWeight.w700,
+      ),
+      titleMedium: baseTextTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+      ),
+      labelLarge: baseTextTheme.labelLarge?.copyWith(
+        fontWeight: FontWeight.w700,
+      ),
+    );
+    final controlShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(Planext4uRadii.control),
+    );
+
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
+      fontFamily: Planext4uTypography.bodyFamily,
+      fontFamilyFallback: const [Planext4uTypography.tamilFallbackFamily],
+      textTheme: textTheme,
       scaffoldBackgroundColor: isDark
-          ? const Color(0xFF001521)
+          ? Planext4uColors.darkCanvas
           : Planext4uColors.canvas,
-      appBarTheme: const AppBarTheme(
+      focusColor: Planext4uColors.amber,
+      appBarTheme: AppBarTheme(
         backgroundColor: Planext4uColors.navy,
         foregroundColor: Colors.white,
         centerTitle: false,
+        titleTextStyle: textTheme.titleLarge?.copyWith(color: Colors.white),
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: isDark ? const Color(0xFF0A2A3F) : Planext4uColors.surface,
+        color: scheme.surface,
+        margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Planext4uRadii.card),
-          side: BorderSide(
-            color: isDark ? const Color(0xFF23475C) : const Color(0xFFE5E7EB),
+          side: BorderSide(color: scheme.outline),
+        ),
+      ),
+      dividerTheme: DividerThemeData(color: scheme.outline, thickness: 1),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Planext4uSpacing.x5,
+            vertical: Planext4uSpacing.x3,
+          ),
+          shape: controlShape,
+          textStyle: textTheme.labelLarge,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Planext4uSpacing.x5,
+            vertical: Planext4uSpacing.x3,
+          ),
+          shape: controlShape,
+          side: BorderSide(color: scheme.outline),
+          textStyle: textTheme.labelLarge,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          shape: controlShape,
+          textStyle: textTheme.labelLarge,
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: scheme.surface,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: Planext4uSpacing.x4,
+          vertical: Planext4uSpacing.x4,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Planext4uRadii.control),
+          borderSide: BorderSide(color: scheme.outline),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Planext4uRadii.control),
+          borderSide: BorderSide(color: scheme.outline),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Planext4uRadii.control),
+          borderSide: const BorderSide(color: Planext4uColors.teal, width: 2),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: scheme.surfaceContainerLow,
+        selectedColor: Planext4uColors.teal.withValues(alpha: 0.16),
+        side: BorderSide(color: scheme.outline),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Planext4uRadii.pill),
+        ),
+        labelStyle: textTheme.labelMedium,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        showDragHandle: true,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(Planext4uRadii.sheet),
           ),
         ),
       ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(44, 44),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Planext4uRadii.control),
-          ),
+      dialogTheme: DialogThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Planext4uRadii.hero),
         ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: controlShape,
       ),
     );
   }

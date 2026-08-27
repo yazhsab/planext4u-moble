@@ -1,39 +1,50 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# Planext4u design system
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+Canonical design tokens, accessible themes and role-neutral Flutter widgets for
+the customer, vendor and rider applications.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
+## Public API
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
-
-## Features
-
-TODO: List what your package can do. Maybe include images, gifs, or videos.
-
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
-
-## Usage
-
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
+Import the package barrel:
 
 ```dart
-const like = 'sample';
+import 'package:planext4u_design_system/planext4u_design_system.dart';
 ```
 
-## Additional information
+It exposes generated colour, spacing, radius, motion, breakpoint and typography
+tokens; light and dark Material 3 themes; shared buttons, fields, status pills,
+cards and application-state panels; and `Planext4uWidgetCatalogue` for visual
+review. Status never relies on colour alone and interactive controls have a
+minimum 48 x 48 logical-pixel target.
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+## Token workflow
+
+Edit `tokens/design_tokens.json`, then regenerate the Dart authority from the
+workspace root:
+
+```sh
+dart run packages/design_system/tool/generate_tokens.dart
+```
+
+Do not edit `lib/src/generated_tokens.dart` by hand. The root verification gate
+runs the generator with `--check` and fails when generated output is stale.
+
+## Verification
+
+Run all package tests through the workspace so package font assets are loaded:
+
+```sh
+dart run melos run verify
+```
+
+The committed goldens cover phone/tablet, light/dark and text scales 1.0/1.3.
+Only regenerate them after intentional visual review:
+
+```sh
+cd packages/design_system
+flutter test --update-goldens test/planext4u_design_system_golden_test.dart
+flutter test test/planext4u_design_system_golden_test.dart
+```
+
+The catalogue uses synthetic English and long-form Tamil content. Bundled fonts
+are covered by their adjacent Open Font License files.
