@@ -55,12 +55,17 @@ jobs:
           flutter build apk --debug --flavor development \
             --dart-define=APP_ENV=development \
             --dart-define=API_BASE_URL=http://10.0.2.2:8080
+          test -s build/app/outputs/flutter-apk/app-development-debug.apk
+          flutter clean
           flutter build apk --debug --flavor staging \
             --dart-define=APP_ENV=staging \
             --dart-define=API_BASE_URL=https://staging-api.planext4u.net
+          test -s build/app/outputs/flutter-apk/app-staging-debug.apk
+          flutter clean
           flutter build apk --debug --flavor production \
             --dart-define=APP_ENV=production \
             --dart-define=API_BASE_URL=https://api.planext4u.net
+          test -s build/app/outputs/flutter-apk/app-production-debug.apk
 
   ios-builds:
     name: iOS ${{ matrix.app }} all flavors

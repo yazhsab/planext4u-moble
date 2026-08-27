@@ -16,6 +16,8 @@ void main() {
     '--flavor development',
     '--flavor staging',
     '--flavor production',
+    'flutter clean',
+    'app-production-debug.apk',
     'MOB-E2E-001 Android emulator',
     'Enable KVM acceleration',
     'test -r /dev/kvm && test -w /dev/kvm',

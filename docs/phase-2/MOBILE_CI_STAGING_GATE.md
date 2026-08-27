@@ -5,6 +5,8 @@ Flutter 3.41.4. The required `quality` job runs generated-contract and token
 drift checks, formatting, flavor validation, static analysis, unit tests,
 widget tests and golden tests. Separate matrix jobs compile customer, vendor
 and rider for development, staging and production on Android and iOS.
+Android flavor builds verify each APK and clean only generated build output
+between flavors so three native debug builds cannot exhaust hosted-runner disk.
 
 `MOB-E2E-001` runs on a KVM-accelerated Android emulator with deterministic
 synthetic data. The workflow explicitly enables and verifies `/dev/kvm` before
