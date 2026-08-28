@@ -18,6 +18,8 @@ void main() {
     '--flavor production',
     'flutter clean',
     'app-production-debug.apk',
+    'runs-on: macos-26',
+    'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
     'MOB-E2E-001/002/003 Android emulator',
     'Enable KVM acceleration',
     'test -r /dev/kvm && test -w /dev/kvm',
