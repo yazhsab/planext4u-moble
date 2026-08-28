@@ -7,6 +7,8 @@ import 'commerce.dart';
 import 'localization.dart';
 import 'marketplace.dart';
 import 'marketplace_screen.dart';
+import 'service_booking.dart';
+import 'service_booking_screens.dart';
 import 'transaction_screens.dart';
 import 'transactions.dart';
 
@@ -70,6 +72,7 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.marketplaceController,
     this.cartController,
     this.transactionController,
+    this.serviceBookingController,
     this.paymentLauncher = const UnavailablePaymentProviderLauncher(),
     this.onItemSelected,
     this.profileDisplayName,
@@ -84,6 +87,7 @@ final class CustomerHomeScreen extends StatefulWidget {
   final MarketplaceController? marketplaceController;
   final CartController? cartController;
   final TransactionController? transactionController;
+  final ServiceBookingController? serviceBookingController;
   final PaymentProviderLauncher paymentLauncher;
   final ValueChanged<CatalogItem>? onItemSelected;
   final String? profileDisplayName;
@@ -281,6 +285,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       ),
                     ),
             ),
+            if (widget.serviceBookingController != null)
+              ListTile(
+                leading: const Icon(Icons.home_repair_service_outlined),
+                title: const Text('Local service bookings'),
+                subtitle: const Text(
+                  'Appointments, start code and completion evidence',
+                ),
+                onTap: _openServices,
+              ),
             ListTile(
               leading: const Icon(Icons.help_outline),
               title: const Text('Help and support'),
@@ -422,16 +435,35 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   height: 48,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: home.categories.length,
+                    itemCount:
+                        home.categories.length +
+                        (widget.serviceBookingController == null ? 0 : 1),
                     separatorBuilder: (_, _) =>
                         const SizedBox(width: Planext4uSpacing.x2),
-                    itemBuilder: (context, index) => ActionChip(
-                      avatar: const Icon(Icons.category_outlined, size: 18),
-                      label: Text(home.categories[index].name),
-                      onPressed: () => setState(
-                        () => _destination = CustomerDestination.explore,
-                      ),
-                    ),
+                    itemBuilder: (context, index) {
+                      if (widget.serviceBookingController != null &&
+                          index == 0) {
+                        return ActionChip(
+                          key: const ValueKey('local-services'),
+                          avatar: const Icon(
+                            Icons.home_repair_service_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Local services'),
+                          onPressed: _openServices,
+                        );
+                      }
+                      final categoryIndex =
+                          index -
+                          (widget.serviceBookingController == null ? 0 : 1);
+                      return ActionChip(
+                        avatar: const Icon(Icons.category_outlined, size: 18),
+                        label: Text(home.categories[categoryIndex].name),
+                        onPressed: () => setState(
+                          () => _destination = CustomerDestination.explore,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -635,6 +667,40 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     ),
                   ),
                 ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openServices() async {
+    final bookings = widget.serviceBookingController;
+    final transactions = widget.transactionController;
+    if (bookings == null || transactions == null) return;
+    if (transactions.state.addresses.isEmpty) {
+      await transactions.loadCheckout();
+    }
+    if (!mounted) return;
+    final addresses = transactions.state.addresses
+        .where((value) => value.serviceable)
+        .toList(growable: false);
+    if (addresses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add a serviceable address before booking a service.'),
+        ),
+      );
+      return;
+    }
+    final address = addresses.firstWhere(
+      (value) => value.isDefault,
+      orElse: () => addresses.first,
+    );
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ServiceBookingScreen(
+          controller: bookings,
+          postalCode: address.postalCode,
+          paymentLauncher: widget.paymentLauncher,
         ),
       ),
     );

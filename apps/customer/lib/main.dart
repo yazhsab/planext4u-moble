@@ -68,6 +68,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   MarketplaceController? _marketplace;
   CartController? _cart;
   TransactionController? _transactions;
+  ServiceBookingController? _serviceBookings;
   BootstrapController? _bootstrap;
   ConsentController? _consent;
   LocationController? _location;
@@ -127,6 +128,9 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _transactions = TransactionController(
       remote: TransactionApi(client),
       recoveryStore: _EncryptedPaymentRecoveryStore(),
+    );
+    _serviceBookings = ServiceBookingController(
+      remote: ServiceBookingApi(client),
     );
     final messaging = widget.firebaseMessaging;
     if (messaging != null && _pushRegistration == null) {
@@ -223,6 +227,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _marketplace?.dispose();
     _cart?.dispose();
     _transactions?.dispose();
+    _serviceBookings?.dispose();
     _bootstrap?.dispose();
     _consent?.dispose();
     _location?.dispose();
@@ -230,6 +235,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _marketplace = null;
     _cart = null;
     _transactions = null;
+    _serviceBookings = null;
     _bootstrap = null;
     _consent = null;
     _location = null;
@@ -249,6 +255,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         marketplaceController: _marketplace,
         cartController: _cart,
         transactionController: _transactions,
+        serviceBookingController: _serviceBookings,
         bootstrapController: _bootstrap,
         consentController: _consent,
         locationController: _location,
@@ -580,6 +587,7 @@ class CustomerApp extends StatefulWidget {
     this.marketplaceController,
     this.cartController,
     this.transactionController,
+    this.serviceBookingController,
     this.paymentRecoveryStore,
     this.bootstrapController,
     this.consentController,
@@ -597,6 +605,7 @@ class CustomerApp extends StatefulWidget {
   final MarketplaceController? marketplaceController;
   final CartController? cartController;
   final TransactionController? transactionController;
+  final ServiceBookingController? serviceBookingController;
   final PaymentRecoveryStore? paymentRecoveryStore;
   final BootstrapController? bootstrapController;
   final ConsentController? consentController;
@@ -638,6 +647,13 @@ class _CustomerAppState extends State<CustomerApp> {
         recoveryStore:
             widget.paymentRecoveryStore ?? _EncryptedPaymentRecoveryStore(),
       );
+  late final bool _ownsServiceBookings =
+      widget.serviceBookingController == null;
+  late final ServiceBookingController _serviceBookings =
+      widget.serviceBookingController ??
+      ServiceBookingController(
+        remote: _AuthenticatedServiceBookingRequiredRemote(),
+      );
 
   @override
   void dispose() {
@@ -645,6 +661,7 @@ class _CustomerAppState extends State<CustomerApp> {
     if (_ownsMarketplace) _marketplace.dispose();
     if (_ownsCart) _cart.dispose();
     if (_ownsTransactions) _transactions.dispose();
+    if (_ownsServiceBookings) _serviceBookings.dispose();
     super.dispose();
   }
 
@@ -688,6 +705,7 @@ class _CustomerAppState extends State<CustomerApp> {
               marketplaceController: _marketplace,
               cartController: _cart,
               transactionController: _transactions,
+              serviceBookingController: _serviceBookings,
               paymentLauncher: _paymentLauncher,
               profileDisplayName: widget.profileDisplayName,
               onSignOut: widget.onSignOut,
@@ -965,6 +983,91 @@ class _ManualLocationSheetState extends State<_ManualLocationSheet> {
       ),
     ),
   );
+}
+
+final class _AuthenticatedServiceBookingRequiredRemote
+    implements ServiceBookingRemote {
+  Never _required() => throw const ApiAuthenticationFailure(
+    code: 'AUTHENTICATION_REQUIRED',
+    message: 'Sign in to continue.',
+    correlationId: 'local-auth-boundary',
+  );
+
+  @override
+  Future<List<ServiceOffering>> offerings({
+    required String postalCode,
+    String? categoryId,
+  }) async => _required();
+  @override
+  Future<ServiceOffering> offering(
+    String id, {
+    required String postalCode,
+  }) async => _required();
+  @override
+  Future<List<ServiceSlot>> slots(
+    String offeringId, {
+    DateTime? from,
+    DateTime? to,
+  }) async => _required();
+  @override
+  Future<ServiceSlotHold> hold({
+    required String slotId,
+    required String postalCode,
+  }) async => _required();
+  @override
+  Future<void> releaseHold(String id) async => _required();
+  @override
+  Future<List<ServiceBooking>> bookings() async => _required();
+  @override
+  Future<ServiceBooking> booking(String id) async => _required();
+  @override
+  Future<ServiceBooking> create({
+    required String holdId,
+    required ServicePaymentMethod paymentMethod,
+  }) async => _required();
+  @override
+  Future<ServiceBooking> confirmPayment(ServiceBooking booking) async =>
+      _required();
+  @override
+  Future<ServiceBooking> reschedule({
+    required ServiceBooking booking,
+    required String holdId,
+    required String reason,
+  }) async => _required();
+  @override
+  Future<ServiceBooking> cancel({
+    required ServiceBooking booking,
+    required String reason,
+  }) async => _required();
+  @override
+  Future<ServiceBooking> providerTransition({
+    required ServiceBooking booking,
+    required String status,
+    String reason = '',
+  }) async => _required();
+  @override
+  Future<ServiceBooking> start({
+    required ServiceBooking booking,
+    required String otp,
+  }) async => _required();
+  @override
+  Future<ServiceBooking> complete({
+    required ServiceBooking booking,
+    required String photoAssetId,
+  }) async => _required();
+  @override
+  Future<ServiceBooking> confirmCompletion(ServiceBooking booking) async =>
+      _required();
+  @override
+  Future<ServiceBooking> noShow({
+    required ServiceBooking booking,
+    required String reason,
+  }) async => _required();
+  @override
+  Future<ServiceBooking> dispute({
+    required ServiceBooking booking,
+    required String reason,
+  }) async => _required();
 }
 
 final class _AuthenticatedSessionRequiredRemote

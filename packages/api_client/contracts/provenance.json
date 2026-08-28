@@ -1,6 +1,6 @@
 {
   "source_repository": "https://github.com/yazhsab/planext4u-backend",
-  "source_commit": "e78941b",
+  "source_commit": "bf0b8b1cf01e559dccca030e237459e882dc0331",
   "contract_path": "api/openapi/common.openapi.json",
   "contract_sha256": "332ef63e39ef8f7e4dc13a25709b697f288fbb66061f29f73ecf0ee7a8db4b0f",
   "fixture_path": "api/fixtures/problem.json",
@@ -22,5 +22,9 @@
   "order_fixture_path": "api/fixtures/order.json",
   "order_fixture_sha256": "b421ce8c3a5b0824b9961baf6ed5a82135d84eb514cf743a0c0bf892e7cd1d95",
   "wallet_fixture_path": "api/fixtures/wallet.json",
-  "wallet_fixture_sha256": "e064db19df7949601ec1f4888d7d51a3c1d1ec73b2bc655f5645e8cf100807db"
+  "wallet_fixture_sha256": "e064db19df7949601ec1f4888d7d51a3c1d1ec73b2bc655f5645e8cf100807db",
+  "booking_contract_path": "api/openapi/booking.openapi.json",
+  "booking_contract_sha256": "e4e2d7c8e61027adfa0e73320a767a20409e16a9a8d65ea923ddd1e36f01218c",
+  "service_booking_fixture_path": "api/fixtures/service_booking.json",
+  "service_booking_fixture_sha256": "99a2a3d8d8e08e3ced6e3d8d2721db78da58aac58a7a324c6241db8f69f08c77"
 }

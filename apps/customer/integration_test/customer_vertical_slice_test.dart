@@ -105,6 +105,71 @@ void main() {
     expect(find.text('24000'), findsOneWidget);
     expect(find.text('WELCOME REWARD'), findsOneWidget);
   });
+
+  testWidgets(
+    'MOB-E2E-004 service slot lock payment reschedule start and evidence',
+    (tester) async {
+      final remote = _Phase4ServiceRemote();
+      final controller = ServiceBookingController(remote: remote);
+      await controller.loadOfferings(postalCode: '600001');
+      await controller.selectOffering(remote.offeringValue);
+      expect(await controller.hold(remote.slotsValue.first), isNotNull);
+      var booking = await controller.create(ServicePaymentMethod.wallet);
+      expect(booking?.payment.status, 'CAPTURED');
+      booking = await controller.reschedule(
+        booking!,
+        remote.slotsValue.last,
+        'Customer schedule changed',
+      );
+      booking = await controller.providerTransition(booking!, 'ACCEPTED');
+      booking = await controller.providerTransition(booking!, 'ARRIVED');
+      booking = await controller.providerTransition(
+        booking!,
+        'START_OTP_REQUIRED',
+      );
+      expect(booking?.startOtp, '482613');
+      booking = await controller.start(booking!, booking.startOtp!);
+      booking = await controller.providerTransition(
+        booking!,
+        'COMPLETION_EVIDENCE_REQUIRED',
+      );
+      booking = await controller.complete(booking!, 'asset-evidence-004');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ServiceBookingDetailScreen(
+            controller: controller,
+            initialBooking: booking!,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Completion evidence received'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('confirm-service-completion')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('confirm-service-completion')),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.state.booking?.status, 'COMPLETED');
+      expect(remote.evidence, [
+        'slot_lock',
+        'payment',
+        'slot_lock',
+        'reschedule',
+        'ACCEPTED',
+        'ARRIVED',
+        'START_OTP_REQUIRED',
+        'start',
+        'COMPLETION_EVIDENCE_REQUIRED',
+        'completion_evidence',
+        'confirm_completion',
+      ]);
+    },
+  );
 }
 
 enum _JourneyStage { consent, login, location, home }
@@ -475,4 +540,261 @@ final class _Phase3TransactionRemote implements TransactionRemote {
     required int score,
     required String comment,
   }) async => order;
+}
+
+final class _Phase4ServiceRemote implements ServiceBookingRemote {
+  final evidence = <String>[];
+  int _revision = 1;
+
+  late final offeringValue = const ServiceOffering(
+    id: 'service-home-cleaning',
+    providerId: 'provider-synthetic-001',
+    providerName: 'Synthetic Home Services',
+    categoryId: 'home-cleaning',
+    name: 'Home deep cleaning',
+    summary: 'Verified synthetic cleaning service',
+    durationMinutes: 120,
+    price: CatalogMoney(amountMinor: 20000, currency: 'INR'),
+    advance: CatalogMoney(amountMinor: 5000, currency: 'INR'),
+    paymentMode: 'ADVANCE',
+    verifiedProvider: true,
+    ratingAverage: 4.8,
+    completedBookings: 241,
+    liveEngagements: 3,
+    servicePostalCodes: ['600001'],
+    cancellationPolicyRef: 'service-cancel-v1',
+    reschedulePolicyRef: 'service-reschedule-v1',
+    active: true,
+  );
+  late final slotsValue = [
+    _slot('slot-synthetic-001', DateTime.utc(2026, 8, 29, 10), 1),
+    _slot('slot-synthetic-002', DateTime.utc(2026, 8, 30, 10), 2),
+  ];
+  late ServiceBooking _booking = _newBooking(
+    status: 'REQUESTED',
+    slot: slotsValue.first,
+    actions: const {'RESCHEDULE', 'CANCEL'},
+  );
+
+  ServiceSlot _slot(String id, DateTime startsAt, int version) => ServiceSlot(
+    id: id,
+    offeringId: offeringValue.id,
+    providerId: offeringValue.providerId,
+    startsAt: startsAt,
+    endsAt: startsAt.add(const Duration(hours: 2)),
+    timeZone: 'Asia/Kolkata',
+    capacity: 2,
+    remaining: 1,
+    bufferMinutes: 30,
+    price: offeringValue.price,
+    advance: offeringValue.advance,
+    allowedActions: const {'HOLD'},
+    policyVersion: 'service-slot-v1',
+    serviceDate: startsAt.toIso8601String().substring(0, 10),
+    providerVersion: version,
+  );
+
+  ServiceBooking _newBooking({
+    required String status,
+    required ServiceSlot slot,
+    required Set<String> actions,
+    int rescheduleCount = 0,
+    String? startOtp,
+    ServiceCompletionEvidence? completionEvidence,
+    List<ServiceBookingTimelineEvent> timeline = const [],
+  }) {
+    final now = DateTime.utc(2026, 8, 28, 10);
+    return ServiceBooking(
+      id: 'service-booking-synthetic-004',
+      revision: _revision,
+      status: status,
+      offering: offeringValue,
+      slot: slot,
+      price: offeringValue.price,
+      amountDue: offeringValue.advance,
+      payment: CustomerPayment(
+        id: 'payment-service-synthetic-004',
+        orderReference: 'service-booking-synthetic-004',
+        method: CustomerPaymentMethod.wallet,
+        status: 'CAPTURED',
+        amount: offeringValue.advance,
+        allowedActions: const {'VIEW_RECEIPT'},
+        updatedAt: now,
+      ),
+      startOtp: startOtp,
+      completionEvidence: completionEvidence,
+      rescheduleCount: rescheduleCount,
+      freeReschedulesLeft: 1 - rescheduleCount,
+      allowedActions: actions,
+      timeline: timeline.isEmpty
+          ? [
+              ServiceBookingTimelineEvent(
+                status: status,
+                actor: 'CUSTOMER',
+                createdAt: now,
+              ),
+            ]
+          : timeline,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  ServiceBooking _transition(
+    String status, {
+    Set<String> actions = const {},
+    ServiceSlot? slot,
+    int? rescheduleCount,
+    String? startOtp,
+    ServiceCompletionEvidence? completionEvidence,
+  }) {
+    _revision++;
+    _booking = _newBooking(
+      status: status,
+      slot: slot ?? _booking.slot,
+      actions: actions,
+      rescheduleCount: rescheduleCount ?? _booking.rescheduleCount,
+      startOtp: startOtp ?? _booking.startOtp,
+      completionEvidence: completionEvidence ?? _booking.completionEvidence,
+      timeline: [
+        ..._booking.timeline,
+        ServiceBookingTimelineEvent(
+          status: status,
+          actor: status == 'COMPLETED' ? 'CUSTOMER' : 'PROVIDER',
+          createdAt: DateTime.utc(2026, 8, 28, 11),
+        ),
+      ],
+    );
+    return _booking;
+  }
+
+  @override
+  Future<List<ServiceOffering>> offerings({
+    required String postalCode,
+    String? categoryId,
+  }) async => [offeringValue];
+  @override
+  Future<ServiceOffering> offering(
+    String id, {
+    required String postalCode,
+  }) async => offeringValue;
+  @override
+  Future<List<ServiceSlot>> slots(
+    String offeringId, {
+    DateTime? from,
+    DateTime? to,
+  }) async => slotsValue;
+  @override
+  Future<ServiceSlotHold> hold({
+    required String slotId,
+    required String postalCode,
+  }) async {
+    evidence.add('slot_lock');
+    return ServiceSlotHold(
+      id: 'hold-$slotId',
+      slotId: slotId,
+      offeringId: offeringValue.id,
+      status: 'HELD',
+      expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+      createdAt: DateTime.now().toUtc(),
+      allowedActions: const {'RELEASE', 'CREATE_BOOKING'},
+    );
+  }
+
+  @override
+  Future<void> releaseHold(String id) async {}
+  @override
+  Future<List<ServiceBooking>> bookings() async => [_booking];
+  @override
+  Future<ServiceBooking> booking(String id) async => _booking;
+  @override
+  Future<ServiceBooking> create({
+    required String holdId,
+    required ServicePaymentMethod paymentMethod,
+  }) async {
+    evidence.add('payment');
+    return _booking;
+  }
+
+  @override
+  Future<ServiceBooking> confirmPayment(ServiceBooking booking) async =>
+      _booking;
+  @override
+  Future<ServiceBooking> reschedule({
+    required ServiceBooking booking,
+    required String holdId,
+    required String reason,
+  }) async {
+    evidence.add('reschedule');
+    return _transition(
+      'REQUESTED',
+      actions: const {'CANCEL'},
+      slot: slotsValue.last,
+      rescheduleCount: 1,
+    );
+  }
+
+  @override
+  Future<ServiceBooking> cancel({
+    required ServiceBooking booking,
+    required String reason,
+  }) async => _transition('CANCELLED');
+  @override
+  Future<ServiceBooking> providerTransition({
+    required ServiceBooking booking,
+    required String status,
+    String reason = '',
+  }) async {
+    evidence.add(status);
+    return _transition(
+      status,
+      actions: status == 'COMPLETED_PENDING_CONFIRMATION'
+          ? const {'CONFIRM_COMPLETION', 'DISPUTE'}
+          : const {},
+      startOtp: status == 'START_OTP_REQUIRED' ? '482613' : booking.startOtp,
+    );
+  }
+
+  @override
+  Future<ServiceBooking> start({
+    required ServiceBooking booking,
+    required String otp,
+  }) async {
+    evidence.add('start');
+    return _transition('IN_PROGRESS');
+  }
+
+  @override
+  Future<ServiceBooking> complete({
+    required ServiceBooking booking,
+    required String photoAssetId,
+  }) async {
+    evidence.add('completion_evidence');
+    return _transition(
+      'COMPLETED_PENDING_CONFIRMATION',
+      actions: const {'CONFIRM_COMPLETION', 'DISPUTE'},
+      completionEvidence: ServiceCompletionEvidence(
+        photoAssetId: photoAssetId,
+        capturedAt: DateTime.utc(2026, 8, 28, 11),
+        submittedBy: offeringValue.providerId,
+      ),
+    );
+  }
+
+  @override
+  Future<ServiceBooking> confirmCompletion(ServiceBooking booking) async {
+    evidence.add('confirm_completion');
+    return _transition('COMPLETED');
+  }
+
+  @override
+  Future<ServiceBooking> noShow({
+    required ServiceBooking booking,
+    required String reason,
+  }) async => _transition('CUSTOMER_NO_SHOW');
+  @override
+  Future<ServiceBooking> dispute({
+    required ServiceBooking booking,
+    required String reason,
+  }) async => _transition('DISPUTED');
 }

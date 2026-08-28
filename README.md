@@ -15,13 +15,17 @@ The administrator console is planned as a separately deployable web workspace un
 
 ## Current status
 
-Phase 1 product archaeology and Phase 2 platform engineering are complete.
-The complete Phase 3 customer-commerce source backlog now covers FTUX and
+Phase 1 product archaeology, Phase 2 platform engineering and Phase 3 customer
+commerce are complete. Phase 4 implementation has started with the customer
+service-booking entry slice. The Phase 3 customer-commerce source covers FTUX and
 location, discovery, PDP/reviews/Q&A, server-authoritative cart and checkout,
 native Razorpay/Paystack/COD handoff and recovery, orders/returns/ratings,
 wallet/referrals/refills/rewards, and FCM device registration/deep links against
-backend commit `e78941b`. Cloud staging and live provider credentials remain
-controlled deployment gates, not client-side configuration.
+backend commit `e78941b`. Service discovery, live slot holds, booking payment,
+rescheduling, cancellation, start OTP, completion evidence, disputes and booking
+activity are pinned to backend commit
+`bf0b8b1cf01e559dccca030e237459e882dc0331`. Cloud staging and live provider
+credentials remain controlled deployment gates, not client-side configuration.
 
 The workspace contains the three role-specific Flutter applications and shared
 configuration, core, identity, secure storage, experience, API, observability
@@ -69,6 +73,8 @@ development, staging and production identifiers, links and build commands.
 - [Phase 2 executable backlog](docs/phase-1/PHASE_2_BACKLOG.md)
 - [Phase 1 exit review](docs/phase-1/PHASE_1_EXIT_REVIEW.md)
 - [Phase 3 exit review](docs/phase-3/PHASE_3_EXIT_REVIEW.md)
+- [Phase 4 executable backlog](docs/phase-4/PHASE_4_BACKLOG.md)
+- [Phase 4 service-booking entry slice](docs/phase-4/SERVICE_BOOKING_ENTRY_SLICE.md)
 - [Decision log](docs/phase-1/DECISION_LOG.md)
 - [Feature catalogue](docs/FEATURE_CATALOGUE.md)
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)

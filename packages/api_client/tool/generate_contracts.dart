@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = 'e78941b';
+const _sourceCommit = 'bf0b8b1cf01e559dccca030e237459e882dc0331';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
@@ -16,6 +16,8 @@ const _checkoutQuoteFixturePath = 'api/fixtures/checkout_quote.json';
 const _paymentFixturePath = 'api/fixtures/payment.json';
 const _orderFixturePath = 'api/fixtures/order.json';
 const _walletFixturePath = 'api/fixtures/wallet.json';
+const _bookingContractPath = 'api/openapi/booking.openapi.json';
+const _serviceBookingFixturePath = 'api/fixtures/service_booking.json';
 
 void main(List<String> arguments) {
   final check = arguments.contains('--check');
@@ -33,6 +35,11 @@ void main(List<String> arguments) {
   final paymentFrom = _argumentValue(arguments, '--payment-from=');
   final orderFrom = _argumentValue(arguments, '--order-from=');
   final walletFrom = _argumentValue(arguments, '--wallet-from=');
+  final bookingFrom = _argumentValue(arguments, '--booking-from=');
+  final serviceBookingFrom = _argumentValue(
+    arguments,
+    '--service-booking-from=',
+  );
   final syncArguments = [
     syncFrom,
     fixtureFrom,
@@ -45,6 +52,8 @@ void main(List<String> arguments) {
     paymentFrom,
     orderFrom,
     walletFrom,
+    bookingFrom,
+    serviceBookingFrom,
   ];
   final syncing = syncArguments.any((value) => value != null);
   if (check && syncing) {
@@ -53,7 +62,9 @@ void main(List<String> arguments) {
     return;
   }
   if (syncing && syncArguments.any((value) => value == null)) {
-    stderr.writeln('All common, catalog and commerce sync paths are required.');
+    stderr.writeln(
+      'All common, marketplace, transaction, notification and booking sync paths are required.',
+    );
     exitCode = 64;
     return;
   }
@@ -89,6 +100,12 @@ void main(List<String> arguments) {
   );
   final orderFile = File('${packageRoot.path}/contracts/order.fixture.json');
   final walletFile = File('${packageRoot.path}/contracts/wallet.fixture.json');
+  final bookingFile = File(
+    '${packageRoot.path}/contracts/booking.openapi.json',
+  );
+  final serviceBookingFile = File(
+    '${packageRoot.path}/contracts/service_booking.fixture.json',
+  );
 
   if (syncing) {
     contractFile.parent.createSync(recursive: true);
@@ -109,6 +126,10 @@ void main(List<String> arguments) {
     paymentFile.writeAsBytesSync(File(paymentFrom!).readAsBytesSync());
     orderFile.writeAsBytesSync(File(orderFrom!).readAsBytesSync());
     walletFile.writeAsBytesSync(File(walletFrom!).readAsBytesSync());
+    bookingFile.writeAsBytesSync(File(bookingFrom!).readAsBytesSync());
+    serviceBookingFile.writeAsBytesSync(
+      File(serviceBookingFrom!).readAsBytesSync(),
+    );
   }
   if (!contractFile.existsSync() ||
       !fixtureFile.existsSync() ||
@@ -120,7 +141,9 @@ void main(List<String> arguments) {
       !checkoutQuoteFile.existsSync() ||
       !paymentFile.existsSync() ||
       !orderFile.existsSync() ||
-      !walletFile.existsSync()) {
+      !walletFile.existsSync() ||
+      !bookingFile.existsSync() ||
+      !serviceBookingFile.existsSync()) {
     stderr.writeln('Contract snapshots are missing. Run with sync arguments.');
     exitCode = 1;
     return;
@@ -137,6 +160,8 @@ void main(List<String> arguments) {
   final paymentBytes = paymentFile.readAsBytesSync();
   final orderBytes = orderFile.readAsBytesSync();
   final walletBytes = walletFile.readAsBytesSync();
+  final bookingBytes = bookingFile.readAsBytesSync();
+  final serviceBookingBytes = serviceBookingFile.readAsBytesSync();
   final contract = _decodeObject(contractBytes, 'common OpenAPI contract');
   final fixture = _decodeObject(fixtureBytes, 'problem fixture');
   final catalog = _decodeObject(catalogBytes, 'catalog OpenAPI contract');
@@ -160,6 +185,11 @@ void main(List<String> arguments) {
   final payment = _decodeObject(paymentBytes, 'payment fixture');
   final order = _decodeObject(orderBytes, 'order fixture');
   final wallet = _decodeObject(walletBytes, 'wallet fixture');
+  final booking = _decodeObject(bookingBytes, 'booking OpenAPI contract');
+  final serviceBooking = _decodeObject(
+    serviceBookingBytes,
+    'service booking fixture',
+  );
   _validateContract(contract);
   _validateFixture(fixture);
   _validateMarketplaceContracts(catalog, commerce, commerceFixture);
@@ -171,6 +201,7 @@ void main(List<String> arguments) {
     wallet,
   );
   _validateNotificationContract(notification);
+  _validateBookingContract(booking, serviceBooking);
 
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
@@ -183,6 +214,8 @@ void main(List<String> arguments) {
   final paymentHash = sha256.convert(paymentBytes).toString();
   final orderHash = sha256.convert(orderBytes).toString();
   final walletHash = sha256.convert(walletBytes).toString();
+  final bookingHash = sha256.convert(bookingBytes).toString();
+  final serviceBookingHash = sha256.convert(serviceBookingBytes).toString();
   final provenance = <String, Object>{
     'source_repository': _sourceRepository,
     'source_commit': _sourceCommit,
@@ -208,6 +241,10 @@ void main(List<String> arguments) {
     'order_fixture_sha256': orderHash,
     'wallet_fixture_path': _walletFixturePath,
     'wallet_fixture_sha256': walletHash,
+    'booking_contract_path': _bookingContractPath,
+    'booking_contract_sha256': bookingHash,
+    'service_booking_fixture_path': _serviceBookingFixturePath,
+    'service_booking_fixture_sha256': serviceBookingHash,
   };
   final expectedProvenance =
       '${const JsonEncoder.withIndent('  ').convert(provenance)}\n';
@@ -295,6 +332,62 @@ void _validateNotificationContract(Map<String, Object?> contract) {
       paths == null ||
       !paths.containsKey('/v1/notifications/devices/current')) {
     throw const FormatException('Notification contract is incomplete.');
+  }
+}
+
+void _validateBookingContract(
+  Map<String, Object?> contract,
+  Map<String, Object?> fixture,
+) {
+  final paths = contract['paths'] as Map<String, Object?>?;
+  const requiredPaths = {
+    '/v1/services',
+    '/v1/services/{service_id}',
+    '/v1/services/{service_id}/slots',
+    '/v1/service-slot-holds',
+    '/v1/service-slot-holds/{hold_id}',
+    '/v1/service-bookings',
+    '/v1/service-bookings/{booking_id}',
+    '/v1/service-bookings/{booking_id}/payment-confirmation',
+    '/v1/service-bookings/{booking_id}/reschedule',
+    '/v1/service-bookings/{booking_id}/cancel',
+    '/v1/service-bookings/{booking_id}/provider-status',
+    '/v1/service-bookings/{booking_id}/start',
+    '/v1/service-bookings/{booking_id}/completion',
+    '/v1/service-bookings/{booking_id}/confirm-completion',
+    '/v1/service-bookings/{booking_id}/no-show',
+    '/v1/service-bookings/{booking_id}/disputes',
+  };
+  final components = contract['components'] as Map<String, Object?>?;
+  final schemas = components?['schemas'] as Map<String, Object?>?;
+  final serviceBooking = schemas?['ServiceBooking'];
+  final properties = serviceBooking is Map<String, Object?>
+      ? serviceBooking['properties'] as Map<String, Object?>?
+      : null;
+  final startOtp = properties?['start_otp'];
+  if (contract['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.keys.toSet().containsAll(requiredPaths) ||
+      startOtp is! Map<String, Object?> ||
+      startOtp['x-planext4u-sensitive'] != true) {
+    throw const FormatException(
+      'Booking contract is missing lifecycle operations or OTP protection.',
+    );
+  }
+  final offering = fixture['offering'];
+  final slot = fixture['slot'];
+  final payment = fixture['payment'];
+  if (fixture['revision'] is! int ||
+      fixture['status'] is! String ||
+      fixture['allowed_actions'] is! List ||
+      fixture['timeline'] is! List ||
+      offering is! Map ||
+      slot is! Map ||
+      payment is! Map ||
+      offering['verified_provider'] is! bool ||
+      slot['remaining'] is! int ||
+      payment['status'] is! String) {
+    throw const FormatException('Service booking fixture is incomplete.');
   }
 }
 
