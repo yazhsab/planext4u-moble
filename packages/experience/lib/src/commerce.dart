@@ -9,6 +9,7 @@ final class CartLine {
   const CartLine({
     required this.variantId,
     required this.itemId,
+    required this.vendorId,
     required this.itemName,
     required this.variantName,
     required this.quantity,
@@ -28,6 +29,7 @@ final class CartLine {
     return CartLine(
       variantId: _commerceString(json, 'variant_id'),
       itemId: _commerceString(json, 'item_id'),
+      vendorId: _commerceString(json, 'vendor_id'),
       itemName: _commerceString(json, 'item_name'),
       variantName: _commerceString(json, 'variant_name'),
       mediaRef: json['media_ref'] as String?,
@@ -41,6 +43,7 @@ final class CartLine {
 
   final String variantId;
   final String itemId;
+  final String vendorId;
   final String itemName;
   final String variantName;
   final String? mediaRef;

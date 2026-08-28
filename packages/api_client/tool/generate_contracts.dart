@@ -4,12 +4,17 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = '5bb8125';
+const _sourceCommit = 'ab3304e';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
 const _commerceContractPath = 'api/openapi/commerce.openapi.json';
 const _commerceFixturePath = 'api/fixtures/commerce_cart.json';
+const _transactionContractPath = 'api/openapi/transaction.openapi.json';
+const _checkoutQuoteFixturePath = 'api/fixtures/checkout_quote.json';
+const _paymentFixturePath = 'api/fixtures/payment.json';
+const _orderFixturePath = 'api/fixtures/order.json';
+const _walletFixturePath = 'api/fixtures/wallet.json';
 
 void main(List<String> arguments) {
   final check = arguments.contains('--check');
@@ -21,12 +26,22 @@ void main(List<String> arguments) {
     arguments,
     '--commerce-fixture-from=',
   );
+  final transactionFrom = _argumentValue(arguments, '--transaction-from=');
+  final checkoutQuoteFrom = _argumentValue(arguments, '--checkout-quote-from=');
+  final paymentFrom = _argumentValue(arguments, '--payment-from=');
+  final orderFrom = _argumentValue(arguments, '--order-from=');
+  final walletFrom = _argumentValue(arguments, '--wallet-from=');
   final syncArguments = [
     syncFrom,
     fixtureFrom,
     catalogFrom,
     commerceFrom,
     commerceFixtureFrom,
+    transactionFrom,
+    checkoutQuoteFrom,
+    paymentFrom,
+    orderFrom,
+    walletFrom,
   ];
   final syncing = syncArguments.any((value) => value != null);
   if (check && syncing) {
@@ -57,6 +72,17 @@ void main(List<String> arguments) {
     '${packageRoot.path}/contracts/commerce_cart.fixture.json',
   );
   final provenanceFile = File('${packageRoot.path}/contracts/provenance.json');
+  final transactionFile = File(
+    '${packageRoot.path}/contracts/transaction.openapi.json',
+  );
+  final checkoutQuoteFile = File(
+    '${packageRoot.path}/contracts/checkout_quote.fixture.json',
+  );
+  final paymentFile = File(
+    '${packageRoot.path}/contracts/payment.fixture.json',
+  );
+  final orderFile = File('${packageRoot.path}/contracts/order.fixture.json');
+  final walletFile = File('${packageRoot.path}/contracts/wallet.fixture.json');
 
   if (syncing) {
     contractFile.parent.createSync(recursive: true);
@@ -67,12 +93,24 @@ void main(List<String> arguments) {
     commerceFixtureFile.writeAsBytesSync(
       File(commerceFixtureFrom!).readAsBytesSync(),
     );
+    transactionFile.writeAsBytesSync(File(transactionFrom!).readAsBytesSync());
+    checkoutQuoteFile.writeAsBytesSync(
+      File(checkoutQuoteFrom!).readAsBytesSync(),
+    );
+    paymentFile.writeAsBytesSync(File(paymentFrom!).readAsBytesSync());
+    orderFile.writeAsBytesSync(File(orderFrom!).readAsBytesSync());
+    walletFile.writeAsBytesSync(File(walletFrom!).readAsBytesSync());
   }
   if (!contractFile.existsSync() ||
       !fixtureFile.existsSync() ||
       !catalogFile.existsSync() ||
       !commerceFile.existsSync() ||
-      !commerceFixtureFile.existsSync()) {
+      !commerceFixtureFile.existsSync() ||
+      !transactionFile.existsSync() ||
+      !checkoutQuoteFile.existsSync() ||
+      !paymentFile.existsSync() ||
+      !orderFile.existsSync() ||
+      !walletFile.existsSync()) {
     stderr.writeln('Contract snapshots are missing. Run with sync arguments.');
     exitCode = 1;
     return;
@@ -83,6 +121,11 @@ void main(List<String> arguments) {
   final catalogBytes = catalogFile.readAsBytesSync();
   final commerceBytes = commerceFile.readAsBytesSync();
   final commerceFixtureBytes = commerceFixtureFile.readAsBytesSync();
+  final transactionBytes = transactionFile.readAsBytesSync();
+  final checkoutQuoteBytes = checkoutQuoteFile.readAsBytesSync();
+  final paymentBytes = paymentFile.readAsBytesSync();
+  final orderBytes = orderFile.readAsBytesSync();
+  final walletBytes = walletFile.readAsBytesSync();
   final contract = _decodeObject(contractBytes, 'common OpenAPI contract');
   final fixture = _decodeObject(fixtureBytes, 'problem fixture');
   final catalog = _decodeObject(catalogBytes, 'catalog OpenAPI contract');
@@ -91,15 +134,38 @@ void main(List<String> arguments) {
     commerceFixtureBytes,
     'commerce cart fixture',
   );
+  final transaction = _decodeObject(
+    transactionBytes,
+    'transaction OpenAPI contract',
+  );
+  final checkoutQuote = _decodeObject(
+    checkoutQuoteBytes,
+    'checkout quote fixture',
+  );
+  final payment = _decodeObject(paymentBytes, 'payment fixture');
+  final order = _decodeObject(orderBytes, 'order fixture');
+  final wallet = _decodeObject(walletBytes, 'wallet fixture');
   _validateContract(contract);
   _validateFixture(fixture);
   _validateMarketplaceContracts(catalog, commerce, commerceFixture);
+  _validateTransactionContracts(
+    transaction,
+    checkoutQuote,
+    payment,
+    order,
+    wallet,
+  );
 
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
   final catalogHash = sha256.convert(catalogBytes).toString();
   final commerceHash = sha256.convert(commerceBytes).toString();
   final commerceFixtureHash = sha256.convert(commerceFixtureBytes).toString();
+  final transactionHash = sha256.convert(transactionBytes).toString();
+  final checkoutQuoteHash = sha256.convert(checkoutQuoteBytes).toString();
+  final paymentHash = sha256.convert(paymentBytes).toString();
+  final orderHash = sha256.convert(orderBytes).toString();
+  final walletHash = sha256.convert(walletBytes).toString();
   final provenance = <String, Object>{
     'source_repository': _sourceRepository,
     'source_commit': _sourceCommit,
@@ -113,6 +179,16 @@ void main(List<String> arguments) {
     'commerce_contract_sha256': commerceHash,
     'commerce_fixture_path': _commerceFixturePath,
     'commerce_fixture_sha256': commerceFixtureHash,
+    'transaction_contract_path': _transactionContractPath,
+    'transaction_contract_sha256': transactionHash,
+    'checkout_quote_fixture_path': _checkoutQuoteFixturePath,
+    'checkout_quote_fixture_sha256': checkoutQuoteHash,
+    'payment_fixture_path': _paymentFixturePath,
+    'payment_fixture_sha256': paymentHash,
+    'order_fixture_path': _orderFixturePath,
+    'order_fixture_sha256': orderHash,
+    'wallet_fixture_path': _walletFixturePath,
+    'wallet_fixture_sha256': walletHash,
   };
   final expectedProvenance =
       '${const JsonEncoder.withIndent('  ').convert(provenance)}\n';
@@ -161,6 +237,34 @@ void main(List<String> arguments) {
     output.key.writeAsStringSync(output.value);
   }
   stdout.writeln('Generated API contracts from $contractHash.');
+}
+
+void _validateTransactionContracts(
+  Map<String, Object?> contract,
+  Map<String, Object?> quote,
+  Map<String, Object?> payment,
+  Map<String, Object?> order,
+  Map<String, Object?> wallet,
+) {
+  final paths = contract['paths'] as Map<String, Object?>?;
+  const requiredPaths = {
+    '/v1/checkout/quotes',
+    '/v1/checkout/orders',
+    '/v1/orders',
+    '/v1/wallet',
+  };
+  if (contract['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.keys.toSet().containsAll(requiredPaths)) {
+    throw const FormatException('Transaction contract is incomplete.');
+  }
+  if (quote['total'] is! Map ||
+      quote['payment_methods'] is! List ||
+      payment['status'] is! String ||
+      order['timeline'] is! List ||
+      wallet['entries'] is! List) {
+    throw const FormatException('Transaction fixtures are incomplete.');
+  }
 }
 
 String? _argumentValue(List<String> arguments, String prefix) {
@@ -236,10 +340,25 @@ void _validateMarketplaceContracts(
     );
   }
   final catalogPaths = catalog['paths'] as Map<String, Object?>?;
+  final searchPath = catalogPaths?['/v1/catalog/search'];
+  final searchOperation = searchPath is Map<String, Object?>
+      ? searchPath['get']
+      : null;
+  final searchParameters = searchOperation is Map<String, Object?>
+      ? searchOperation['parameters']
+      : null;
+  final hasCategoryFilter =
+      searchParameters is List<Object?> &&
+      searchParameters.whereType<Map<String, Object?>>().any(
+        (parameter) => parameter['name'] == 'category_id',
+      );
   if (catalogPaths == null ||
       !catalogPaths.containsKey('/v1/catalog/search') ||
-      !catalogPaths.containsKey('/v1/catalog/items/{item_id}')) {
-    throw const FormatException('Catalog contract is missing search or PDP.');
+      !catalogPaths.containsKey('/v1/catalog/items/{item_id}') ||
+      !hasCategoryFilter) {
+    throw const FormatException(
+      'Catalog contract is missing filtered search or PDP.',
+    );
   }
   final commercePaths = commerce['paths'] as Map<String, Object?>?;
   if (commercePaths == null ||

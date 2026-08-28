@@ -99,7 +99,19 @@ final class BootstrapConfig {
     ).map((item) => item as String).toList(growable: false);
     final locale = _string(json, 'locale');
     if (!supported.contains(locale) ||
-        supported.any((value) => !{'en', 'ta'}.contains(value))) {
+        supported.any(
+          (value) => !{
+            'en',
+            'ta',
+            'hi',
+            'te',
+            'kn',
+            'ml',
+            'mr',
+            'bn',
+            'gu',
+          }.contains(value),
+        )) {
       throw const FormatException('Bootstrap locale contract is invalid.');
     }
     final rawFlags = _object(json['flags'], 'flags');

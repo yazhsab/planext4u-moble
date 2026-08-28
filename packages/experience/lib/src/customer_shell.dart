@@ -6,6 +6,8 @@ import 'commerce.dart';
 import 'localization.dart';
 import 'marketplace.dart';
 import 'marketplace_screen.dart';
+import 'transaction_screens.dart';
+import 'transactions.dart';
 
 enum CustomerDestination { home, explore, activity, profile }
 
@@ -28,6 +30,10 @@ sealed class CustomerDeepLink {
       final id = Uri.decodeComponent(segments[3]);
       if (_safeIdentifier(id)) return CustomerItemLink(id);
     }
+    if (segments.length == 3 && segments[1] == 'orders') {
+      final id = Uri.decodeComponent(segments[2]);
+      if (_safeIdentifier(id)) return CustomerOrderLink(id);
+    }
     return null;
   }
 }
@@ -45,6 +51,11 @@ final class CustomerItemLink extends CustomerDeepLink {
   final String itemId;
 }
 
+final class CustomerOrderLink extends CustomerDeepLink {
+  const CustomerOrderLink(this.orderId);
+  final String orderId;
+}
+
 bool _safeIdentifier(String value) =>
     value.isNotEmpty &&
     value.length <= 128 &&
@@ -57,6 +68,7 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.initialItemId,
     this.marketplaceController,
     this.cartController,
+    this.transactionController,
     this.onItemSelected,
     super.key,
   });
@@ -66,6 +78,7 @@ final class CustomerHomeScreen extends StatefulWidget {
   final String? initialItemId;
   final MarketplaceController? marketplaceController;
   final CartController? cartController;
+  final TransactionController? transactionController;
   final ValueChanged<CatalogItem>? onItemSelected;
 
   @override
@@ -115,9 +128,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       appBar: AppBar(
         title: Text(switch (_destination) {
           CustomerDestination.home => strings.homeTitle,
-          CustomerDestination.explore => 'Explore',
-          CustomerDestination.activity => 'Activity',
-          CustomerDestination.profile => 'Profile',
+          CustomerDestination.explore => strings.exploreTitle,
+          CustomerDestination.activity => strings.activityTitle,
+          CustomerDestination.profile => strings.profileTitle,
         }),
         actions: [
           if (widget.cartController != null)
@@ -133,20 +146,23 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         selectedIndex: _destination.index,
         onDestinationSelected: (index) =>
             setState(() => _destination = CustomerDestination.values[index]),
-        destinations: const [
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          NavigationDestination(icon: Icon(Icons.search), label: 'Explore'),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            label: 'Activity',
+            icon: const Icon(Icons.home_outlined),
+            selectedIcon: const Icon(Icons.home),
+            label: strings.homeTitle,
           ),
           NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            label: 'Profile',
+            icon: const Icon(Icons.search),
+            label: strings.exploreTitle,
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.receipt_long_outlined),
+            label: strings.activityTitle,
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.person_outline),
+            label: strings.profileTitle,
           ),
         ],
       ),
@@ -160,6 +176,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         controller: widget.marketplaceController!,
         onItemSelected: _openProduct,
       );
+    }
+    if (_destination == CustomerDestination.activity &&
+        widget.transactionController != null) {
+      return CustomerActivityScreen(controller: widget.transactionController!);
     }
     if (_destination != CustomerDestination.home) {
       return Planext4uStatePanel(
@@ -325,7 +345,19 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     if (cart == null) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CustomerCartScreen(controller: cart),
+        builder: (_) => CustomerCartScreen(
+          controller: cart,
+          onCheckout: widget.transactionController == null
+              ? null
+              : (value) => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CheckoutReviewScreen(
+                      cart: value,
+                      controller: widget.transactionController!,
+                    ),
+                  ),
+                ),
+        ),
       ),
     );
   }

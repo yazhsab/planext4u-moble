@@ -100,7 +100,7 @@ jobs:
             --dart-define=API_BASE_URL=https://api.planext4u.net
 
   android-e2e:
-    name: MOB-E2E-001 Android emulator
+    name: MOB-E2E-001/002/003 Android emulator
     needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -120,7 +120,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           test -r /dev/kvm && test -w /dev/kvm
-      - name: Run fresh-install customer vertical slice
+      - name: Run customer commerce vertical slices
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35

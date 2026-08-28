@@ -108,6 +108,7 @@ class FixedCatalogRemote implements CatalogRemote {
   @override
   Future<CatalogPage<CatalogItem>> search({
     required String query,
+    String? categoryId,
     String? cursor,
     int limit = 20,
   }) => throw UnimplementedError();

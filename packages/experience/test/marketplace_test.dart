@@ -31,6 +31,11 @@ void main() {
       await controller.discover();
       expect(controller.state.status, MarketplaceStatus.ready);
       expect(controller.state.results.single.name, item.name);
+      expect(controller.state.categories.single.id, 'groceries');
+
+      await controller.selectCategory('groceries');
+      expect(controller.state.selectedCategoryId, 'groceries');
+      expect(remote.lastCategoryId, 'groceries');
 
       remote.empty = true;
       await controller.discover('missing');
@@ -83,6 +88,7 @@ final class _MarketplaceRemote implements CatalogRemote {
   final CatalogItem value;
   bool empty = false;
   bool fail = false;
+  String? lastCategoryId;
 
   CatalogPage<CatalogItem> _page() {
     if (fail) throw StateError('offline');
@@ -99,21 +105,34 @@ final class _MarketplaceRemote implements CatalogRemote {
     String? categoryId,
     String? cursor,
     int limit = 20,
-  }) async => _page();
+  }) async {
+    lastCategoryId = categoryId;
+    return _page();
+  }
 
   @override
   Future<CatalogPage<CatalogItem>> search({
     required String query,
+    String? categoryId,
     String? cursor,
     int limit = 20,
-  }) async => _page();
+  }) async {
+    lastCategoryId = categoryId;
+    return _page();
+  }
 
   @override
   Future<CatalogItem> item(String id) async => value;
 
   @override
-  Future<CatalogPage<CatalogCategory>> categories() =>
-      throw UnimplementedError();
+  Future<CatalogPage<CatalogCategory>> categories() async => CatalogPage(
+    items: const [
+      CatalogCategory(id: 'groceries', name: 'Groceries', priority: 10),
+    ],
+    hasMore: false,
+    projectionStatus: ProjectionStatus.fresh,
+    generatedAt: DateTime.utc(2026, 8, 27, 10),
+  );
 
   @override
   Future<CustomerHomeProjection> home() => throw UnimplementedError();

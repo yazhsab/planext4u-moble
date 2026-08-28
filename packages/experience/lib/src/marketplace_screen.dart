@@ -4,6 +4,7 @@ import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'catalog.dart';
 import 'commerce.dart';
 import 'marketplace.dart';
+import 'localization.dart';
 
 final class MarketplaceExploreScreen extends StatefulWidget {
   const MarketplaceExploreScreen({
@@ -56,13 +57,14 @@ final class _MarketplaceExploreScreenState
   @override
   Widget build(BuildContext context) {
     final state = widget.controller.state;
+    final strings = Planext4uLocalizations.of(context);
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(Planext4uSpacing.x4),
           child: SearchBar(
             controller: _search,
-            hintText: 'Search local products and services',
+            hintText: strings.searchLocal,
             leading: const Icon(Icons.search),
             trailing: [
               IconButton(
@@ -77,6 +79,35 @@ final class _MarketplaceExploreScreenState
             onSubmitted: widget.controller.discover,
           ),
         ),
+        if (state.categories.isNotEmpty)
+          SizedBox(
+            height: 48,
+            child: ListView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Planext4uSpacing.x4,
+              ),
+              scrollDirection: Axis.horizontal,
+              children: [
+                ChoiceChip(
+                  label: Text(strings.allCategories),
+                  selected: state.selectedCategoryId == null,
+                  onSelected: (_) => widget.controller.selectCategory(null),
+                ),
+                const SizedBox(width: Planext4uSpacing.x2),
+                for (final category in state.categories) ...[
+                  ChoiceChip(
+                    label: Text(category.name),
+                    selected: state.selectedCategoryId == category.id,
+                    onSelected: (_) =>
+                        widget.controller.selectCategory(category.id),
+                  ),
+                  const SizedBox(width: Planext4uSpacing.x2),
+                ],
+              ],
+            ),
+          ),
+        if (state.categories.isNotEmpty)
+          const SizedBox(height: Planext4uSpacing.x2),
         Expanded(child: _results(state)),
       ],
     );
@@ -453,8 +484,13 @@ final class _Specifications extends StatelessWidget {
 }
 
 final class CustomerCartScreen extends StatefulWidget {
-  const CustomerCartScreen({required this.controller, super.key});
+  const CustomerCartScreen({
+    required this.controller,
+    this.onCheckout,
+    super.key,
+  });
   final CartController controller;
+  final ValueChanged<CustomerCart>? onCheckout;
 
   @override
   State<CustomerCartScreen> createState() => _CustomerCartScreenState();
@@ -506,7 +542,9 @@ final class _CustomerCartScreenState extends State<CustomerCartScreen> {
           : SafeArea(
               minimum: const EdgeInsets.all(Planext4uSpacing.x4),
               child: FilledButton(
-                onPressed: cart.canCheckout ? () {} : null,
+                onPressed: cart.canCheckout && widget.onCheckout != null
+                    ? () => widget.onCheckout!(cart)
+                    : null,
                 child: Text('Checkout • ${cart.total.display()}'),
               ),
             ),

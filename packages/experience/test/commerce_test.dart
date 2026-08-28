@@ -93,6 +93,7 @@ Map<String, Object?> _cartJson({
     {
       'variant_id': 'variant-500ml',
       'item_id': 'item-sesame-oil',
+      'vendor_id': 'vendor-local-001',
       'item_name': 'Cold-pressed sesame oil',
       'variant_name': '500 ml',
       'quantity': quantity,

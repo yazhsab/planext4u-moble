@@ -18,7 +18,7 @@ void main() {
     '--flavor production',
     'flutter clean',
     'app-production-debug.apk',
-    'MOB-E2E-001 Android emulator',
+    'MOB-E2E-001/002/003 Android emulator',
     'Enable KVM acceleration',
     'test -r /dev/kvm && test -w /dev/kvm',
     'customer_vertical_slice_test.dart',
@@ -35,6 +35,14 @@ void main() {
   }
   for (final stage in ['consent', 'login', 'location', 'home', 'catalog']) {
     _expect(failures, integration, stage, 'MOB-E2E-001');
+  }
+  for (final required in [
+    'MOB-E2E-002',
+    'MOB-E2E-003',
+    'successes / 100',
+    'walletValue.reconciles',
+  ]) {
+    _expect(failures, integration, required, 'Phase 3 mobile E2E');
   }
   _expect(failures, root, 'dart run tool/validate_ci.dart', 'root gate');
 

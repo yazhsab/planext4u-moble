@@ -9,12 +9,16 @@ final class MarketplaceState {
     required this.status,
     this.query = '',
     this.results = const [],
+    this.categories = const [],
+    this.selectedCategoryId,
     this.selectedItem,
   });
 
   final MarketplaceStatus status;
   final String query;
   final List<CatalogItem> results;
+  final List<CatalogCategory> categories;
+  final String? selectedCategoryId;
   final CatalogItem? selectedItem;
 }
 
@@ -34,13 +38,33 @@ final class MarketplaceController extends ChangeNotifier {
         status: MarketplaceStatus.loading,
         query: normalized,
         results: _state.results,
+        categories: _state.categories,
+        selectedCategoryId: _state.selectedCategoryId,
         selectedItem: _state.selectedItem,
       ),
     );
     try {
-      final page = normalized.isEmpty
-          ? await _remote.items()
-          : await _remote.search(query: normalized);
+      final values = await Future.wait<Object>([
+        if (_state.categories.isEmpty)
+          _remote.categories()
+        else
+          Future<CatalogPage<CatalogCategory>>.value(
+            CatalogPage(
+              items: _state.categories,
+              hasMore: false,
+              projectionStatus: ProjectionStatus.fresh,
+              generatedAt: DateTime.now().toUtc(),
+            ),
+          ),
+        normalized.isEmpty
+            ? _remote.items(categoryId: _state.selectedCategoryId)
+            : _remote.search(
+                query: normalized,
+                categoryId: _state.selectedCategoryId,
+              ),
+      ]);
+      final categories = values[0] as CatalogPage<CatalogCategory>;
+      final page = values[1] as CatalogPage<CatalogItem>;
       _set(
         MarketplaceState(
           status: page.items.isEmpty
@@ -48,6 +72,8 @@ final class MarketplaceController extends ChangeNotifier {
               : MarketplaceStatus.ready,
           query: normalized,
           results: page.items,
+          categories: categories.items,
+          selectedCategoryId: _state.selectedCategoryId,
           selectedItem: _state.selectedItem,
         ),
       );
@@ -57,10 +83,26 @@ final class MarketplaceController extends ChangeNotifier {
           status: MarketplaceStatus.failure,
           query: normalized,
           results: _state.results,
+          categories: _state.categories,
+          selectedCategoryId: _state.selectedCategoryId,
           selectedItem: _state.selectedItem,
         ),
       );
     }
+  }
+
+  Future<void> selectCategory(String? categoryId) async {
+    _set(
+      MarketplaceState(
+        status: _state.status,
+        query: _state.query,
+        results: _state.results,
+        categories: _state.categories,
+        selectedCategoryId: categoryId,
+        selectedItem: _state.selectedItem,
+      ),
+    );
+    await discover(_state.query);
   }
 
   Future<void> openItem(String id) async {
@@ -69,6 +111,8 @@ final class MarketplaceController extends ChangeNotifier {
         status: MarketplaceStatus.loading,
         query: _state.query,
         results: _state.results,
+        categories: _state.categories,
+        selectedCategoryId: _state.selectedCategoryId,
       ),
     );
     try {
@@ -77,6 +121,8 @@ final class MarketplaceController extends ChangeNotifier {
           status: MarketplaceStatus.ready,
           query: _state.query,
           results: _state.results,
+          categories: _state.categories,
+          selectedCategoryId: _state.selectedCategoryId,
           selectedItem: await _remote.item(id),
         ),
       );
@@ -86,6 +132,8 @@ final class MarketplaceController extends ChangeNotifier {
           status: MarketplaceStatus.failure,
           query: _state.query,
           results: _state.results,
+          categories: _state.categories,
+          selectedCategoryId: _state.selectedCategoryId,
         ),
       );
     }

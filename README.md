@@ -15,12 +15,17 @@ The administrator console is planned as a separately deployable web workspace un
 
 ## Current status
 
-Phase 1 product archaeology and target definition is complete. The approved Phase 2 backlog establishes the Flutter foundation and first staging vertical slice.
+Phase 1 product archaeology and Phase 2 platform engineering are complete.
+Phase 3 customer commerce engineering now covers filtered discovery, product
+detail, server-authoritative cart and checkout, safe payment recovery, orders,
+returns/ratings and the reconciled points ledger against backend commit
+`ab3304e`. Cloud staging and live payment-provider activation remain controlled
+release gates, not client-side configuration.
 
-Phase 2 implementation has started with one Dart workspace containing the three
-role-specific Flutter applications and shared configuration, core, and design
-system packages. The foundation is intentionally greenfield and does not import
-the Lovable proof-of-concept source.
+The workspace contains the three role-specific Flutter applications and shared
+configuration, core, identity, secure storage, experience, API, observability
+and design-system packages. It remains greenfield and does not import the
+Lovable proof-of-concept source.
 
 ## Local development
 
@@ -61,6 +66,7 @@ development, staging and production identifiers, links and build commands.
 - [Deferred validation register](docs/phase-1/DEFERRED_VALIDATION_REGISTER.md)
 - [Phase 2 executable backlog](docs/phase-1/PHASE_2_BACKLOG.md)
 - [Phase 1 exit review](docs/phase-1/PHASE_1_EXIT_REVIEW.md)
+- [Phase 3 exit review](docs/phase-3/PHASE_3_EXIT_REVIEW.md)
 - [Decision log](docs/phase-1/DECISION_LOG.md)
 - [Feature catalogue](docs/FEATURE_CATALOGUE.md)
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)

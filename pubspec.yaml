@@ -36,7 +36,7 @@ melos:
       description: Run all Flutter and Dart tests.
       run: dart run melos exec --concurrency=1 --fail-fast --dir-exists=test -- flutter test
     verify:
-      description: Run the complete local Phase 2 foundation gate.
+      description: Run the complete local workspace quality gate.
       steps:
         - dart run packages/api_client/tool/generate_contracts.dart --check
         - dart run packages/design_system/tool/generate_tokens.dart --check

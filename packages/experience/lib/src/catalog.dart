@@ -204,6 +204,7 @@ abstract interface class CatalogRemote {
   });
   Future<CatalogPage<CatalogItem>> search({
     required String query,
+    String? categoryId,
     String? cursor,
     int limit = 20,
   });
@@ -251,6 +252,7 @@ final class CatalogApi implements CatalogRemote {
   @override
   Future<CatalogPage<CatalogItem>> search({
     required String query,
+    String? categoryId,
     String? cursor,
     int limit = 20,
   }) async => (await _client.send(
@@ -259,6 +261,7 @@ final class CatalogApi implements CatalogRemote {
       path: '/v1/catalog/search',
       query: {
         'q': [query],
+        if (categoryId != null) 'category_id': [categoryId],
         if (cursor != null) 'cursor': [cursor],
         'limit': ['$limit'],
       },

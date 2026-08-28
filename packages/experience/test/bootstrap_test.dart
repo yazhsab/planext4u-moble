@@ -124,6 +124,21 @@ void main() {
     expect(strings.homeTitle, 'முகப்பு');
     expect(find.text('முகப்பு'), findsOneWidget);
   });
+
+  test('all nine supported locales contain safety and commerce copy', () {
+    for (final locale in Planext4uLocalizations.supportedLocales) {
+      final strings = Planext4uLocalizations(locale);
+      expect(
+        Planext4uLocalizations.hasCompleteTranslation(locale),
+        isTrue,
+        reason: '${locale.languageCode} is incomplete',
+      );
+      expect(strings.homeTitle, isNotEmpty);
+      expect(strings.secureCheckout, isNotEmpty);
+      expect(strings.cashOnDelivery, isNotEmpty);
+      expect(strings.availablePoints(25), contains('25'));
+    }
+  });
 }
 
 Map<String, Object?> bootstrapJson() => {
