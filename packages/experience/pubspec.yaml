@@ -14,10 +14,12 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  firebase_messaging: ^16.1.1
   geolocator: ^14.0.3
   planext4u_api_client: ^0.1.0
   planext4u_design_system: ^0.1.0
   planext4u_core: ^0.1.0
+  planext4u_identity: ^0.1.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0

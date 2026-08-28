@@ -58,6 +58,7 @@ void main() {
       'android:autoVerify="true"',
       'android.permission.ACCESS_COARSE_LOCATION',
       'android.permission.ACCESS_FINE_LOCATION',
+      'android.permission.POST_NOTIFICATIONS',
     ]) {
       expectContains(
         failures,
@@ -66,12 +67,26 @@ void main() {
         '$appName Android deep-link manifest',
       );
     }
-    expectAbsent(
-      failures,
-      manifest,
-      'android.permission.ACCESS_BACKGROUND_LOCATION',
-      '$appName foreground-only location boundary',
-    );
+    if (appName == 'rider') {
+      for (final permission in [
+        'android.permission.ACCESS_BACKGROUND_LOCATION',
+        'android.permission.FOREGROUND_SERVICE_LOCATION',
+      ]) {
+        expectContains(
+          failures,
+          manifest,
+          permission,
+          'rider on-duty location boundary',
+        );
+      }
+    } else {
+      expectAbsent(
+        failures,
+        manifest,
+        'android.permission.ACCESS_BACKGROUND_LOCATION',
+        '$appName foreground-only location boundary',
+      );
+    }
 
     final infoPlist = read('apps/$appName/ios/Runner/Info.plist');
     final entitlements = read('apps/$appName/ios/Runner/Runner.entitlements');
@@ -97,17 +112,38 @@ void main() {
       'NSLocationWhenInUseUsageDescription',
       '$appName iOS location purpose',
     );
-    expectAbsent(
-      failures,
-      infoPlist,
-      'NSLocationAlwaysUsageDescription',
-      '$appName foreground-only location boundary',
-    );
+    if (appName == 'rider') {
+      for (final token in [
+        'NSLocationAlwaysAndWhenInUseUsageDescription',
+        'UIBackgroundModes',
+        '<string>location</string>',
+      ]) {
+        expectContains(
+          failures,
+          infoPlist,
+          token,
+          'rider on-duty background location boundary',
+        );
+      }
+    } else {
+      expectAbsent(
+        failures,
+        infoPlist,
+        'NSLocationAlwaysAndWhenInUseUsageDescription',
+        '$appName foreground-only location boundary',
+      );
+    }
     expectContains(
       failures,
       entitlements,
       r'applinks:$(DEEPLINK_HOST)',
       '$appName iOS associated domain',
+    );
+    expectContains(
+      failures,
+      entitlements,
+      r'<key>aps-environment</key>',
+      '$appName iOS push entitlement',
     );
 
     for (final MapEntry(key: flavorName, value: flavor) in flavors.entries) {

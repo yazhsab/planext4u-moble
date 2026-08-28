@@ -15,9 +15,10 @@ The administrator console is planned as a separately deployable web workspace un
 
 ## Current status
 
-Phase 1 product archaeology, Phase 2 platform engineering and Phase 3 customer
-commerce are complete. Phase 4 implementation has started with the customer
-service-booking entry slice. The Phase 3 customer-commerce source covers FTUX and
+Phase 1 product archaeology, Phase 2 platform engineering, Phase 3 customer
+commerce and Phase 4 supply, food and fulfilment are complete. Phase 4 delivers
+customer service/food flows, complete vendor operations, complete rider duty and
+POD flows, background location, chat, push and settlement. The Phase 3 source covers FTUX and
 location, discovery, PDP/reviews/Q&A, server-authoritative cart and checkout,
 native Razorpay/Paystack/COD handoff and recovery, orders/returns/ratings,
 wallet/referrals/refills/rewards, and FCM device registration/deep links against
@@ -75,6 +76,7 @@ development, staging and production identifiers, links and build commands.
 - [Phase 3 exit review](docs/phase-3/PHASE_3_EXIT_REVIEW.md)
 - [Phase 4 executable backlog](docs/phase-4/PHASE_4_BACKLOG.md)
 - [Phase 4 service-booking entry slice](docs/phase-4/SERVICE_BOOKING_ENTRY_SLICE.md)
+- [Phase 4 exit review](docs/phase-4/PHASE_4_EXIT_REVIEW.md)
 - [Decision log](docs/phase-1/DECISION_LOG.md)
 - [Feature catalogue](docs/FEATURE_CATALOGUE.md)
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)

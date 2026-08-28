@@ -30,6 +30,9 @@ final class RoleDestination {
   final String? featureFlag;
 }
 
+typedef RoleDestinationBuilder =
+    Widget Function(BuildContext context, RoleDestination destination);
+
 abstract final class RoleNavigationPolicy {
   static List<RoleDestination> destinations({
     required AppRole applicationRole,
@@ -133,6 +136,8 @@ final class AuthenticatedRoleShell extends StatefulWidget {
     required this.capabilities,
     required this.featureFlags,
     required this.environmentLabel,
+    this.destinationBuilder,
+    this.onSignOut,
     super.key,
   });
 
@@ -141,6 +146,8 @@ final class AuthenticatedRoleShell extends StatefulWidget {
   final Set<RoleCapability> capabilities;
   final Map<String, bool> featureFlags;
   final String environmentLabel;
+  final RoleDestinationBuilder? destinationBuilder;
+  final Future<void> Function()? onSignOut;
 
   @override
   State<AuthenticatedRoleShell> createState() => _AuthenticatedRoleShellState();
@@ -203,19 +210,27 @@ class _AuthenticatedRoleShellState extends State<AuthenticatedRoleShell> {
               ),
             ),
           ),
+          if (widget.onSignOut != null)
+            IconButton(
+              tooltip: 'Sign out',
+              onPressed: () => widget.onSignOut!(),
+              icon: const Icon(Icons.logout),
+            ),
         ],
       ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
-            child: Planext4uStatePanel(
-              state: Planext4uViewState.empty,
-              title: destination.label,
-              message:
-                  '${widget.applicationRole.label} ${destination.label.toLowerCase()} '
-                  'is permission-verified and ready for its domain workflow.',
-            ),
+            child:
+                widget.destinationBuilder?.call(context, destination) ??
+                Planext4uStatePanel(
+                  state: Planext4uViewState.empty,
+                  title: destination.label,
+                  message:
+                      '${widget.applicationRole.label} ${destination.label.toLowerCase()} '
+                      'is permission-verified and ready for its domain workflow.',
+                ),
           ),
         ),
       ),

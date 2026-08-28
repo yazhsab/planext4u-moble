@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "net.planext4u.rider"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

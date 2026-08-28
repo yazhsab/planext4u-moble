@@ -4,6 +4,8 @@ import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'catalog.dart';
 import 'bootstrap.dart';
 import 'commerce.dart';
+import 'food.dart';
+import 'food_screens.dart';
 import 'localization.dart';
 import 'marketplace.dart';
 import 'marketplace_screen.dart';
@@ -12,7 +14,7 @@ import 'service_booking_screens.dart';
 import 'transaction_screens.dart';
 import 'transactions.dart';
 
-enum CustomerDestination { home, explore, activity, profile }
+enum CustomerDestination { home, food, explore, activity, profile }
 
 sealed class CustomerDeepLink {
   const CustomerDeepLink();
@@ -73,6 +75,7 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.cartController,
     this.transactionController,
     this.serviceBookingController,
+    this.foodController,
     this.paymentLauncher = const UnavailablePaymentProviderLauncher(),
     this.onItemSelected,
     this.profileDisplayName,
@@ -88,6 +91,7 @@ final class CustomerHomeScreen extends StatefulWidget {
   final CartController? cartController;
   final TransactionController? transactionController;
   final ServiceBookingController? serviceBookingController;
+  final FoodController? foodController;
   final PaymentProviderLauncher paymentLauncher;
   final ValueChanged<CatalogItem>? onItemSelected;
   final String? profileDisplayName;
@@ -149,6 +153,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       appBar: AppBar(
         title: Text(switch (_destination) {
           CustomerDestination.home => strings.homeTitle,
+          CustomerDestination.food => 'Food',
           CustomerDestination.explore => strings.exploreTitle,
           CustomerDestination.activity => strings.activityTitle,
           CustomerDestination.profile => strings.profileTitle,
@@ -205,6 +210,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             label: strings.homeTitle,
           ),
           NavigationDestination(
+            icon: const Icon(Icons.restaurant_outlined),
+            selectedIcon: const Icon(Icons.restaurant),
+            label: 'Food',
+          ),
+          NavigationDestination(
             icon: const Icon(Icons.search),
             label: strings.exploreTitle,
           ),
@@ -235,6 +245,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 
   Widget _body(Planext4uLocalizations strings) {
+    if (_destination == CustomerDestination.food &&
+        widget.foodController != null) {
+      return CustomerFoodScreen(controller: widget.foodController!);
+    }
     if (_destination == CustomerDestination.explore &&
         widget.marketplaceController != null) {
       return MarketplaceExploreScreen(

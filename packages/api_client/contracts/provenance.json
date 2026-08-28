@@ -1,6 +1,6 @@
 {
   "source_repository": "https://github.com/yazhsab/planext4u-backend",
-  "source_commit": "bf0b8b1cf01e559dccca030e237459e882dc0331",
+  "source_commit": "f616ee6a1f5216db5bbb90100c161e96d177243a",
   "contract_path": "api/openapi/common.openapi.json",
   "contract_sha256": "332ef63e39ef8f7e4dc13a25709b697f288fbb66061f29f73ecf0ee7a8db4b0f",
   "fixture_path": "api/fixtures/problem.json",
@@ -26,5 +26,17 @@
   "booking_contract_path": "api/openapi/booking.openapi.json",
   "booking_contract_sha256": "e4e2d7c8e61027adfa0e73320a767a20409e16a9a8d65ea923ddd1e36f01218c",
   "service_booking_fixture_path": "api/fixtures/service_booking.json",
-  "service_booking_fixture_sha256": "99a2a3d8d8e08e3ced6e3d8d2721db78da58aac58a7a324c6241db8f69f08c77"
+  "service_booking_fixture_sha256": "99a2a3d8d8e08e3ced6e3d8d2721db78da58aac58a7a324c6241db8f69f08c77",
+  "supply_contract_path": "api/openapi/supply.openapi.json",
+  "supply_contract_sha256": "db292f07e0217269f55321ce3d78e8cb0033c45f532052ac41669c00e327b023",
+  "food_contract_path": "api/openapi/food.openapi.json",
+  "food_contract_sha256": "684ceb9a25623b0249d587a1f71f7e8c1632a3d13796ef33433980f91fe67bba",
+  "fulfillment_contract_path": "api/openapi/fulfillment.openapi.json",
+  "fulfillment_contract_sha256": "d976be63ef478a334ed630819ec6966046efbd24eda947e2de79f28d6b0ded2c",
+  "vendor_program_fixture_path": "api/fixtures/vendor_program.json",
+  "vendor_program_fixture_sha256": "5e40598110ae2ed0eff8166560774fba56491c3fe775bca815bd959ef1cf9392",
+  "food_order_fixture_path": "api/fixtures/food_order.json",
+  "food_order_fixture_sha256": "9c3e75073e674b1336d5f85d32b922418018dfa7a3e0a3880c0ca51a45c9f77f",
+  "rider_assignment_fixture_path": "api/fixtures/rider_assignment.json",
+  "rider_assignment_fixture_sha256": "31cc1295e7a5cab5798397b27eb211f2ba6995507616309fa7512b7c61822235"
 }

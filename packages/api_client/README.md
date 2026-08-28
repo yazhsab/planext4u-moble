@@ -43,7 +43,15 @@ dart run packages/api_client/tool/generate_contracts.dart \
   --checkout-quote-from=/absolute/path/to/planext4u-backend/api/fixtures/checkout_quote.json \
   --payment-from=/absolute/path/to/planext4u-backend/api/fixtures/payment.json \
   --order-from=/absolute/path/to/planext4u-backend/api/fixtures/order.json \
-  --wallet-from=/absolute/path/to/planext4u-backend/api/fixtures/wallet.json
+  --wallet-from=/absolute/path/to/planext4u-backend/api/fixtures/wallet.json \
+  --booking-from=/absolute/path/to/planext4u-backend/api/openapi/booking.openapi.json \
+  --service-booking-from=/absolute/path/to/planext4u-backend/api/fixtures/service_booking.json \
+  --supply-from=/absolute/path/to/planext4u-backend/api/openapi/supply.openapi.json \
+  --food-from=/absolute/path/to/planext4u-backend/api/openapi/food.openapi.json \
+  --fulfillment-from=/absolute/path/to/planext4u-backend/api/openapi/fulfillment.openapi.json \
+  --vendor-program-from=/absolute/path/to/planext4u-backend/api/fixtures/vendor_program.json \
+  --food-order-from=/absolute/path/to/planext4u-backend/api/fixtures/food_order.json \
+  --rider-assignment-from=/absolute/path/to/planext4u-backend/api/fixtures/rider_assignment.json
 ```
 
 Do not hand-edit `lib/src/generated/*.g.dart`. CI and the root verification gate

@@ -170,6 +170,63 @@ void main() {
       ]);
     },
   );
+
+  testWidgets(
+    'MOB-E2E-005 food cart restaurant queue dispatch tracking and chat expiry',
+    (tester) async {
+      final remote = _Phase4FoodRemote();
+      final controller = FoodController(remote: remote);
+      await tester.pumpWidget(
+        MaterialApp(home: CustomerFoodScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Saravana Kitchen'), findsOneWidget);
+      await tester.tap(find.text('Saravana Kitchen'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Add one South Indian meals'));
+      await tester.pump();
+      final review = find.byKey(const ValueKey('review-food-cart'));
+      expect(tester.widget<FilledButton>(review).onPressed, isNotNull);
+      await tester.ensureVisible(review);
+      await tester.tap(review);
+      await tester.pumpAndSettle();
+      expect(find.text('Server-confirmed total'), findsOneWidget);
+      expect(find.text('₹434.50'), findsWidgets);
+      await tester.tap(find.byKey(const ValueKey('place-food-order')));
+      await tester.pumpAndSettle();
+      expect(find.text('PENDING RESTAURANT'), findsWidgets);
+
+      remote.advance('ACCEPTED');
+      await controller.refreshActiveOrder();
+      remote.advance('PREPARING');
+      await controller.refreshActiveOrder();
+      remote.advance('READY');
+      await controller.refreshActiveOrder();
+      remote.advance('RIDER_ASSIGNED');
+      await controller.refreshActiveOrder();
+      expect(controller.state.activeOrder?.status, 'RIDER_ASSIGNED');
+      expect(remote.evidence, [
+        'restaurants',
+        'menu',
+        'server_price',
+        'payment_capture',
+        'restaurant_ACCEPTED',
+        'tracking',
+        'restaurant_PREPARING',
+        'tracking',
+        'restaurant_READY',
+        'tracking',
+        'dispatch_RIDER_ASSIGNED',
+        'tracking',
+      ]);
+
+      remote.advance('TIMED_OUT', refunded: true);
+      await controller.refreshActiveOrder();
+      await tester.pumpAndSettle();
+      expect(find.text('Refund completed'), findsOneWidget);
+      expect(remote.chatExpiresAfterDelivery, isTrue);
+    },
+  );
 }
 
 enum _JourneyStage { consent, login, location, home }
@@ -797,4 +854,130 @@ final class _Phase4ServiceRemote implements ServiceBookingRemote {
     required ServiceBooking booking,
     required String reason,
   }) async => _transition('DISPUTED');
+}
+
+final class _Phase4FoodRemote implements FoodRemote {
+  final evidence = <String>[];
+  bool chatExpiresAfterDelivery = true;
+  String _status = 'PENDING_RESTAURANT';
+  bool _refunded = false;
+  final restaurant = const FoodRestaurant(
+    id: 'restaurant-saravana',
+    name: 'Saravana Kitchen',
+    cuisine: ['South Indian'],
+    rating: 4.7,
+    verified: true,
+    open: true,
+    preparationMinutes: 20,
+    deliveryFee: CatalogMoney(amountMinor: 2500, currency: 'INR'),
+    minimumOrder: CatalogMoney(amountMinor: 10000, currency: 'INR'),
+  );
+
+  void advance(String status, {bool refunded = false}) {
+    _status = status;
+    _refunded = refunded;
+    evidence.add(
+      status == 'RIDER_ASSIGNED'
+          ? 'dispatch_$status'
+          : status == 'TIMED_OUT'
+          ? 'timeout_refund'
+          : 'restaurant_$status',
+    );
+  }
+
+  FoodOrder get _order => FoodOrder(
+    id: 'food-order-e2e-005',
+    revision: evidence.length,
+    restaurantId: restaurant.id,
+    status: _status,
+    total: const CatalogMoney(amountMinor: 43450, currency: 'INR'),
+    paymentStatus: _refunded ? 'REFUNDED' : 'CAPTURED',
+    refundState: _refunded ? 'REFUNDED' : '',
+    pricingVersion: 'food-pricing-v1',
+    acceptBy: DateTime.now().toUtc().add(const Duration(minutes: 3)),
+    allowedActions: const {},
+    timeline: [
+      {
+        'status': _status,
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      },
+    ],
+  );
+
+  @override
+  Future<List<FoodRestaurant>> restaurants(String postalCode) async {
+    evidence.add('restaurants');
+    return [restaurant];
+  }
+
+  @override
+  Future<List<FoodMenuItem>> menu(String restaurantId) async {
+    evidence.add('menu');
+    return const [
+      FoodMenuItem(
+        id: 'menu-meals-001',
+        restaurantId: 'restaurant-saravana',
+        name: 'South Indian meals',
+        description: 'Fresh local lunch',
+        category: 'Meals',
+        vegetarian: true,
+        basePrice: CatalogMoney(amountMinor: 19500, currency: 'INR'),
+        available: true,
+        optionGroups: [
+          FoodOptionGroup(
+            id: 'size',
+            name: 'Size',
+            minimum: 0,
+            maximum: 1,
+            options: [
+              FoodOption(
+                id: 'large',
+                name: 'Large',
+                priceDelta: CatalogMoney(amountMinor: 3000, currency: 'INR'),
+                available: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    ];
+  }
+
+  @override
+  Future<FoodCart> priceCart({
+    required String restaurantId,
+    required String postalCode,
+    required List<FoodCartLineRequest> lines,
+  }) async {
+    evidence.add('server_price');
+    return FoodCart(
+      id: 'food-cart-e2e-005',
+      revision: 1,
+      restaurant: restaurant,
+      lines: const [
+        {'menu_item_id': 'menu-meals-001', 'quantity': 1},
+      ],
+      subtotal: const CatalogMoney(amountMinor: 39000, currency: 'INR'),
+      deliveryFee: const CatalogMoney(amountMinor: 2500, currency: 'INR'),
+      tax: const CatalogMoney(amountMinor: 1950, currency: 'INR'),
+      total: const CatalogMoney(amountMinor: 43450, currency: 'INR'),
+      pricingVersion: 'food-pricing-v1',
+      expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+    );
+  }
+
+  @override
+  Future<FoodOrder> placeOrder(String cartId, String paymentMethod) async {
+    evidence.add('payment_capture');
+    return _order;
+  }
+
+  @override
+  Future<FoodOrder> order(String id) async {
+    evidence.add('tracking');
+    return _order;
+  }
+
+  @override
+  Future<List<FoodOrder>> orders() async => [_order];
 }

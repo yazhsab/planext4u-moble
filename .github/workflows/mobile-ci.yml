@@ -105,7 +105,7 @@ jobs:
             --dart-define=API_BASE_URL=https://api.planext4u.net
 
   android-e2e:
-    name: MOB-E2E-001/002/003/004 Android emulator
+    name: MOB-E2E-001/002/003/004/005/006/007 Android emulator (2 GB)
     needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -126,17 +126,21 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           test -r /dev/kvm && test -w /dev/kvm
-      - name: Run customer commerce and service-booking vertical slices
+      - name: Run customer, vendor and rider Phase 4 vertical slices on a 2 GB device
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: >-
-            cd apps/customer &&
-            flutter test integration_test/customer_vertical_slice_test.dart
-            -d emulator-5554
-            --flavor development
-            --dart-define=APP_ENV=development
-            --dart-define=API_BASE_URL=http://10.0.2.2:8080
+          emulator-options: >-
+            -no-snapshot -no-window -gpu swiftshader_indirect -noaudio
+            -no-boot-anim -camera-back none -memory 2048
+          script: |
+            set -euo pipefail
+            cd apps/customer
+            flutter test integration_test/customer_vertical_slice_test.dart -d emulator-5554 --flavor development --dart-define=APP_ENV=development --dart-define=API_BASE_URL=http://10.0.2.2:8080
+            cd ../vendor
+            flutter test integration_test/vendor_phase4_test.dart -d emulator-5554 --flavor development --dart-define=APP_ENV=development --dart-define=API_BASE_URL=http://10.0.2.2:8080
+            cd ../rider
+            flutter test integration_test/rider_phase4_test.dart -d emulator-5554 --flavor development --dart-define=APP_ENV=development --dart-define=API_BASE_URL=http://10.0.2.2:8080

@@ -41,6 +41,12 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Planext4u uses your location only after consent for rider service availability.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>While you are on duty, Planext4u shares your location to assign and safely complete active deliveries.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

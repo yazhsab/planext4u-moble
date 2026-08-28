@@ -7,6 +7,11 @@ rider fulfilment, settlement visibility, messaging and offline recovery. Mobile
 clients render server-owned availability, money, lifecycle and allowed actions;
 they never infer capacity, entitlement, commission or payout truth.
 
+## Completion
+
+All stories `MOB-P4-001` through `MOB-P4-012` are accepted. The evidence and
+release boundary are recorded in [the Phase 4 exit review](PHASE_4_EXIT_REVIEW.md).
+
 | ID | Story | Acceptance evidence |
 | --- | --- | --- |
 | `MOB-P4-001` | Pin additive supply/service/food/fulfilment contracts and synthetic fixtures | Contract provenance and drift checks pass against an immutable backend commit |
@@ -22,8 +27,8 @@ they never infer capacity, entitlement, commission or payout truth.
 | `MOB-P4-011` | Deliver vendor/rider settlement, analytics and support views | Calculation-version and payout-status fixture tests pass |
 | `MOB-P4-012` | Complete device, performance, accessibility and resilience acceptance | `MOB-E2E-004` through `007`, 2 GB device and offline recovery gates pass |
 
-## Entry slice
+## Delivery note
 
-Implementation begins with `MOB-P4-001` through `MOB-P4-004`, paired with
-backend stories `BE-P4-001` through `BE-P4-004`. The remaining stories stay
-open until their backend contracts and role-specific journeys are accepted.
+Implementation began with `MOB-P4-001` through `MOB-P4-004`, paired with
+backend stories `BE-P4-001` through `BE-P4-004`. The remaining stories were
+then accepted against pinned backend contracts and role-specific journeys.

@@ -7,6 +7,12 @@ void main() {
   final integration = _read(
     'apps/customer/integration_test/customer_vertical_slice_test.dart',
   );
+  final vendorIntegration = _read(
+    'apps/vendor/integration_test/vendor_phase4_test.dart',
+  );
+  final riderIntegration = _read(
+    'apps/rider/integration_test/rider_phase4_test.dart',
+  );
   final root = _read('pubspec.yaml');
 
   for (final required in [
@@ -20,10 +26,13 @@ void main() {
     'app-production-debug.apk',
     'runs-on: macos-26',
     'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
-    'MOB-E2E-001/002/003/004 Android emulator',
+    'MOB-E2E-001/002/003/004/005/006/007 Android emulator (2 GB)',
     'Enable KVM acceleration',
     'test -r /dev/kvm && test -w /dev/kvm',
     'customer_vertical_slice_test.dart',
+    'vendor_phase4_test.dart',
+    'rider_phase4_test.dart',
+    '-memory 2048',
   ]) {
     _expect(failures, mobile, required, 'mobile CI');
   }
@@ -56,6 +65,37 @@ void main() {
     'confirm_completion',
   ]) {
     _expect(failures, integration, required, 'Phase 4 service booking E2E');
+  }
+  for (final required in [
+    'MOB-E2E-005',
+    'server_price',
+    'restaurant_READY',
+    'dispatch_RIDER_ASSIGNED',
+    'timeout_refund',
+    'chatExpiresAfterDelivery',
+  ]) {
+    _expect(failures, integration, required, 'Phase 4 food E2E');
+  }
+  for (final required in [
+    'MOB-E2E-006',
+    'private_documents',
+    'field_visit_passed',
+    'admin_approval',
+    'inventory_revision',
+    'settlement-v1',
+  ]) {
+    _expect(failures, vendorIntegration, required, 'Phase 4 vendor E2E');
+  }
+  for (final required in [
+    'MOB-E2E-007',
+    'atomic_accept_conflict',
+    'pickup_offline',
+    'ordered_recovery',
+    'pod_photo_otp',
+    'chat_redaction',
+    'rider-commission-v1',
+  ]) {
+    _expect(failures, riderIntegration, required, 'Phase 4 rider E2E');
   }
   _expect(failures, root, 'dart run tool/validate_ci.dart', 'root gate');
 

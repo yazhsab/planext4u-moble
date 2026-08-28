@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = 'bf0b8b1cf01e559dccca030e237459e882dc0331';
+const _sourceCommit = 'f616ee6a1f5216db5bbb90100c161e96d177243a';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
@@ -18,6 +18,12 @@ const _orderFixturePath = 'api/fixtures/order.json';
 const _walletFixturePath = 'api/fixtures/wallet.json';
 const _bookingContractPath = 'api/openapi/booking.openapi.json';
 const _serviceBookingFixturePath = 'api/fixtures/service_booking.json';
+const _supplyContractPath = 'api/openapi/supply.openapi.json';
+const _foodContractPath = 'api/openapi/food.openapi.json';
+const _fulfillmentContractPath = 'api/openapi/fulfillment.openapi.json';
+const _vendorProgramFixturePath = 'api/fixtures/vendor_program.json';
+const _foodOrderFixturePath = 'api/fixtures/food_order.json';
+const _riderAssignmentFixturePath = 'api/fixtures/rider_assignment.json';
 
 void main(List<String> arguments) {
   final check = arguments.contains('--check');
@@ -40,6 +46,15 @@ void main(List<String> arguments) {
     arguments,
     '--service-booking-from=',
   );
+  final supplyFrom = _argumentValue(arguments, '--supply-from=');
+  final foodFrom = _argumentValue(arguments, '--food-from=');
+  final fulfillmentFrom = _argumentValue(arguments, '--fulfillment-from=');
+  final vendorProgramFrom = _argumentValue(arguments, '--vendor-program-from=');
+  final foodOrderFrom = _argumentValue(arguments, '--food-order-from=');
+  final riderAssignmentFrom = _argumentValue(
+    arguments,
+    '--rider-assignment-from=',
+  );
   final syncArguments = [
     syncFrom,
     fixtureFrom,
@@ -54,6 +69,12 @@ void main(List<String> arguments) {
     walletFrom,
     bookingFrom,
     serviceBookingFrom,
+    supplyFrom,
+    foodFrom,
+    fulfillmentFrom,
+    vendorProgramFrom,
+    foodOrderFrom,
+    riderAssignmentFrom,
   ];
   final syncing = syncArguments.any((value) => value != null);
   if (check && syncing) {
@@ -63,7 +84,7 @@ void main(List<String> arguments) {
   }
   if (syncing && syncArguments.any((value) => value == null)) {
     stderr.writeln(
-      'All common, marketplace, transaction, notification and booking sync paths are required.',
+      'All common, marketplace, transaction, booking and Phase 4 sync paths are required.',
     );
     exitCode = 64;
     return;
@@ -106,6 +127,20 @@ void main(List<String> arguments) {
   final serviceBookingFile = File(
     '${packageRoot.path}/contracts/service_booking.fixture.json',
   );
+  final supplyFile = File('${packageRoot.path}/contracts/supply.openapi.json');
+  final foodFile = File('${packageRoot.path}/contracts/food.openapi.json');
+  final fulfillmentFile = File(
+    '${packageRoot.path}/contracts/fulfillment.openapi.json',
+  );
+  final vendorProgramFile = File(
+    '${packageRoot.path}/contracts/vendor_program.fixture.json',
+  );
+  final foodOrderFile = File(
+    '${packageRoot.path}/contracts/food_order.fixture.json',
+  );
+  final riderAssignmentFile = File(
+    '${packageRoot.path}/contracts/rider_assignment.fixture.json',
+  );
 
   if (syncing) {
     contractFile.parent.createSync(recursive: true);
@@ -130,6 +165,16 @@ void main(List<String> arguments) {
     serviceBookingFile.writeAsBytesSync(
       File(serviceBookingFrom!).readAsBytesSync(),
     );
+    supplyFile.writeAsBytesSync(File(supplyFrom!).readAsBytesSync());
+    foodFile.writeAsBytesSync(File(foodFrom!).readAsBytesSync());
+    fulfillmentFile.writeAsBytesSync(File(fulfillmentFrom!).readAsBytesSync());
+    vendorProgramFile.writeAsBytesSync(
+      File(vendorProgramFrom!).readAsBytesSync(),
+    );
+    foodOrderFile.writeAsBytesSync(File(foodOrderFrom!).readAsBytesSync());
+    riderAssignmentFile.writeAsBytesSync(
+      File(riderAssignmentFrom!).readAsBytesSync(),
+    );
   }
   if (!contractFile.existsSync() ||
       !fixtureFile.existsSync() ||
@@ -143,7 +188,13 @@ void main(List<String> arguments) {
       !orderFile.existsSync() ||
       !walletFile.existsSync() ||
       !bookingFile.existsSync() ||
-      !serviceBookingFile.existsSync()) {
+      !serviceBookingFile.existsSync() ||
+      !supplyFile.existsSync() ||
+      !foodFile.existsSync() ||
+      !fulfillmentFile.existsSync() ||
+      !vendorProgramFile.existsSync() ||
+      !foodOrderFile.existsSync() ||
+      !riderAssignmentFile.existsSync()) {
     stderr.writeln('Contract snapshots are missing. Run with sync arguments.');
     exitCode = 1;
     return;
@@ -162,6 +213,12 @@ void main(List<String> arguments) {
   final walletBytes = walletFile.readAsBytesSync();
   final bookingBytes = bookingFile.readAsBytesSync();
   final serviceBookingBytes = serviceBookingFile.readAsBytesSync();
+  final supplyBytes = supplyFile.readAsBytesSync();
+  final foodBytes = foodFile.readAsBytesSync();
+  final fulfillmentBytes = fulfillmentFile.readAsBytesSync();
+  final vendorProgramBytes = vendorProgramFile.readAsBytesSync();
+  final foodOrderBytes = foodOrderFile.readAsBytesSync();
+  final riderAssignmentBytes = riderAssignmentFile.readAsBytesSync();
   final contract = _decodeObject(contractBytes, 'common OpenAPI contract');
   final fixture = _decodeObject(fixtureBytes, 'problem fixture');
   final catalog = _decodeObject(catalogBytes, 'catalog OpenAPI contract');
@@ -190,6 +247,21 @@ void main(List<String> arguments) {
     serviceBookingBytes,
     'service booking fixture',
   );
+  final supply = _decodeObject(supplyBytes, 'supply OpenAPI contract');
+  final food = _decodeObject(foodBytes, 'food OpenAPI contract');
+  final fulfillment = _decodeObject(
+    fulfillmentBytes,
+    'fulfillment OpenAPI contract',
+  );
+  final vendorProgram = _decodeObject(
+    vendorProgramBytes,
+    'vendor program fixture',
+  );
+  final foodOrder = _decodeObject(foodOrderBytes, 'food order fixture');
+  final riderAssignment = _decodeObject(
+    riderAssignmentBytes,
+    'rider assignment fixture',
+  );
   _validateContract(contract);
   _validateFixture(fixture);
   _validateMarketplaceContracts(catalog, commerce, commerceFixture);
@@ -202,6 +274,14 @@ void main(List<String> arguments) {
   );
   _validateNotificationContract(notification);
   _validateBookingContract(booking, serviceBooking);
+  _validatePhase4Contracts(
+    supply,
+    food,
+    fulfillment,
+    vendorProgram,
+    foodOrder,
+    riderAssignment,
+  );
 
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
@@ -216,6 +296,12 @@ void main(List<String> arguments) {
   final walletHash = sha256.convert(walletBytes).toString();
   final bookingHash = sha256.convert(bookingBytes).toString();
   final serviceBookingHash = sha256.convert(serviceBookingBytes).toString();
+  final supplyHash = sha256.convert(supplyBytes).toString();
+  final foodHash = sha256.convert(foodBytes).toString();
+  final fulfillmentHash = sha256.convert(fulfillmentBytes).toString();
+  final vendorProgramHash = sha256.convert(vendorProgramBytes).toString();
+  final foodOrderHash = sha256.convert(foodOrderBytes).toString();
+  final riderAssignmentHash = sha256.convert(riderAssignmentBytes).toString();
   final provenance = <String, Object>{
     'source_repository': _sourceRepository,
     'source_commit': _sourceCommit,
@@ -245,6 +331,18 @@ void main(List<String> arguments) {
     'booking_contract_sha256': bookingHash,
     'service_booking_fixture_path': _serviceBookingFixturePath,
     'service_booking_fixture_sha256': serviceBookingHash,
+    'supply_contract_path': _supplyContractPath,
+    'supply_contract_sha256': supplyHash,
+    'food_contract_path': _foodContractPath,
+    'food_contract_sha256': foodHash,
+    'fulfillment_contract_path': _fulfillmentContractPath,
+    'fulfillment_contract_sha256': fulfillmentHash,
+    'vendor_program_fixture_path': _vendorProgramFixturePath,
+    'vendor_program_fixture_sha256': vendorProgramHash,
+    'food_order_fixture_path': _foodOrderFixturePath,
+    'food_order_fixture_sha256': foodOrderHash,
+    'rider_assignment_fixture_path': _riderAssignmentFixturePath,
+    'rider_assignment_fixture_sha256': riderAssignmentHash,
   };
   final expectedProvenance =
       '${const JsonEncoder.withIndent('  ').convert(provenance)}\n';
@@ -388,6 +486,88 @@ void _validateBookingContract(
       slot['remaining'] is! int ||
       payment['status'] is! String) {
     throw const FormatException('Service booking fixture is incomplete.');
+  }
+}
+
+void _validatePhase4Contracts(
+  Map<String, Object?> supply,
+  Map<String, Object?> food,
+  Map<String, Object?> fulfillment,
+  Map<String, Object?> vendorProgram,
+  Map<String, Object?> foodOrder,
+  Map<String, Object?> riderAssignment,
+) {
+  final supplyPaths = supply['paths'] as Map<String, Object?>?;
+  final foodPaths = food['paths'] as Map<String, Object?>?;
+  final fulfillmentPaths = fulfillment['paths'] as Map<String, Object?>?;
+  const requiredSupply = {
+    '/v1/vendor/applications',
+    '/v1/vendor/application/documents',
+    '/v1/vendor/application/field-visit',
+    '/v1/vendor/application/zones',
+    '/v1/vendor/application/bank',
+    '/v1/vendor/catalog',
+    '/v1/vendor/catalog/{item_id}/inventory',
+    '/v1/vendor/catalog/{item_id}/schedule',
+    '/v1/vendor/work',
+    '/v1/vendor/promotions',
+  };
+  const requiredFood = {
+    '/v1/restaurants',
+    '/v1/restaurants/{restaurant_id}/menu',
+    '/v1/food-carts',
+    '/v1/food-orders',
+    '/v1/food-orders/{order_id}/restaurant-transition',
+    '/v1/food-orders/{order_id}/dispatch-transition',
+  };
+  const requiredFulfillment = {
+    '/v1/rider/applications',
+    '/v1/rider/duty/start',
+    '/v1/rider/offers',
+    '/v1/rider/tasks/{task_id}/accept',
+    '/v1/rider/tasks/{task_id}/completion',
+    '/v1/rider/location',
+    '/v1/rider/offline-recovery',
+    '/v1/order-chats/{conversation_id}/messages',
+    '/v1/settlements/ledger',
+    '/v1/payouts',
+    '/v1/operations/attendance',
+  };
+  if (supply['openapi'] != '3.1.0' ||
+      supplyPaths == null ||
+      !supplyPaths.keys.toSet().containsAll(requiredSupply) ||
+      food['openapi'] != '3.1.0' ||
+      foodPaths == null ||
+      !foodPaths.keys.toSet().containsAll(requiredFood) ||
+      fulfillment['openapi'] != '3.1.0' ||
+      fulfillmentPaths == null ||
+      !fulfillmentPaths.keys.toSet().containsAll(requiredFulfillment)) {
+    throw const FormatException(
+      'Phase 4 contracts are missing required operational journeys.',
+    );
+  }
+  final vendorApplication = vendorProgram['application'];
+  final vendorSettlement = vendorProgram['settlement_summary'];
+  final foodPayment = foodOrder['payment'];
+  final riderProfile = riderAssignment['profile'];
+  final riderTask = riderAssignment['task'];
+  final riderEarnings = riderAssignment['earnings'];
+  if (vendorApplication is! Map<String, Object?> ||
+      vendorApplication['revision'] is! int ||
+      vendorApplication['documents'] is! List ||
+      vendorSettlement is! Map<String, Object?> ||
+      vendorSettlement['calculation_version'] is! String ||
+      foodOrder['pricing_version'] is! String ||
+      foodOrder['total'] is! Map ||
+      foodPayment is! Map<String, Object?> ||
+      foodPayment['status'] is! String ||
+      riderProfile is! Map<String, Object?> ||
+      riderProfile['revision'] is! int ||
+      riderTask is! Map<String, Object?> ||
+      riderTask['allowed_actions'] is! List ||
+      riderEarnings is! Map<String, Object?> ||
+      riderEarnings['calculation_version'] is! String) {
+    throw const FormatException('Phase 4 fixtures are incomplete.');
   }
 }
 

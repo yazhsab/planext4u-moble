@@ -69,6 +69,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   CartController? _cart;
   TransactionController? _transactions;
   ServiceBookingController? _serviceBookings;
+  FoodController? _food;
   BootstrapController? _bootstrap;
   ConsentController? _consent;
   LocationController? _location;
@@ -132,6 +133,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _serviceBookings = ServiceBookingController(
       remote: ServiceBookingApi(client),
     );
+    _food = FoodController(remote: FoodApi(client));
     final messaging = widget.firebaseMessaging;
     if (messaging != null && _pushRegistration == null) {
       _pushRegistration = CustomerPushRegistration(
@@ -228,6 +230,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _cart?.dispose();
     _transactions?.dispose();
     _serviceBookings?.dispose();
+    _food?.dispose();
     _bootstrap?.dispose();
     _consent?.dispose();
     _location?.dispose();
@@ -236,6 +239,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _cart = null;
     _transactions = null;
     _serviceBookings = null;
+    _food = null;
     _bootstrap = null;
     _consent = null;
     _location = null;
@@ -256,6 +260,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         cartController: _cart,
         transactionController: _transactions,
         serviceBookingController: _serviceBookings,
+        foodController: _food,
         bootstrapController: _bootstrap,
         consentController: _consent,
         locationController: _location,
@@ -588,6 +593,7 @@ class CustomerApp extends StatefulWidget {
     this.cartController,
     this.transactionController,
     this.serviceBookingController,
+    this.foodController,
     this.paymentRecoveryStore,
     this.bootstrapController,
     this.consentController,
@@ -606,6 +612,7 @@ class CustomerApp extends StatefulWidget {
   final CartController? cartController;
   final TransactionController? transactionController;
   final ServiceBookingController? serviceBookingController;
+  final FoodController? foodController;
   final PaymentRecoveryStore? paymentRecoveryStore;
   final BootstrapController? bootstrapController;
   final ConsentController? consentController;
@@ -654,6 +661,10 @@ class _CustomerAppState extends State<CustomerApp> {
       ServiceBookingController(
         remote: _AuthenticatedServiceBookingRequiredRemote(),
       );
+  late final bool _ownsFood = widget.foodController == null;
+  late final FoodController _food =
+      widget.foodController ??
+      FoodController(remote: _AuthenticatedFoodRequiredRemote());
 
   @override
   void dispose() {
@@ -662,6 +673,7 @@ class _CustomerAppState extends State<CustomerApp> {
     if (_ownsCart) _cart.dispose();
     if (_ownsTransactions) _transactions.dispose();
     if (_ownsServiceBookings) _serviceBookings.dispose();
+    if (_ownsFood) _food.dispose();
     super.dispose();
   }
 
@@ -706,6 +718,7 @@ class _CustomerAppState extends State<CustomerApp> {
               cartController: _cart,
               transactionController: _transactions,
               serviceBookingController: _serviceBookings,
+              foodController: _food,
               paymentLauncher: _paymentLauncher,
               profileDisplayName: widget.profileDisplayName,
               onSignOut: widget.onSignOut,
@@ -1068,6 +1081,33 @@ final class _AuthenticatedServiceBookingRequiredRemote
     required ServiceBooking booking,
     required String reason,
   }) async => _required();
+}
+
+final class _AuthenticatedFoodRequiredRemote implements FoodRemote {
+  Never _required() => throw const ApiAuthenticationFailure(
+    code: 'AUTHENTICATION_REQUIRED',
+    message: 'Sign in to continue.',
+    correlationId: 'local-auth-boundary',
+  );
+
+  @override
+  Future<List<FoodRestaurant>> restaurants(String postalCode) async =>
+      _required();
+  @override
+  Future<List<FoodMenuItem>> menu(String restaurantId) async => _required();
+  @override
+  Future<FoodCart> priceCart({
+    required String restaurantId,
+    required String postalCode,
+    required List<FoodCartLineRequest> lines,
+  }) async => _required();
+  @override
+  Future<FoodOrder> placeOrder(String cartId, String paymentMethod) async =>
+      _required();
+  @override
+  Future<List<FoodOrder>> orders() async => _required();
+  @override
+  Future<FoodOrder> order(String id) async => _required();
 }
 
 final class _AuthenticatedSessionRequiredRemote
