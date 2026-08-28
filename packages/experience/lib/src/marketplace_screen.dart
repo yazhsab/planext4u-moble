@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
@@ -24,11 +26,15 @@ final class MarketplaceExploreScreen extends StatefulWidget {
 final class _MarketplaceExploreScreenState
     extends State<MarketplaceExploreScreen> {
   final _search = TextEditingController();
+  final _searchFocus = FocusNode();
+  Timer? _suggestionTimer;
+  bool _showSuggestions = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_changed);
+    _searchFocus.addListener(_focusChanged);
     if (widget.controller.state.status == MarketplaceStatus.idle) {
       widget.controller.discover();
     }
@@ -46,12 +52,38 @@ final class _MarketplaceExploreScreenState
   @override
   void dispose() {
     widget.controller.removeListener(_changed);
+    _searchFocus.removeListener(_focusChanged);
+    _searchFocus.dispose();
+    _suggestionTimer?.cancel();
     _search.dispose();
     super.dispose();
   }
 
   void _changed() {
     if (mounted) setState(() {});
+  }
+
+  void _focusChanged() {
+    if (!mounted) return;
+    setState(() => _showSuggestions = _searchFocus.hasFocus);
+    if (_searchFocus.hasFocus) {
+      unawaited(widget.controller.suggest(_search.text));
+    }
+  }
+
+  void _suggest(String value) {
+    _suggestionTimer?.cancel();
+    _suggestionTimer = Timer(
+      const Duration(milliseconds: 250),
+      () => widget.controller.suggest(value),
+    );
+  }
+
+  void _submit(String value) {
+    _suggestionTimer?.cancel();
+    _searchFocus.unfocus();
+    setState(() => _showSuggestions = false);
+    widget.controller.discover(value);
   }
 
   @override
@@ -64,6 +96,7 @@ final class _MarketplaceExploreScreenState
           padding: const EdgeInsets.all(Planext4uSpacing.x4),
           child: SearchBar(
             controller: _search,
+            focusNode: _searchFocus,
             hintText: strings.searchLocal,
             leading: const Icon(Icons.search),
             trailing: [
@@ -71,14 +104,16 @@ final class _MarketplaceExploreScreenState
                 tooltip: 'Clear search',
                 onPressed: () {
                   _search.clear();
-                  widget.controller.discover();
+                  _submit('');
                 },
                 icon: const Icon(Icons.close),
               ),
             ],
-            onSubmitted: widget.controller.discover,
+            onChanged: _suggest,
+            onSubmitted: _submit,
           ),
         ),
+        if (_showSuggestions) _suggestions(state),
         if (state.categories.isNotEmpty)
           SizedBox(
             height: 48,
@@ -110,6 +145,73 @@ final class _MarketplaceExploreScreenState
           const SizedBox(height: Planext4uSpacing.x2),
         Expanded(child: _results(state)),
       ],
+    );
+  }
+
+  Widget _suggestions(MarketplaceState state) {
+    final recent = widget.controller.recentQueries;
+    if (state.suggesting && state.suggestions.isEmpty) {
+      return const LinearProgressIndicator();
+    }
+    if (state.suggestions.isEmpty && recent.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 280),
+      child: Card(
+        margin: const EdgeInsets.fromLTRB(
+          Planext4uSpacing.x4,
+          0,
+          Planext4uSpacing.x4,
+          Planext4uSpacing.x2,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (_search.text.trim().isEmpty && recent.isNotEmpty) ...[
+              ListTile(
+                title: const Text('Recent searches'),
+                trailing: TextButton(
+                  onPressed: widget.controller.clearRecentQueries,
+                  child: const Text('Clear'),
+                ),
+              ),
+              for (final query in recent)
+                ListTile(
+                  leading: const Icon(Icons.history),
+                  title: Text(query),
+                  onTap: () {
+                    _search.text = query;
+                    _submit(query);
+                  },
+                ),
+            ],
+            for (final suggestion in state.suggestions)
+              ListTile(
+                leading: Icon(switch (suggestion.type) {
+                  DiscoverySuggestionType.trending => Icons.trending_up,
+                  DiscoverySuggestionType.product =>
+                    Icons.shopping_bag_outlined,
+                  DiscoverySuggestionType.vendor => Icons.storefront_outlined,
+                  DiscoverySuggestionType.tag => Icons.tag,
+                }),
+                title: Text(suggestion.label),
+                subtitle: suggestion.subtitle == null
+                    ? null
+                    : Text(suggestion.subtitle!),
+                onTap: () {
+                  if (suggestion.itemId != null) {
+                    _searchFocus.unfocus();
+                    widget.onItemSelected(suggestion.itemId!);
+                  } else {
+                    _search.text = suggestion.label;
+                    _submit(suggestion.label);
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -151,9 +253,20 @@ final class _MarketplaceExploreScreenState
           Planext4uSpacing.x4,
           Planext4uSpacing.x6,
         ),
-        itemCount: state.results.length,
+        itemCount: state.results.length + (state.hasMore ? 1 : 0),
         separatorBuilder: (_, _) => const SizedBox(height: Planext4uSpacing.x3),
         itemBuilder: (context, index) {
+          if (index == state.results.length) {
+            return Center(
+              child: state.loadingMore
+                  ? const CircularProgressIndicator()
+                  : OutlinedButton.icon(
+                      onPressed: widget.controller.loadMore,
+                      icon: const Icon(Icons.expand_more),
+                      label: const Text('Load more'),
+                    ),
+            );
+          }
           final item = state.results[index];
           return Card(
             clipBehavior: Clip.antiAlias,
@@ -246,13 +359,6 @@ final class _ProductDetailScreenState extends State<ProductDetailScreen> {
         title: const Text('Product details'),
         backgroundColor: Planext4uColors.navy,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            tooltip: 'Add to favourites',
-            onPressed: () {},
-            icon: const Icon(Icons.favorite_border),
-          ),
-        ],
       ),
       body: item == null ? _productState(state) : _product(item, selected),
       bottomNavigationBar: item == null
@@ -311,16 +417,7 @@ final class _ProductDetailScreenState extends State<ProductDetailScreen> {
       child: ListView(
         padding: const EdgeInsets.only(bottom: Planext4uSpacing.x6),
         children: [
-          Container(
-            height: 260,
-            margin: const EdgeInsets.all(Planext4uSpacing.x4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE3F4F1),
-              borderRadius: BorderRadius.circular(Planext4uRadii.card),
-            ),
-            alignment: Alignment.center,
-            child: const Icon(Icons.shopping_bag_outlined, size: 88),
-          ),
+          _ProductMedia(item: item),
           Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: Planext4uSpacing.x4,
@@ -397,13 +494,13 @@ final class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.local_shipping_outlined),
-                    title: const Text('Delivery to Coimbatore'),
+                    title: const Text('Delivery estimate'),
                     subtitle: Text(
                       selected?.available == false
                           ? 'Currently unavailable'
-                          : 'In stock • Delivery tomorrow',
+                          : item.deliveryEstimate ??
+                                'Available delivery times appear at checkout.',
                     ),
-                    trailing: const Icon(Icons.chevron_right),
                   ),
                 ),
                 const SizedBox(height: Planext4uSpacing.x4),
@@ -425,11 +522,48 @@ final class _ProductDetailScreenState extends State<ProductDetailScreen> {
               children: [
                 _TabCopy(item.description ?? item.summary),
                 _Specifications(item.specifications),
-                _TabCopy('${item.reviewCount} verified customer reviews'),
-                const _TabCopy('Ask the local seller about this product.'),
+                _Reviews(item.reviews),
+                _Questions(item.questions, onAsk: () => _askQuestion(item)),
               ],
             ),
           ),
+          if (item.relatedItemIds.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(Planext4uSpacing.x4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Related local products',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x2),
+                  Wrap(
+                    spacing: Planext4uSpacing.x2,
+                    children: [
+                      for (final relatedId in item.relatedItemIds)
+                        ActionChip(
+                          avatar: const Icon(
+                            Icons.local_offer_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('View related item'),
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => ProductDetailScreen(
+                                itemId: relatedId,
+                                marketplace: widget.marketplace,
+                                cart: widget.cart,
+                                onViewCart: widget.onViewCart,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -452,6 +586,131 @@ final class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
     return added;
   }
+
+  Future<void> _askQuestion(CatalogItem item) async {
+    final controller = TextEditingController();
+    final question = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Ask the seller'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 500,
+          minLines: 2,
+          maxLines: 5,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Your question',
+            hintText: 'What would you like to know?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.length >= 5) Navigator.pop(dialogContext, value);
+            },
+            child: const Text('Submit question'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (question == null || !mounted) return;
+    try {
+      await widget.marketplace.askQuestion(item.id, question);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your question was sent to the seller.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Couldn’t send the question. Please try again.'),
+        ),
+      );
+    }
+  }
+}
+
+final class _ProductMedia extends StatelessWidget {
+  const _ProductMedia({required this.item});
+  final CatalogItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final candidates = {
+      if (item.mediaRef != null) item.mediaRef!,
+      ...item.mediaRefs,
+    }.where(_safeImageUrl).toList(growable: false);
+    return Container(
+      height: 260,
+      margin: const EdgeInsets.all(Planext4uSpacing.x4),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3F4F1),
+        borderRadius: BorderRadius.circular(Planext4uRadii.card),
+      ),
+      child: candidates.isEmpty
+          ? const Center(child: Icon(Icons.shopping_bag_outlined, size: 88))
+          : PageView(
+              children: [
+                for (final url in candidates)
+                  Semantics(
+                    label: '${item.name} product image',
+                    button: true,
+                    child: InkWell(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              _ZoomedProductImage(url: url, label: item.name),
+                        ),
+                      ),
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, _, _) => const Center(
+                          child: Icon(Icons.broken_image_outlined, size: 64),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+final class _ZoomedProductImage extends StatelessWidget {
+  const _ZoomedProductImage({required this.url, required this.label});
+  final String url;
+  final String label;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(label)),
+    body: InteractiveViewer(
+      minScale: 0.8,
+      maxScale: 5,
+      child: Center(
+        child: Image.network(
+          url,
+          errorBuilder: (_, _, _) =>
+              const Icon(Icons.broken_image_outlined, size: 64),
+        ),
+      ),
+    ),
+  );
+}
+
+bool _safeImageUrl(String value) {
+  final uri = Uri.tryParse(value);
+  return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty;
 }
 
 final class _TabCopy extends StatelessWidget {
@@ -480,6 +739,79 @@ final class _Specifications extends StatelessWidget {
                 trailing: Text(entry.value),
               ),
           ],
+  );
+}
+
+final class _Reviews extends StatelessWidget {
+  const _Reviews(this.values);
+  final List<CatalogReview> values;
+  @override
+  Widget build(BuildContext context) => values.isEmpty
+      ? const _TabCopy('No customer reviews yet.')
+      : ListView.builder(
+          padding: const EdgeInsets.all(Planext4uSpacing.x4),
+          itemCount: values.length,
+          itemBuilder: (context, index) {
+            final review = values[index];
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(child: Text('${review.score}★')),
+              title: Text(review.authorDisplayName),
+              subtitle: Text(
+                '${review.verifiedPurchase ? 'Verified purchase • ' : ''}'
+                '${review.body}',
+              ),
+            );
+          },
+        );
+}
+
+final class _Questions extends StatelessWidget {
+  const _Questions(this.values, {required this.onAsk});
+  final List<CatalogQuestion> values;
+  final VoidCallback onAsk;
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(
+          Planext4uSpacing.x4,
+          Planext4uSpacing.x2,
+          Planext4uSpacing.x4,
+          0,
+        ),
+        child: SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: onAsk,
+            icon: const Icon(Icons.help_outline),
+            label: const Text('Ask a question'),
+          ),
+        ),
+      ),
+      Expanded(
+        child: values.isEmpty
+            ? const _TabCopy('No customer questions yet.')
+            : ListView.builder(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Planext4uSpacing.x4,
+                ),
+                itemCount: values.length,
+                itemBuilder: (context, index) {
+                  final question = values[index];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('Q: ${question.question}'),
+                    subtitle: Text(
+                      question.answer == null
+                          ? 'Waiting for the seller’s answer'
+                          : 'A: ${question.answer}',
+                    ),
+                  );
+                },
+              ),
+      ),
+    ],
   );
 }
 

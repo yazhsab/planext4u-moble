@@ -60,6 +60,7 @@ MODES = {
   'Profile' => :release,
   'Release' => :release
 }.freeze
+IOS_DEPLOYMENT_TARGET = '15.0'
 
 def deep_copy(value)
   Marshal.load(Marshal.dump(value))
@@ -77,10 +78,49 @@ def write_xcconfig(app_dir, app_name, app, flavor_name, flavor, mode)
     DEEPLINK_HOST = #{flavor[:host]}
     DEEPLINK_SCHEME = planext4u-#{app_name}#{flavor[:scheme_suffix]}
     DEEPLINK_PATH_PREFIX = #{app[:path_prefix]}
+    APS_ENVIRONMENT = #{flavor_name == 'production' ? 'production' : 'development'}
     DART_DEFINES = $(inherited),#{dart_define}
   CONFIG
   path = File.join(app_dir, 'ios', 'Flutter', "#{mode}-#{flavor_name}.xcconfig")
   File.write(path, contents)
+end
+
+def preserve_flutter_scheme_configuration(scheme_path, runner_uuid, prepare_framework:)
+  contents = File.read(scheme_path)
+  marker = '      customLLDBInitFile = "$(SRCROOT)/Flutter/ephemeral/flutter_lldbinit"'
+  contents = contents.gsub(
+    /(selectedLauncherIdentifier = "Xcode\.DebuggerFoundation\.Launcher\.LLDB"\n)(      (?:shouldUseLaunchSchemeArgsEnv|launchStyle) = )/,
+    "\\1#{marker}\n\\2"
+  )
+  if prepare_framework
+    contents = contents.gsub(
+      /^[ \t]*<PreActions>\n.*?Run Prepare Flutter Framework Script.*?^[ \t]*<\/PreActions>\n/m,
+      ''
+    )
+    pre_action = <<~XML.chomp
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Run Prepare Flutter Framework Script"
+               scriptText = "/bin/sh &quot;$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh&quot; prepare&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "#{runner_uuid}"
+                     BuildableName = "Runner.app"
+                     BlueprintName = "Runner"
+                     ReferencedContainer = "container:Runner.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
+    XML
+    pre_action = pre_action.lines.map { |line| "      #{line}" }.join.chomp
+    contents = contents.sub(/(<BuildAction\n(?:[^>]*\n)*?[^>]*>\n)/, "\\1#{pre_action}\n")
+  end
+  File.write(scheme_path, contents)
 end
 
 APPS.each do |app_name, app|
@@ -91,6 +131,15 @@ APPS.each do |app_name, app|
   runner_tests = project.targets.find { |target| target.name == 'RunnerTests' }
   raise "Runner target missing in #{project_path}" unless runner
   raise "RunnerTests target missing in #{project_path}" unless runner_tests
+
+  project.build_configurations.each do |configuration|
+    configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
+  end
+  [runner, runner_tests].each do |target|
+    target.build_configurations.each do |configuration|
+      configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
+    end
+  end
 
   flutter_group = project.main_group.find_subpath('Flutter', true)
 
@@ -115,9 +164,11 @@ APPS.each do |app_name, app|
 
       project_config = project.add_build_configuration(configuration_name, type)
       project_config.build_settings = deep_copy(source_project_config.build_settings)
+      project_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
 
       target_config = runner.add_build_configuration(configuration_name, type)
       target_config.build_settings = deep_copy(source_target_config.build_settings)
+      target_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
       target_config.base_configuration_reference = file_reference
       target_config.build_settings['APP_DISPLAY_NAME'] = "#{app[:display_name]}#{flavor[:display_suffix]}"
       target_config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Runner/Runner.entitlements'
@@ -125,9 +176,11 @@ APPS.each do |app_name, app|
       target_config.build_settings['DEEPLINK_PATH_PREFIX'] = app[:path_prefix]
       target_config.build_settings['DEEPLINK_SCHEME'] = "planext4u-#{app_name}#{flavor[:scheme_suffix]}"
       target_config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = "#{app[:bundle_id]}#{flavor[:identifier_suffix]}"
+      target_config.build_settings['APS_ENVIRONMENT'] = flavor_name == 'production' ? 'production' : 'development'
 
       test_config = runner_tests.add_build_configuration(configuration_name, type)
       test_config.build_settings = deep_copy(source_test_config.build_settings)
+      test_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = IOS_DEPLOYMENT_TARGET
       test_config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = "#{app[:bundle_id]}#{flavor[:identifier_suffix]}.RunnerTests"
       test_config.build_settings['SWIFT_VERSION'] = '5.0'
     end
@@ -142,6 +195,20 @@ APPS.each do |app_name, app|
     scheme.analyze_action.build_configuration = "Debug-#{flavor_name}"
     scheme.archive_action.build_configuration = "Release-#{flavor_name}"
     scheme.save_as(project_path, flavor_name, true)
+    preserve_flutter_scheme_configuration(
+      File.join(project_path, 'xcshareddata', 'xcschemes', "#{flavor_name}.xcscheme"),
+      runner.uuid,
+      prepare_framework: app_name == 'customer'
+    )
+  end
+
+  runner_scheme_path = File.join(project_path, 'xcshareddata', 'xcschemes', 'Runner.xcscheme')
+  if app_name == 'customer' && File.exist?(runner_scheme_path)
+    preserve_flutter_scheme_configuration(
+      runner_scheme_path,
+      runner.uuid,
+      prepare_framework: true
+    )
   end
 
   project.save

@@ -61,6 +61,11 @@ void main() {
     await tester.tap(find.text('Points'));
     await tester.pumpAndSettle();
     expect(find.text('24000'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('WELCOME REWARD'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('WELCOME REWARD'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -85,6 +90,38 @@ void main() {
     await tester.pumpAndSettle();
     expect(launcher.payment?.id, remote.paymentValue.id);
     expect(find.text('Check payment status'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wallet exposes referral, refill and reward campaign actions', (
+    tester,
+  ) async {
+    final launcher = _RecordingPaymentLauncher();
+    final remote = _FixtureTransactionRemote();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CustomerActivityScreen(
+            controller: TransactionController(remote: remote),
+            paymentLauncher: launcher,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Points'));
+    await tester.pumpAndSettle();
+    expect(find.text('Invite and earn'), findsOneWidget);
+    expect(find.text('First local order'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Refill'),
+      250,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Refill'));
+    await tester.pumpAndSettle();
+    expect(remote.refillOfferID, 'refill-5000');
+    expect(launcher.payment?.id, remote.paymentValue.id);
     expect(tester.takeException(), isNull);
   });
 
@@ -153,8 +190,25 @@ final class _FixtureTransactionRemote implements TransactionRemote {
   late final WalletAccount walletValue = WalletAccount.fromJson(
     _fixture('wallet.fixture.json'),
   );
+  String? refillOfferID;
   @override
   Future<List<CustomerAddress>> addresses() async => [quoteValue.address];
+  @override
+  Future<CustomerAddress> createAddress(
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => quoteValue.address;
+  @override
+  Future<CustomerAddress> updateAddress(
+    CustomerAddress current,
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => current;
+  @override
+  Future<void> deleteAddress(
+    CustomerAddress value, {
+    String? idempotencyKey,
+  }) async {}
   @override
   Future<List<CustomerDeliverySlot>> deliverySlots() async => [
     quoteValue.delivery,
@@ -181,11 +235,68 @@ final class _FixtureTransactionRemote implements TransactionRemote {
   @override
   Future<CustomerPayment> payment(String id) async => paymentValue;
   @override
+  Future<CustomerPayment> retryPayment(
+    String id, {
+    String? idempotencyKey,
+  }) async => paymentValue;
+  @override
   Future<List<CustomerOrder>> orders() async => [orderValue];
   @override
   Future<CustomerOrder> order(String id) async => orderValue;
   @override
   Future<WalletAccount> wallet() async => walletValue;
+  @override
+  Future<WalletExperience> walletExperience() async => WalletExperience(
+    account: walletValue,
+    referral: const ReferralProfile(
+      code: 'P4UTEST001',
+      shareUrl: 'https://planext4u.net/referral/P4UTEST001',
+      senderPoints: 500,
+      recipientPoints: 250,
+      rewarded: false,
+    ),
+    refills: const [
+      WalletRefillOffer(
+        id: 'refill-5000',
+        country: 'IN',
+        points: 5000,
+        bonusPoints: 250,
+        price: CatalogMoney(amountMinor: 50000, currency: 'INR'),
+        paymentMethods: [CustomerPaymentMethod.razorpay],
+      ),
+    ],
+    campaigns: [
+      RewardCampaign(
+        id: 'first-order',
+        title: 'First local order',
+        description: 'Complete an eligible paid local order.',
+        points: 100,
+        endsAt: DateTime.utc(2026, 12, 31),
+      ),
+    ],
+  );
+  @override
+  Future<ReferralProfile> applyReferral(String code) async => ReferralProfile(
+    code: 'P4UTEST001',
+    shareUrl: 'https://planext4u.net/referral/P4UTEST001',
+    senderPoints: 500,
+    recipientPoints: 250,
+    pendingCode: code,
+    rewarded: false,
+  );
+  @override
+  Future<WalletRefillResult> createWalletRefill({
+    required String offerId,
+    required CustomerPaymentMethod method,
+  }) async {
+    refillOfferID = offerId;
+    final experience = await walletExperience();
+    return WalletRefillResult(
+      offer: experience.refills.single,
+      payment: paymentValue,
+    );
+  }
+
   @override
   Future<CustomerOrder> cancel({
     required CustomerOrder order,

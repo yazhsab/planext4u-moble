@@ -6,4 +6,5 @@ PRODUCT_BUNDLE_IDENTIFIER = net.planext4u.vendor
 DEEPLINK_HOST = planext4u.net
 DEEPLINK_SCHEME = planext4u-vendor
 DEEPLINK_PATH_PREFIX = /vendor
+APS_ENVIRONMENT = production
 DART_DEFINES = $(inherited),QVBQX0VOVj1wcm9kdWN0aW9u

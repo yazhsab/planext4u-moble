@@ -16,11 +16,12 @@ The administrator console is planned as a separately deployable web workspace un
 ## Current status
 
 Phase 1 product archaeology and Phase 2 platform engineering are complete.
-Phase 3 customer commerce engineering now covers filtered discovery, product
-detail, server-authoritative cart and checkout, safe payment recovery, orders,
-returns/ratings and the reconciled points ledger against backend commit
-`ab3304e`. Cloud staging and live payment-provider activation remain controlled
-release gates, not client-side configuration.
+The complete Phase 3 customer-commerce source backlog now covers FTUX and
+location, discovery, PDP/reviews/Q&A, server-authoritative cart and checkout,
+native Razorpay/Paystack/COD handoff and recovery, orders/returns/ratings,
+wallet/referrals/refills/rewards, and FCM device registration/deep links against
+backend commit `e78941b`. Cloud staging and live provider credentials remain
+controlled deployment gates, not client-side configuration.
 
 The workspace contains the three role-specific Flutter applications and shared
 configuration, core, identity, secure storage, experience, API, observability
@@ -30,7 +31,8 @@ Lovable proof-of-concept source.
 ## Local development
 
 Prerequisites: Flutter 3.41.4 or newer on the stable channel and Dart 3.11.1 or
-newer.
+newer. The iOS deployment target is 15.0 because the Phase 3 Firebase and
+Paystack native SDKs require it.
 
 ```sh
 dart pub get

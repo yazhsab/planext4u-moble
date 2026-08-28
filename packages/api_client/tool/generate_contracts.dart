@@ -4,13 +4,14 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = 'ab3304e';
+const _sourceCommit = 'e78941b';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
 const _commerceContractPath = 'api/openapi/commerce.openapi.json';
 const _commerceFixturePath = 'api/fixtures/commerce_cart.json';
 const _transactionContractPath = 'api/openapi/transaction.openapi.json';
+const _notificationContractPath = 'api/openapi/notification.openapi.json';
 const _checkoutQuoteFixturePath = 'api/fixtures/checkout_quote.json';
 const _paymentFixturePath = 'api/fixtures/payment.json';
 const _orderFixturePath = 'api/fixtures/order.json';
@@ -27,6 +28,7 @@ void main(List<String> arguments) {
     '--commerce-fixture-from=',
   );
   final transactionFrom = _argumentValue(arguments, '--transaction-from=');
+  final notificationFrom = _argumentValue(arguments, '--notification-from=');
   final checkoutQuoteFrom = _argumentValue(arguments, '--checkout-quote-from=');
   final paymentFrom = _argumentValue(arguments, '--payment-from=');
   final orderFrom = _argumentValue(arguments, '--order-from=');
@@ -38,6 +40,7 @@ void main(List<String> arguments) {
     commerceFrom,
     commerceFixtureFrom,
     transactionFrom,
+    notificationFrom,
     checkoutQuoteFrom,
     paymentFrom,
     orderFrom,
@@ -75,6 +78,9 @@ void main(List<String> arguments) {
   final transactionFile = File(
     '${packageRoot.path}/contracts/transaction.openapi.json',
   );
+  final notificationFile = File(
+    '${packageRoot.path}/contracts/notification.openapi.json',
+  );
   final checkoutQuoteFile = File(
     '${packageRoot.path}/contracts/checkout_quote.fixture.json',
   );
@@ -94,6 +100,9 @@ void main(List<String> arguments) {
       File(commerceFixtureFrom!).readAsBytesSync(),
     );
     transactionFile.writeAsBytesSync(File(transactionFrom!).readAsBytesSync());
+    notificationFile.writeAsBytesSync(
+      File(notificationFrom!).readAsBytesSync(),
+    );
     checkoutQuoteFile.writeAsBytesSync(
       File(checkoutQuoteFrom!).readAsBytesSync(),
     );
@@ -107,6 +116,7 @@ void main(List<String> arguments) {
       !commerceFile.existsSync() ||
       !commerceFixtureFile.existsSync() ||
       !transactionFile.existsSync() ||
+      !notificationFile.existsSync() ||
       !checkoutQuoteFile.existsSync() ||
       !paymentFile.existsSync() ||
       !orderFile.existsSync() ||
@@ -122,6 +132,7 @@ void main(List<String> arguments) {
   final commerceBytes = commerceFile.readAsBytesSync();
   final commerceFixtureBytes = commerceFixtureFile.readAsBytesSync();
   final transactionBytes = transactionFile.readAsBytesSync();
+  final notificationBytes = notificationFile.readAsBytesSync();
   final checkoutQuoteBytes = checkoutQuoteFile.readAsBytesSync();
   final paymentBytes = paymentFile.readAsBytesSync();
   final orderBytes = orderFile.readAsBytesSync();
@@ -137,6 +148,10 @@ void main(List<String> arguments) {
   final transaction = _decodeObject(
     transactionBytes,
     'transaction OpenAPI contract',
+  );
+  final notification = _decodeObject(
+    notificationBytes,
+    'notification OpenAPI contract',
   );
   final checkoutQuote = _decodeObject(
     checkoutQuoteBytes,
@@ -155,6 +170,7 @@ void main(List<String> arguments) {
     order,
     wallet,
   );
+  _validateNotificationContract(notification);
 
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
@@ -162,6 +178,7 @@ void main(List<String> arguments) {
   final commerceHash = sha256.convert(commerceBytes).toString();
   final commerceFixtureHash = sha256.convert(commerceFixtureBytes).toString();
   final transactionHash = sha256.convert(transactionBytes).toString();
+  final notificationHash = sha256.convert(notificationBytes).toString();
   final checkoutQuoteHash = sha256.convert(checkoutQuoteBytes).toString();
   final paymentHash = sha256.convert(paymentBytes).toString();
   final orderHash = sha256.convert(orderBytes).toString();
@@ -181,6 +198,8 @@ void main(List<String> arguments) {
     'commerce_fixture_sha256': commerceFixtureHash,
     'transaction_contract_path': _transactionContractPath,
     'transaction_contract_sha256': transactionHash,
+    'notification_contract_path': _notificationContractPath,
+    'notification_contract_sha256': notificationHash,
     'checkout_quote_fixture_path': _checkoutQuoteFixturePath,
     'checkout_quote_fixture_sha256': checkoutQuoteHash,
     'payment_fixture_path': _paymentFixturePath,
@@ -252,6 +271,9 @@ void _validateTransactionContracts(
     '/v1/checkout/orders',
     '/v1/orders',
     '/v1/wallet',
+    '/v1/wallet/experience',
+    '/v1/wallet/referrals',
+    '/v1/wallet/refills',
   };
   if (contract['openapi'] != '3.1.0' ||
       paths == null ||
@@ -264,6 +286,15 @@ void _validateTransactionContracts(
       order['timeline'] is! List ||
       wallet['entries'] is! List) {
     throw const FormatException('Transaction fixtures are incomplete.');
+  }
+}
+
+void _validateNotificationContract(Map<String, Object?> contract) {
+  final paths = contract['paths'] as Map<String, Object?>?;
+  if (contract['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.containsKey('/v1/notifications/devices/current')) {
+    throw const FormatException('Notification contract is incomplete.');
   }
 }
 
@@ -355,6 +386,7 @@ void _validateMarketplaceContracts(
   if (catalogPaths == null ||
       !catalogPaths.containsKey('/v1/catalog/search') ||
       !catalogPaths.containsKey('/v1/catalog/items/{item_id}') ||
+      !catalogPaths.containsKey('/v1/catalog/items/{item_id}/questions') ||
       !hasCategoryFilter) {
     throw const FormatException(
       'Catalog contract is missing filtered search or PDP.',

@@ -101,6 +101,7 @@ final class CatalogItem {
     required this.price,
     required this.available,
     this.mediaRef,
+    this.mediaRefs = const [],
     this.sellerName,
     this.verifiedLocalSeller = false,
     this.description,
@@ -108,6 +109,10 @@ final class CatalogItem {
     this.ratingAverage,
     this.reviewCount = 0,
     this.variants = const [],
+    this.deliveryEstimate,
+    this.reviews = const [],
+    this.questions = const [],
+    this.relatedItemIds = const [],
   });
 
   factory CatalogItem.fromJson(Object? value) {
@@ -118,6 +123,9 @@ final class CatalogItem {
       name: _string(json, 'name'),
       summary: _string(json, 'summary'),
       mediaRef: json['media_ref'] as String?,
+      mediaRefs: List<String>.unmodifiable(
+        (json['media_refs'] as List<Object?>? ?? const []).cast<String>(),
+      ),
       price: CatalogMoney.fromJson(json['price']),
       available: _boolean(json, 'available'),
       sellerName: json['seller_name'] as String?,
@@ -131,6 +139,20 @@ final class CatalogItem {
           CatalogVariant.fromJson,
         ),
       ),
+      deliveryEstimate: json['delivery_estimate'] as String?,
+      reviews: List<CatalogReview>.unmodifiable(
+        (json['reviews'] as List<Object?>? ?? const []).map(
+          CatalogReview.fromJson,
+        ),
+      ),
+      questions: List<CatalogQuestion>.unmodifiable(
+        (json['questions'] as List<Object?>? ?? const []).map(
+          CatalogQuestion.fromJson,
+        ),
+      ),
+      relatedItemIds: List<String>.unmodifiable(
+        (json['related_item_ids'] as List<Object?>? ?? const []).cast<String>(),
+      ),
     );
   }
 
@@ -139,6 +161,7 @@ final class CatalogItem {
   final String name;
   final String summary;
   final String? mediaRef;
+  final List<String> mediaRefs;
   final CatalogMoney price;
   final bool available;
   final String? sellerName;
@@ -148,6 +171,79 @@ final class CatalogItem {
   final double? ratingAverage;
   final int reviewCount;
   final List<CatalogVariant> variants;
+  final String? deliveryEstimate;
+  final List<CatalogReview> reviews;
+  final List<CatalogQuestion> questions;
+  final List<String> relatedItemIds;
+}
+
+final class CatalogReview {
+  const CatalogReview({
+    required this.id,
+    required this.authorDisplayName,
+    required this.score,
+    required this.body,
+    required this.verifiedPurchase,
+    required this.createdAt,
+  });
+
+  factory CatalogReview.fromJson(Object? value) {
+    final json = _object(value, 'catalog review');
+    final score = _integer(json, 'score');
+    if (score < 1 || score > 5) {
+      throw const FormatException('Review score is invalid.');
+    }
+    return CatalogReview(
+      id: _string(json, 'id'),
+      authorDisplayName: _string(json, 'author_display_name'),
+      score: score,
+      body: _string(json, 'body'),
+      verifiedPurchase: _boolean(json, 'verified_purchase'),
+      createdAt: _instant(json, 'created_at'),
+    );
+  }
+
+  final String id;
+  final String authorDisplayName;
+  final int score;
+  final String body;
+  final bool verifiedPurchase;
+  final DateTime createdAt;
+}
+
+final class CatalogQuestion {
+  const CatalogQuestion({
+    required this.id,
+    required this.question,
+    required this.askedBy,
+    required this.askedAt,
+    this.answer,
+    this.answeredBy,
+    this.answeredAt,
+  });
+
+  factory CatalogQuestion.fromJson(Object? value) {
+    final json = _object(value, 'catalog question');
+    return CatalogQuestion(
+      id: _string(json, 'id'),
+      question: _string(json, 'question'),
+      askedBy: _string(json, 'asked_by'),
+      askedAt: _instant(json, 'asked_at'),
+      answer: json['answer'] as String?,
+      answeredBy: json['answered_by'] as String?,
+      answeredAt: json['answered_at'] == null
+          ? null
+          : _instant(json, 'answered_at'),
+    );
+  }
+
+  final String id;
+  final String question;
+  final String askedBy;
+  final DateTime askedAt;
+  final String? answer;
+  final String? answeredBy;
+  final DateTime? answeredAt;
 }
 
 final class CatalogPage<T> {
@@ -170,6 +266,9 @@ final class CustomerHomeProjection {
   const CustomerHomeProjection({
     required this.categories,
     required this.featuredItems,
+    this.recommendations = const [],
+    this.leaderboard = const [],
+    this.helpShortcuts = const [],
     required this.projectionStatus,
     required this.generatedAt,
   });
@@ -183,6 +282,21 @@ final class CustomerHomeProjection {
       featuredItems: List<CatalogItem>.unmodifiable(
         _list(json, 'featured_items').map(CatalogItem.fromJson),
       ),
+      recommendations: List<CatalogItem>.unmodifiable(
+        (json['recommendations'] as List<Object?>? ?? const []).map(
+          CatalogItem.fromJson,
+        ),
+      ),
+      leaderboard: List<CatalogSellerLeader>.unmodifiable(
+        (json['leaderboard'] as List<Object?>? ?? const []).map(
+          CatalogSellerLeader.fromJson,
+        ),
+      ),
+      helpShortcuts: List<CustomerHelpShortcut>.unmodifiable(
+        (json['help_shortcuts'] as List<Object?>? ?? const []).map(
+          CustomerHelpShortcut.fromJson,
+        ),
+      ),
       projectionStatus: _projection(json['projection_status']),
       generatedAt: _instant(json, 'generated_at'),
     );
@@ -190,8 +304,99 @@ final class CustomerHomeProjection {
 
   final List<CatalogCategory> categories;
   final List<CatalogItem> featuredItems;
+  final List<CatalogItem> recommendations;
+  final List<CatalogSellerLeader> leaderboard;
+  final List<CustomerHelpShortcut> helpShortcuts;
   final ProjectionStatus projectionStatus;
   final DateTime generatedAt;
+}
+
+final class CatalogSellerLeader {
+  const CatalogSellerLeader({
+    required this.sellerName,
+    required this.verified,
+    required this.ratingAverage,
+    required this.reviewCount,
+  });
+
+  factory CatalogSellerLeader.fromJson(Object? value) {
+    final json = _object(value, 'seller leader');
+    return CatalogSellerLeader(
+      sellerName: _string(json, 'seller_name'),
+      verified: _boolean(json, 'verified'),
+      ratingAverage: _optionalNumber(json['rating_average']) ?? 0,
+      reviewCount: _integer(json, 'review_count'),
+    );
+  }
+
+  final String sellerName;
+  final bool verified;
+  final double ratingAverage;
+  final int reviewCount;
+}
+
+final class CustomerHelpShortcut {
+  const CustomerHelpShortcut({
+    required this.id,
+    required this.title,
+    required this.route,
+  });
+
+  factory CustomerHelpShortcut.fromJson(Object? value) {
+    final json = _object(value, 'help shortcut');
+    final route = _string(json, 'route');
+    if (!route.startsWith('/app/')) {
+      throw const FormatException('Help route is invalid.');
+    }
+    return CustomerHelpShortcut(
+      id: _string(json, 'id'),
+      title: _string(json, 'title'),
+      route: route,
+    );
+  }
+
+  final String id;
+  final String title;
+  final String route;
+}
+
+enum DiscoverySuggestionType { trending, product, vendor, tag }
+
+final class DiscoverySuggestion {
+  const DiscoverySuggestion({
+    required this.type,
+    required this.id,
+    required this.label,
+    this.subtitle,
+    this.itemId,
+  });
+
+  factory DiscoverySuggestion.fromJson(Object? value) {
+    final json = _object(value, 'discovery suggestion');
+    return DiscoverySuggestion(
+      type: switch (_string(json, 'type')) {
+        'TRENDING' => DiscoverySuggestionType.trending,
+        'PRODUCT' => DiscoverySuggestionType.product,
+        'VENDOR' => DiscoverySuggestionType.vendor,
+        'TAG' => DiscoverySuggestionType.tag,
+        _ => throw const FormatException('Suggestion type is invalid.'),
+      },
+      id: _string(json, 'id'),
+      label: _string(json, 'label'),
+      subtitle: json['subtitle'] as String?,
+      itemId: json['item_id'] as String?,
+    );
+  }
+
+  final DiscoverySuggestionType type;
+  final String id;
+  final String label;
+  final String? subtitle;
+  final String? itemId;
+}
+
+abstract interface class DiscoverySuggestionRemote {
+  Future<List<DiscoverySuggestion>> suggestions(String query);
 }
 
 abstract interface class CatalogRemote {
@@ -211,7 +416,15 @@ abstract interface class CatalogRemote {
   Future<CatalogItem> item(String id);
 }
 
-final class CatalogApi implements CatalogRemote {
+abstract interface class CatalogQuestionRemote {
+  Future<CatalogQuestion> askQuestion({
+    required String itemId,
+    required String question,
+  });
+}
+
+final class CatalogApi
+    implements CatalogRemote, DiscoverySuggestionRemote, CatalogQuestionRemote {
   const CatalogApi(this._client);
   final ApiClient _client;
 
@@ -277,6 +490,38 @@ final class CatalogApi implements CatalogRemote {
     ),
     CatalogItem.fromJson,
   )).value;
+
+  @override
+  Future<CatalogQuestion> askQuestion({
+    required String itemId,
+    required String question,
+  }) async => (await _client.send(
+    ApiRequest.command(
+      operation: 'catalog.ask_question',
+      method: 'POST',
+      path: '/v1/catalog/items/${Uri.encodeComponent(itemId)}/questions',
+      body: {'question': question.trim()},
+    ),
+    CatalogQuestion.fromJson,
+  )).value;
+
+  @override
+  Future<List<DiscoverySuggestion>> suggestions(String query) async =>
+      (await _client.send(
+        ApiRequest.get(
+          operation: 'catalog.suggestions',
+          path: '/v1/catalog/suggestions',
+          query: {
+            'q': [query.trim()],
+          },
+        ),
+        (json) {
+          final object = _object(json, 'suggestion page');
+          return List<DiscoverySuggestion>.unmodifiable(
+            _list(object, 'items').map(DiscoverySuggestion.fromJson),
+          );
+        },
+      )).value;
 }
 
 CatalogPage<T> _page<T>(Object? value, T Function(Object?) decode) {

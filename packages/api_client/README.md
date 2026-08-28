@@ -37,7 +37,13 @@ dart run packages/api_client/tool/generate_contracts.dart \
   --fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/problem.json \
   --catalog-from=/absolute/path/to/planext4u-backend/api/openapi/catalog.openapi.json \
   --commerce-from=/absolute/path/to/planext4u-backend/api/openapi/commerce.openapi.json \
-  --commerce-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/commerce_cart.json
+  --commerce-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/commerce_cart.json \
+  --transaction-from=/absolute/path/to/planext4u-backend/api/openapi/transaction.openapi.json \
+  --notification-from=/absolute/path/to/planext4u-backend/api/openapi/notification.openapi.json \
+  --checkout-quote-from=/absolute/path/to/planext4u-backend/api/fixtures/checkout_quote.json \
+  --payment-from=/absolute/path/to/planext4u-backend/api/fixtures/payment.json \
+  --order-from=/absolute/path/to/planext4u-backend/api/fixtures/order.json \
+  --wallet-from=/absolute/path/to/planext4u-backend/api/fixtures/wallet.json
 ```
 
 Do not hand-edit `lib/src/generated/*.g.dart`. CI and the root verification gate

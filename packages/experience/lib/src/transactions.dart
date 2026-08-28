@@ -10,6 +10,13 @@ final class CustomerAddress {
     required this.label,
     required this.postalCode,
     required this.locality,
+    this.line1 = '',
+    this.line2 = '',
+    this.latitude,
+    this.longitude,
+    this.serviceable = true,
+    this.isDefault = false,
+    this.revision = 1,
   });
   factory CustomerAddress.fromJson(Object? value) {
     final json = _txObject(value, 'address');
@@ -18,12 +25,57 @@ final class CustomerAddress {
       label: _txString(json, 'label'),
       postalCode: _txString(json, 'postal_code'),
       locality: _txString(json, 'locality'),
+      line1: json['line1'] as String? ?? '',
+      line2: json['line2'] as String? ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+      serviceable: json['serviceable'] as bool? ?? true,
+      isDefault: json['default'] as bool? ?? false,
+      revision: json['revision'] as int? ?? 1,
     );
   }
   final String id;
   final String label;
   final String postalCode;
   final String locality;
+  final String line1;
+  final String line2;
+  final double? latitude;
+  final double? longitude;
+  final bool serviceable;
+  final bool isDefault;
+  final int revision;
+}
+
+final class CustomerAddressDraft {
+  const CustomerAddressDraft({
+    required this.label,
+    required this.line1,
+    required this.postalCode,
+    required this.locality,
+    this.line2 = '',
+    this.latitude,
+    this.longitude,
+    this.isDefault = false,
+  });
+  final String label;
+  final String line1;
+  final String line2;
+  final String postalCode;
+  final String locality;
+  final double? latitude;
+  final double? longitude;
+  final bool isDefault;
+  Map<String, Object?> toJson() => {
+    'label': label.trim(),
+    'line1': line1.trim(),
+    if (line2.trim().isNotEmpty) 'line2': line2.trim(),
+    'postal_code': postalCode.trim(),
+    'locality': locality.trim(),
+    if (latitude != null) 'latitude': latitude,
+    if (longitude != null) 'longitude': longitude,
+    'default': isDefault,
+  };
 }
 
 final class CustomerDeliverySlot {
@@ -171,6 +223,9 @@ final class CustomerPayment {
     required this.allowedActions,
     required this.updatedAt,
     this.providerReference,
+    this.providerTransactionReference,
+    this.providerRefundReference,
+    this.clientHandoff,
   });
   factory CustomerPayment.fromJson(Object? value) {
     final json = _txObject(value, 'payment');
@@ -181,6 +236,12 @@ final class CustomerPayment {
       status: _txString(json, 'status'),
       amount: CatalogMoney.fromJson(json['amount']),
       providerReference: json['provider_reference'] as String?,
+      providerTransactionReference:
+          json['provider_transaction_reference'] as String?,
+      providerRefundReference: json['provider_refund_reference'] as String?,
+      clientHandoff: json['client_handoff'] == null
+          ? null
+          : PaymentClientHandoff.fromJson(json['client_handoff']),
       allowedActions: Set.unmodifiable(
         _txList(json, 'allowed_actions').cast<String>(),
       ),
@@ -193,6 +254,9 @@ final class CustomerPayment {
   final String status;
   final CatalogMoney amount;
   final String? providerReference;
+  final String? providerTransactionReference;
+  final String? providerRefundReference;
+  final PaymentClientHandoff? clientHandoff;
   final Set<String> allowedActions;
   final DateTime updatedAt;
   bool get pending => const {
@@ -201,6 +265,61 @@ final class CustomerPayment {
     'AUTHORISED',
     'FAILED_RETRYABLE',
   }.contains(status);
+}
+
+final class PaymentClientHandoff {
+  const PaymentClientHandoff({
+    required this.type,
+    required this.publicKey,
+    this.providerOrderId,
+    this.accessCode,
+    this.authorizationUrl,
+  });
+
+  factory PaymentClientHandoff.fromJson(Object? value) {
+    final json = _txObject(value, 'payment client handoff');
+    final type = _txString(json, 'type');
+    final publicKey = _txString(json, 'public_key');
+    final handoff = PaymentClientHandoff(
+      type: type,
+      publicKey: publicKey,
+      providerOrderId: json['provider_order_id'] as String?,
+      accessCode: json['access_code'] as String?,
+      authorizationUrl: json['authorization_url'] == null
+          ? null
+          : Uri.tryParse(json['authorization_url']! as String),
+    );
+    if (!handoff.isValid) {
+      throw const FormatException('Payment client handoff is invalid.');
+    }
+    return handoff;
+  }
+
+  final String type;
+  final String publicKey;
+  final String? providerOrderId;
+  final String? accessCode;
+  final Uri? authorizationUrl;
+
+  bool get isValid {
+    if (type == 'RAZORPAY_CHECKOUT') {
+      return publicKey.startsWith('rzp_') &&
+          providerOrderId != null &&
+          providerOrderId!.isNotEmpty &&
+          accessCode == null &&
+          authorizationUrl == null;
+    }
+    if (type == 'PAYSTACK_CHECKOUT') {
+      return publicKey.startsWith('pk_') &&
+          accessCode != null &&
+          accessCode!.isNotEmpty &&
+          authorizationUrl != null &&
+          authorizationUrl!.scheme == 'https' &&
+          authorizationUrl!.host == 'checkout.paystack.com' &&
+          providerOrderId == null;
+    }
+    return false;
+  }
 }
 
 final class OrderTimelineEvent {
@@ -232,11 +351,15 @@ final class CustomerOrder {
     required this.status,
     required this.total,
     required this.paymentMethod,
+    required this.lines,
+    required this.deliveryWindowStart,
+    required this.deliveryWindowEnd,
     required this.allowedActions,
     required this.timeline,
     required this.createdAt,
     this.returnState,
     this.rating,
+    this.proof,
   });
   factory CustomerOrder.fromJson(Object? value) {
     final json = _txObject(value, 'order');
@@ -249,6 +372,17 @@ final class CustomerOrder {
       status: _txString(json, 'status'),
       total: CatalogMoney.fromJson(snapshot['total']),
       paymentMethod: _paymentMethod(snapshot['payment_method']),
+      lines: List<CustomerOrderLine>.unmodifiable(
+        _txList(snapshot, 'lines').map(CustomerOrderLine.fromJson),
+      ),
+      deliveryWindowStart: _txInstant(
+        _txObject(snapshot['delivery'], 'order delivery'),
+        'window_start',
+      ),
+      deliveryWindowEnd: _txInstant(
+        _txObject(snapshot['delivery'], 'order delivery'),
+        'window_end',
+      ),
       allowedActions: Set.unmodifiable(
         _txList(json, 'allowed_actions').cast<String>(),
       ),
@@ -262,6 +396,9 @@ final class CustomerOrder {
       rating: ratingValue is Map<String, Object?>
           ? ratingValue['score'] as int?
           : null,
+      proof: json['proof'] == null
+          ? null
+          : CustomerDeliveryProof.fromJson(json['proof']),
     );
   }
   final String id;
@@ -269,11 +406,75 @@ final class CustomerOrder {
   final String status;
   final CatalogMoney total;
   final CustomerPaymentMethod paymentMethod;
+  final List<CustomerOrderLine> lines;
+  final DateTime deliveryWindowStart;
+  final DateTime deliveryWindowEnd;
   final Set<String> allowedActions;
   final List<OrderTimelineEvent> timeline;
   final DateTime createdAt;
   final String? returnState;
   final int? rating;
+  final CustomerDeliveryProof? proof;
+}
+
+final class CustomerOrderLine {
+  const CustomerOrderLine({
+    required this.variantId,
+    required this.itemName,
+    required this.variantName,
+    required this.quantity,
+    required this.lineTotal,
+  });
+
+  factory CustomerOrderLine.fromJson(Object? value) {
+    final json = _txObject(value, 'order line');
+    final quantity = _txInteger(json, 'quantity');
+    if (quantity < 1) {
+      throw const FormatException('Order line quantity is invalid.');
+    }
+    return CustomerOrderLine(
+      variantId: _txString(json, 'variant_id'),
+      itemName: _txString(json, 'item_name'),
+      variantName: _txString(json, 'variant_name'),
+      quantity: quantity,
+      lineTotal: CatalogMoney.fromJson(json['line_total']),
+    );
+  }
+
+  final String variantId;
+  final String itemName;
+  final String variantName;
+  final int quantity;
+  final CatalogMoney lineTotal;
+}
+
+final class CustomerDeliveryProof {
+  const CustomerDeliveryProof({
+    required this.policyVersion,
+    required this.otpVerified,
+    this.photoAssetId,
+    this.recipientName,
+    this.signedAt,
+  });
+
+  factory CustomerDeliveryProof.fromJson(Object? value) {
+    final json = _txObject(value, 'delivery proof');
+    return CustomerDeliveryProof(
+      policyVersion: _txString(json, 'policy_version'),
+      otpVerified: json['otp_verified'] as bool? ?? false,
+      photoAssetId: json['photo_asset_id'] as String?,
+      recipientName: json['recipient_name'] as String?,
+      signedAt: json['signed_at'] == null
+          ? null
+          : _txInstant(json, 'signed_at'),
+    );
+  }
+
+  final String policyVersion;
+  final bool otpVerified;
+  final String? photoAssetId;
+  final String? recipientName;
+  final DateTime? signedAt;
 }
 
 final class WalletEntry {
@@ -339,6 +540,129 @@ final class WalletAccount {
   }
 }
 
+final class ReferralProfile {
+  const ReferralProfile({
+    required this.code,
+    required this.shareUrl,
+    required this.senderPoints,
+    required this.recipientPoints,
+    required this.rewarded,
+    this.pendingCode = '',
+  });
+  factory ReferralProfile.fromJson(Object? value) {
+    final json = _txObject(value, 'referral profile');
+    return ReferralProfile(
+      code: _txString(json, 'code'),
+      shareUrl: json['share_url'] as String? ?? '',
+      senderPoints: _txInteger(json, 'sender_points'),
+      recipientPoints: _txInteger(json, 'recipient_points'),
+      pendingCode: json['pending_code'] as String? ?? '',
+      rewarded: json['rewarded'] as bool? ?? false,
+    );
+  }
+  final String code;
+  final String shareUrl;
+  final int senderPoints;
+  final int recipientPoints;
+  final String pendingCode;
+  final bool rewarded;
+}
+
+final class WalletRefillOffer {
+  const WalletRefillOffer({
+    required this.id,
+    required this.country,
+    required this.points,
+    required this.bonusPoints,
+    required this.price,
+    required this.paymentMethods,
+  });
+  factory WalletRefillOffer.fromJson(Object? value) {
+    final json = _txObject(value, 'wallet refill offer');
+    return WalletRefillOffer(
+      id: _txString(json, 'id'),
+      country: _txString(json, 'country'),
+      points: _txInteger(json, 'points'),
+      bonusPoints: _txInteger(json, 'bonus_points'),
+      price: CatalogMoney.fromJson(json['price']),
+      paymentMethods: List<CustomerPaymentMethod>.unmodifiable(
+        _txList(json, 'payment_methods').map(_paymentMethod),
+      ),
+    );
+  }
+  final String id;
+  final String country;
+  final int points;
+  final int bonusPoints;
+  final CatalogMoney price;
+  final List<CustomerPaymentMethod> paymentMethods;
+  int get totalPoints => points + bonusPoints;
+}
+
+final class RewardCampaign {
+  const RewardCampaign({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.points,
+    required this.endsAt,
+  });
+  factory RewardCampaign.fromJson(Object? value) {
+    final json = _txObject(value, 'reward campaign');
+    return RewardCampaign(
+      id: _txString(json, 'id'),
+      title: _txString(json, 'title'),
+      description: _txString(json, 'description'),
+      points: _txInteger(json, 'points'),
+      endsAt: _txInstant(json, 'ends_at'),
+    );
+  }
+  final String id;
+  final String title;
+  final String description;
+  final int points;
+  final DateTime endsAt;
+}
+
+final class WalletExperience {
+  const WalletExperience({
+    required this.account,
+    required this.referral,
+    required this.refills,
+    required this.campaigns,
+  });
+  factory WalletExperience.fromJson(Object? value) {
+    final json = _txObject(value, 'wallet experience');
+    return WalletExperience(
+      account: WalletAccount.fromJson(json['account']),
+      referral: ReferralProfile.fromJson(json['referral']),
+      refills: List<WalletRefillOffer>.unmodifiable(
+        _txList(json, 'refills').map(WalletRefillOffer.fromJson),
+      ),
+      campaigns: List<RewardCampaign>.unmodifiable(
+        _txList(json, 'campaigns').map(RewardCampaign.fromJson),
+      ),
+    );
+  }
+  final WalletAccount account;
+  final ReferralProfile referral;
+  final List<WalletRefillOffer> refills;
+  final List<RewardCampaign> campaigns;
+}
+
+final class WalletRefillResult {
+  const WalletRefillResult({required this.offer, required this.payment});
+  factory WalletRefillResult.fromJson(Object? value) {
+    final json = _txObject(value, 'wallet refill result');
+    return WalletRefillResult(
+      offer: WalletRefillOffer.fromJson(json['offer']),
+      payment: CustomerPayment.fromJson(json['payment']),
+    );
+  }
+  final WalletRefillOffer offer;
+  final CustomerPayment payment;
+}
+
 final class PlaceOrderResult {
   const PlaceOrderResult({
     required this.quote,
@@ -360,6 +684,16 @@ final class PlaceOrderResult {
 
 abstract interface class TransactionRemote {
   Future<List<CustomerAddress>> addresses();
+  Future<CustomerAddress> createAddress(
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  });
+  Future<CustomerAddress> updateAddress(
+    CustomerAddress current,
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  });
+  Future<void> deleteAddress(CustomerAddress value, {String? idempotencyKey});
   Future<List<CustomerDeliverySlot>> deliverySlots();
   Future<CheckoutQuote> quote({
     required int cartRevision,
@@ -375,6 +709,7 @@ abstract interface class TransactionRemote {
     String? idempotencyKey,
   });
   Future<CustomerPayment> payment(String id);
+  Future<CustomerPayment> retryPayment(String id, {String? idempotencyKey});
   Future<List<CustomerOrder>> orders();
   Future<CustomerOrder> order(String id);
   Future<CustomerOrder> cancel({
@@ -393,6 +728,12 @@ abstract interface class TransactionRemote {
     required String comment,
   });
   Future<WalletAccount> wallet();
+  Future<WalletExperience> walletExperience();
+  Future<ReferralProfile> applyReferral(String code);
+  Future<WalletRefillResult> createWalletRefill({
+    required String offerId,
+    required CustomerPaymentMethod method,
+  });
 }
 
 final class TransactionApi implements TransactionRemote {
@@ -404,6 +745,54 @@ final class TransactionApi implements TransactionRemote {
     'transaction.list_addresses',
     CustomerAddress.fromJson,
   );
+  @override
+  Future<CustomerAddress> createAddress(
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => (await _client.send(
+    ApiRequest.command(
+      operation: 'transaction.create_address',
+      method: 'POST',
+      path: '/v1/addresses',
+      body: value.toJson(),
+      idempotencyKey: idempotencyKey,
+    ),
+    CustomerAddress.fromJson,
+  )).value;
+  @override
+  Future<CustomerAddress> updateAddress(
+    CustomerAddress current,
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => (await _client.send(
+    ApiRequest.command(
+      operation: 'transaction.update_address',
+      method: 'PATCH',
+      path: '/v1/addresses/${Uri.encodeComponent(current.id)}',
+      body: value.toJson(),
+      headers: {'If-Match': '"${current.revision}"'},
+      idempotencyKey: idempotencyKey,
+    ),
+    CustomerAddress.fromJson,
+  )).value;
+  @override
+  Future<void> deleteAddress(
+    CustomerAddress value, {
+    String? idempotencyKey,
+  }) async {
+    await _client.send(
+      ApiRequest.command(
+        operation: 'transaction.delete_address',
+        method: 'DELETE',
+        path: '/v1/addresses/${Uri.encodeComponent(value.id)}',
+        body: null,
+        headers: {'If-Match': '"${value.revision}"'},
+        idempotencyKey: idempotencyKey,
+      ),
+      (_) {},
+    );
+  }
+
   @override
   Future<List<CustomerDeliverySlot>> deliverySlots() => _list(
     '/v1/delivery-slots',
@@ -468,6 +857,20 @@ final class TransactionApi implements TransactionRemote {
     CustomerPayment.fromJson,
   )).value;
   @override
+  Future<CustomerPayment> retryPayment(
+    String id, {
+    String? idempotencyKey,
+  }) async => (await _client.send(
+    ApiRequest.command(
+      operation: 'transaction.retry_payment',
+      method: 'POST',
+      path: '/v1/payments/${Uri.encodeComponent(id)}/retry',
+      body: const <String, Object?>{},
+      idempotencyKey: idempotencyKey,
+    ),
+    CustomerPayment.fromJson,
+  )).value;
+  @override
   Future<List<CustomerOrder>> orders() =>
       _list('/v1/orders', 'transaction.list_orders', CustomerOrder.fromJson);
   @override
@@ -516,6 +919,38 @@ final class TransactionApi implements TransactionRemote {
   Future<WalletAccount> wallet() async => (await _client.send(
     ApiRequest.get(operation: 'transaction.get_wallet', path: '/v1/wallet'),
     WalletAccount.fromJson,
+  )).value;
+  @override
+  Future<WalletExperience> walletExperience() async => (await _client.send(
+    ApiRequest.get(
+      operation: 'transaction.get_wallet_experience',
+      path: '/v1/wallet/experience',
+    ),
+    WalletExperience.fromJson,
+  )).value;
+  @override
+  Future<ReferralProfile> applyReferral(String code) async =>
+      (await _client.send(
+        ApiRequest.command(
+          operation: 'transaction.apply_referral',
+          method: 'POST',
+          path: '/v1/wallet/referrals',
+          body: {'code': code.trim().toUpperCase()},
+        ),
+        ReferralProfile.fromJson,
+      )).value;
+  @override
+  Future<WalletRefillResult> createWalletRefill({
+    required String offerId,
+    required CustomerPaymentMethod method,
+  }) async => (await _client.send(
+    ApiRequest.command(
+      operation: 'transaction.create_wallet_refill',
+      method: 'POST',
+      path: '/v1/wallet/refills',
+      body: {'offer_id': offerId, 'payment_method': method.wireValue},
+    ),
+    WalletRefillResult.fromJson,
   )).value;
 }
 
@@ -578,6 +1013,8 @@ final class TransactionController extends ChangeNotifier {
        _recovery = recoveryStore ?? MemoryPaymentRecoveryStore();
   final TransactionRemote _remote;
   final PaymentRecoveryStore _recovery;
+  WalletExperience? _walletExperience;
+  WalletExperience? get walletExperience => _walletExperience;
   TransactionState _state = const TransactionState(
     status: TransactionStatus.idle,
   );
@@ -590,14 +1027,15 @@ final class TransactionController extends ChangeNotifier {
       final values = await Future.wait<Object>([
         _remote.addresses(),
         _remote.deliverySlots(),
-        _remote.wallet(),
+        _remote.walletExperience(),
       ]);
+      _walletExperience = values[2] as WalletExperience;
       _set(
         TransactionState(
           status: TransactionStatus.ready,
           addresses: values[0] as List<CustomerAddress>,
           slots: values[1] as List<CustomerDeliverySlot>,
-          wallet: values[2] as WalletAccount,
+          wallet: _walletExperience!.account,
         ),
       );
     } catch (_) {
@@ -607,6 +1045,75 @@ final class TransactionController extends ChangeNotifier {
           message: 'Couldn’t load checkout. Try again.',
         ),
       );
+    }
+  }
+
+  Future<bool> saveAddress({
+    CustomerAddress? current,
+    required CustomerAddressDraft draft,
+  }) async {
+    try {
+      final value = current == null
+          ? await _remote.createAddress(draft)
+          : await _remote.updateAddress(current, draft);
+      final addresses =
+          [..._state.addresses.where((item) => item.id != value.id), value]
+            ..sort((left, right) {
+              if (left.isDefault != right.isDefault) {
+                return left.isDefault ? -1 : 1;
+              }
+              return left.label.compareTo(right.label);
+            });
+      _set(
+        TransactionState(
+          status: TransactionStatus.ready,
+          addresses: addresses,
+          slots: _state.slots,
+          wallet: _state.wallet,
+          quote: _state.quote,
+        ),
+      );
+      return true;
+    } catch (_) {
+      _set(
+        TransactionState(
+          status: TransactionStatus.failure,
+          addresses: _state.addresses,
+          slots: _state.slots,
+          wallet: _state.wallet,
+          message:
+              'The address could not be saved. Check serviceability and try again.',
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> deleteAddress(CustomerAddress value) async {
+    try {
+      await _remote.deleteAddress(value);
+      _set(
+        TransactionState(
+          status: TransactionStatus.ready,
+          addresses: _state.addresses
+              .where((item) => item.id != value.id)
+              .toList(growable: false),
+          slots: _state.slots,
+          wallet: _state.wallet,
+        ),
+      );
+      return true;
+    } catch (_) {
+      _set(
+        TransactionState(
+          status: TransactionStatus.failure,
+          addresses: _state.addresses,
+          slots: _state.slots,
+          wallet: _state.wallet,
+          message: 'The address changed. Refresh and try again.',
+        ),
+      );
+      return false;
     }
   }
 
@@ -742,6 +1249,39 @@ final class TransactionController extends ChangeNotifier {
     }
   }
 
+  Future<CustomerPayment?> retryPayment() async {
+    final current = _state.payment;
+    if (current == null || !current.allowedActions.contains('RETRY')) {
+      return null;
+    }
+    try {
+      final value = await _remote.retryPayment(current.id);
+      await _recovery.save(value.id);
+      _set(
+        TransactionState(
+          status: TransactionStatus.paymentPending,
+          payment: value,
+          order: _state.order,
+          quote: _state.quote,
+          wallet: _state.wallet,
+        ),
+      );
+      return value;
+    } catch (_) {
+      _set(
+        TransactionState(
+          status: TransactionStatus.failure,
+          payment: current,
+          order: _state.order,
+          quote: _state.quote,
+          wallet: _state.wallet,
+          message: 'Payment retry is temporarily unavailable.',
+        ),
+      );
+      return null;
+    }
+  }
+
   Future<void> loadActivity() async {
     _set(
       TransactionState(
@@ -753,13 +1293,14 @@ final class TransactionController extends ChangeNotifier {
     try {
       final values = await Future.wait<Object>([
         _remote.orders(),
-        _remote.wallet(),
+        _remote.walletExperience(),
       ]);
+      _walletExperience = values[1] as WalletExperience;
       _set(
         TransactionState(
           status: TransactionStatus.ready,
           orders: values[0] as List<CustomerOrder>,
-          wallet: values[1] as WalletAccount,
+          wallet: _walletExperience!.account,
         ),
       );
     } catch (_) {
@@ -789,6 +1330,67 @@ final class TransactionController extends ChangeNotifier {
       _mutateOrder(
         () => _remote.rate(order: order, score: score, comment: comment),
       );
+
+  Future<bool> applyReferral(String code) async {
+    try {
+      final referral = await _remote.applyReferral(code);
+      final experience = _walletExperience;
+      if (experience != null) {
+        _walletExperience = WalletExperience(
+          account: experience.account,
+          referral: referral,
+          refills: experience.refills,
+          campaigns: experience.campaigns,
+        );
+      }
+      notifyListeners();
+      return true;
+    } catch (_) {
+      _set(
+        TransactionState(
+          status: TransactionStatus.failure,
+          orders: _state.orders,
+          wallet: _state.wallet,
+          message: 'The referral code is invalid or already used.',
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<CustomerPayment?> createWalletRefill(
+    WalletRefillOffer offer,
+    CustomerPaymentMethod method,
+  ) async {
+    if (!offer.paymentMethods.contains(method)) return null;
+    try {
+      final result = await _remote.createWalletRefill(
+        offerId: offer.id,
+        method: method,
+      );
+      await _recovery.save(result.payment.id);
+      _set(
+        TransactionState(
+          status: TransactionStatus.paymentPending,
+          orders: _state.orders,
+          wallet: _state.wallet,
+          payment: result.payment,
+        ),
+      );
+      return result.payment;
+    } catch (_) {
+      _set(
+        TransactionState(
+          status: TransactionStatus.failure,
+          orders: _state.orders,
+          wallet: _state.wallet,
+          message: 'The points refill could not be started. Try again.',
+        ),
+      );
+      return null;
+    }
+  }
+
   Future<CustomerOrder?> _mutateOrder(
     Future<CustomerOrder> Function() action,
   ) async {

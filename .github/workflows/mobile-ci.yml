@@ -27,6 +27,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - run: flutter config --enable-swift-package-manager
       - run: flutter pub get
       - run: dart run melos run verify
 
@@ -46,6 +47,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - run: flutter config --enable-swift-package-manager
       - run: flutter pub get
       - name: Compile development, staging and production
         working-directory: apps/${{ matrix.app }}
@@ -83,6 +85,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - run: flutter config --enable-swift-package-manager
       - run: flutter pub get
       - name: Compile development, staging and production simulators
         working-directory: apps/${{ matrix.app }}
@@ -111,6 +114,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - run: flutter config --enable-swift-package-manager
       - run: flutter pub get
       - name: Enable KVM acceleration
         shell: bash

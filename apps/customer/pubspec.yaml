@@ -9,8 +9,12 @@ environment:
   sdk: ^3.11.1
 
 dependencies:
+  firebase_auth: ^6.6.1
+  firebase_core: ^4.14.0
+  firebase_messaging: ^16.1.1
   flutter:
     sdk: flutter
+  flutter_secure_storage: ^11.0.0
   flutter_localizations:
     sdk: flutter
   planext4u_api_client: ^0.1.0
@@ -18,7 +22,10 @@ dependencies:
   planext4u_core: ^0.1.0
   planext4u_design_system: ^0.1.0
   planext4u_experience: ^0.1.0
+  planext4u_identity: ^0.1.0
+  paystack_flutter_sdk: 0.0.1-alpha.2
   planext4u_storage: ^0.1.0
+  razorpay_flutter: ^1.4.5
 
 dev_dependencies:
   integration_test:

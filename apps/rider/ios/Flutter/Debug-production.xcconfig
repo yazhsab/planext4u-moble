@@ -6,4 +6,5 @@ PRODUCT_BUNDLE_IDENTIFIER = net.planext4u.rider
 DEEPLINK_HOST = planext4u.net
 DEEPLINK_SCHEME = planext4u-rider
 DEEPLINK_PATH_PREFIX = /rider
+APS_ENVIRONMENT = production
 DART_DEFINES = $(inherited),QVBQX0VOVj1wcm9kdWN0aW9u

@@ -82,7 +82,7 @@ void main() {
     expectContains(
       failures,
       podfile,
-      "platform :ios, '13.0'",
+      "platform :ios, '15.0'",
       '$appName iOS deployment target',
     );
     expectContains(

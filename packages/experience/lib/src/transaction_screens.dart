@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
 import 'commerce.dart';
@@ -67,9 +68,12 @@ final class _CheckoutReviewScreenState extends State<CheckoutReviewScreen> {
         state.addresses.isNotEmpty &&
         state.slots.isNotEmpty) {
       _initialQuoteStarted = true;
-      _addressId = state.addresses.first.id;
+      final serviceable = state.addresses.where((value) => value.serviceable);
+      _addressId = serviceable.isEmpty ? null : serviceable.first.id;
       _slotId = state.slots.first.id;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _quote());
+      if (_addressId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _quote());
+      }
     }
     setState(() {});
   }
@@ -109,6 +113,23 @@ final class _CheckoutReviewScreenState extends State<CheckoutReviewScreen> {
       }
       await widget.controller.recoverPayment();
     }
+  }
+
+  Future<void> _retryPayment() async {
+    final payment = await widget.controller.retryPayment();
+    if (!mounted || payment == null) return;
+    try {
+      await widget.paymentLauncher.launch(payment);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _providerMessage =
+              'The payment window did not complete. Your order remains safe; '
+              'you can retry or check status.';
+        });
+      }
+    }
+    await widget.controller.recoverPayment();
   }
 
   @override
@@ -176,9 +197,11 @@ final class _CheckoutReviewScreenState extends State<CheckoutReviewScreen> {
                   for (final address in state.addresses)
                     RadioListTile<String>(
                       value: address.id,
+                      enabled: address.serviceable,
                       title: Text(address.label),
                       subtitle: Text(
-                        '${address.locality} • ${address.postalCode}',
+                        '${address.locality} • ${address.postalCode}'
+                        '${address.serviceable ? '' : ' • Not serviceable'}',
                       ),
                     ),
                 ],
@@ -307,6 +330,10 @@ final class _CheckoutReviewScreenState extends State<CheckoutReviewScreen> {
                     state.status == TransactionStatus.placing ||
                         state.status == TransactionStatus.quoting
                     ? null
+                    : state.payment?.allowedActions.contains('RETRY') == true
+                    ? _retryPayment
+                    : state.status == TransactionStatus.paymentPending
+                    ? widget.controller.recoverPayment
                     : _place,
                 icon: state.status == TransactionStatus.placing
                     ? const SizedBox.square(
@@ -315,7 +342,9 @@ final class _CheckoutReviewScreenState extends State<CheckoutReviewScreen> {
                       )
                     : const Icon(Icons.lock_outline),
                 label: Text(
-                  state.status == TransactionStatus.paymentPending
+                  state.payment?.allowedActions.contains('RETRY') == true
+                      ? 'Retry payment • ${quote.total.display()}'
+                      : state.status == TransactionStatus.paymentPending
                       ? 'Check payment status'
                       : 'Place order • ${quote.total.display()}',
                 ),
@@ -359,9 +388,295 @@ final class _AmountRow extends StatelessWidget {
   );
 }
 
-final class CustomerActivityScreen extends StatefulWidget {
-  const CustomerActivityScreen({required this.controller, super.key});
+final class CustomerAddressesScreen extends StatefulWidget {
+  const CustomerAddressesScreen({required this.controller, super.key});
   final TransactionController controller;
+
+  @override
+  State<CustomerAddressesScreen> createState() =>
+      _CustomerAddressesScreenState();
+}
+
+final class _CustomerAddressesScreenState
+    extends State<CustomerAddressesScreen> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_changed);
+    if (widget.controller.state.addresses.isEmpty) {
+      widget.controller.loadCheckout();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_changed);
+    super.dispose();
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _edit([CustomerAddress? current]) async {
+    final draft = await Navigator.of(context).push<CustomerAddressDraft>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _AddressEditor(current: current),
+      ),
+    );
+    if (draft == null) return;
+    final saved = await widget.controller.saveAddress(
+      current: current,
+      draft: draft,
+    );
+    if (!saved || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(current == null ? 'Address added' : 'Address updated'),
+      ),
+    );
+  }
+
+  Future<void> _delete(CustomerAddress value) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove address?'),
+        content: Text(
+          '${value.label} will no longer be available at checkout.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await widget.controller.deleteAddress(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.controller.state;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Saved addresses')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _edit,
+        icon: const Icon(Icons.add_location_alt_outlined),
+        label: const Text('Add address'),
+      ),
+      body: SafeArea(
+        child:
+            state.status == TransactionStatus.loading && state.addresses.isEmpty
+            ? const Planext4uStatePanel(
+                state: Planext4uViewState.loading,
+                title: 'Loading addresses',
+                message: 'Checking saved delivery locations.',
+              )
+            : state.addresses.isEmpty
+            ? Planext4uStatePanel(
+                state: state.status == TransactionStatus.failure
+                    ? Planext4uViewState.error
+                    : Planext4uViewState.empty,
+                title: state.status == TransactionStatus.failure
+                    ? 'Couldn’t load addresses'
+                    : 'No saved addresses',
+                message:
+                    state.message ?? 'Add a serviceable address for checkout.',
+                actionLabel: 'Try again',
+                onAction: widget.controller.loadCheckout,
+              )
+            : RefreshIndicator(
+                onRefresh: widget.controller.loadCheckout,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(
+                    Planext4uSpacing.x4,
+                    Planext4uSpacing.x4,
+                    Planext4uSpacing.x4,
+                    96,
+                  ),
+                  itemCount: state.addresses.length,
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(height: Planext4uSpacing.x2),
+                  itemBuilder: (context, index) {
+                    final address = state.addresses[index];
+                    return Card(
+                      child: ListTile(
+                        leading: Icon(
+                          address.serviceable
+                              ? Icons.location_on_outlined
+                              : Icons.location_off_outlined,
+                        ),
+                        title: Row(
+                          children: [
+                            Expanded(child: Text(address.label)),
+                            if (address.isDefault)
+                              const Chip(label: Text('Default')),
+                          ],
+                        ),
+                        subtitle: Text(
+                          [
+                            if (address.line1.isNotEmpty) address.line1,
+                            address.locality,
+                            address.postalCode,
+                            address.serviceable
+                                ? 'Serviceable'
+                                : 'Outside current service area',
+                          ].join(' • '),
+                        ),
+                        isThreeLine: true,
+                        onTap: () => _edit(address),
+                        trailing: IconButton(
+                          tooltip: 'Remove ${address.label}',
+                          onPressed: state.addresses.length == 1
+                              ? null
+                              : () => _delete(address),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+final class _AddressEditor extends StatefulWidget {
+  const _AddressEditor({this.current});
+  final CustomerAddress? current;
+  @override
+  State<_AddressEditor> createState() => _AddressEditorState();
+}
+
+final class _AddressEditorState extends State<_AddressEditor> {
+  final _form = GlobalKey<FormState>();
+  late final _label = TextEditingController(text: widget.current?.label);
+  late final _line1 = TextEditingController(text: widget.current?.line1);
+  late final _line2 = TextEditingController(text: widget.current?.line2);
+  late final _locality = TextEditingController(text: widget.current?.locality);
+  late final _postal = TextEditingController(text: widget.current?.postalCode);
+  late bool _default = widget.current?.isDefault ?? false;
+
+  @override
+  void dispose() {
+    _label.dispose();
+    _line1.dispose();
+    _line2.dispose();
+    _locality.dispose();
+    _postal.dispose();
+    super.dispose();
+  }
+
+  String? _required(String? value, String label, {int minimum = 2}) {
+    final normalized = value?.trim() ?? '';
+    if (normalized.length < minimum) return '$label is required.';
+    return null;
+  }
+
+  void _submit() {
+    if (!_form.currentState!.validate()) return;
+    Navigator.pop(
+      context,
+      CustomerAddressDraft(
+        label: _label.text,
+        line1: _line1.text,
+        line2: _line2.text,
+        locality: _locality.text,
+        postalCode: _postal.text,
+        latitude: widget.current?.latitude,
+        longitude: widget.current?.longitude,
+        isDefault: _default,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(widget.current == null ? 'Add address' : 'Edit address'),
+      actions: [TextButton(onPressed: _submit, child: const Text('Save'))],
+    ),
+    body: SafeArea(
+      child: Form(
+        key: _form,
+        child: ListView(
+          padding: const EdgeInsets.all(Planext4uSpacing.x4),
+          children: [
+            TextFormField(
+              controller: _label,
+              textInputAction: TextInputAction.next,
+              maxLength: 60,
+              decoration: const InputDecoration(labelText: 'Label'),
+              validator: (value) => _required(value, 'Label', minimum: 1),
+            ),
+            TextFormField(
+              controller: _line1,
+              textInputAction: TextInputAction.next,
+              maxLength: 240,
+              autofillHints: const [AutofillHints.streetAddressLine1],
+              decoration: const InputDecoration(labelText: 'Address line 1'),
+              validator: (value) =>
+                  _required(value, 'Address line 1', minimum: 3),
+            ),
+            TextFormField(
+              controller: _line2,
+              textInputAction: TextInputAction.next,
+              maxLength: 240,
+              autofillHints: const [AutofillHints.streetAddressLine2],
+              decoration: const InputDecoration(
+                labelText: 'Address line 2 (optional)',
+              ),
+            ),
+            TextFormField(
+              controller: _locality,
+              textInputAction: TextInputAction.next,
+              maxLength: 100,
+              autofillHints: const [AutofillHints.addressCity],
+              decoration: const InputDecoration(labelText: 'Locality or city'),
+              validator: (value) => _required(value, 'Locality'),
+            ),
+            TextFormField(
+              controller: _postal,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              maxLength: 12,
+              autofillHints: const [AutofillHints.postalCode],
+              decoration: const InputDecoration(
+                labelText: 'Postal or PIN code',
+              ),
+              validator: (value) => _required(value, 'Postal code', minimum: 3),
+              onFieldSubmitted: (_) => _submit(),
+            ),
+            SwitchListTile(
+              value: _default,
+              onChanged: (value) => setState(() => _default = value),
+              title: const Text('Use as default address'),
+            ),
+            const SizedBox(height: Planext4uSpacing.x4),
+            FilledButton(onPressed: _submit, child: const Text('Save address')),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+final class CustomerActivityScreen extends StatefulWidget {
+  const CustomerActivityScreen({
+    required this.controller,
+    this.paymentLauncher = const UnavailablePaymentProviderLauncher(),
+    super.key,
+  });
+  final TransactionController controller;
+  final PaymentProviderLauncher paymentLauncher;
   @override
   State<CustomerActivityScreen> createState() => _CustomerActivityScreenState();
 }
@@ -385,6 +700,78 @@ final class _CustomerActivityScreenState extends State<CustomerActivityScreen>
 
   void _changed() {
     if (mounted) setState(() {});
+  }
+
+  Future<void> _copyReferral(ReferralProfile referral) async {
+    final value = referral.shareUrl.isEmpty ? referral.code : referral.shareUrl;
+    await Clipboard.setData(ClipboardData(text: value));
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Referral link copied.')));
+    }
+  }
+
+  Future<void> _applyReferral() async {
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Use referral code'),
+        content: TextField(
+          controller: controller,
+          textCapitalization: TextCapitalization.characters,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Referral code'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (code == null) return;
+    final applied = await widget.controller.applyReferral(code);
+    if (applied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Referral saved. Rewards unlock after your first paid order.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _refill(WalletRefillOffer offer) async {
+    final method = offer.paymentMethods.isEmpty
+        ? null
+        : offer.paymentMethods.first;
+    if (method == null) return;
+    final payment = await widget.controller.createWalletRefill(offer, method);
+    if (payment == null) return;
+    try {
+      await widget.paymentLauncher.launch(payment);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'The payment window did not complete. You can check or retry it safely.',
+            ),
+          ),
+        );
+      }
+    }
+    await widget.controller.recoverPayment();
+    await widget.controller.loadActivity();
   }
 
   @override
@@ -464,6 +851,7 @@ final class _CustomerActivityScreenState extends State<CustomerActivityScreen>
 
   Widget _wallet(TransactionState state, Planext4uLocalizations strings) {
     final wallet = state.wallet;
+    final experience = widget.controller.walletExperience;
     if (wallet == null) {
       return const Planext4uStatePanel(
         state: Planext4uViewState.loading,
@@ -498,6 +886,98 @@ final class _CustomerActivityScreenState extends State<CustomerActivityScreen>
             ),
           ),
           const SizedBox(height: Planext4uSpacing.x3),
+          if (experience != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(Planext4uSpacing.x4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Invite and earn',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: Planext4uSpacing.x1),
+                    Text(
+                      'You earn ${experience.referral.senderPoints} points and your friend earns ${experience.referral.recipientPoints} after their first paid order.',
+                    ),
+                    const SizedBox(height: Planext4uSpacing.x2),
+                    SelectableText(
+                      experience.referral.code,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Wrap(
+                      spacing: Planext4uSpacing.x2,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _copyReferral(experience.referral),
+                          icon: const Icon(Icons.copy_outlined),
+                          label: const Text('Copy invite'),
+                        ),
+                        if (experience.referral.pendingCode.isEmpty &&
+                            !experience.referral.rewarded)
+                          TextButton(
+                            onPressed: _applyReferral,
+                            child: const Text('I have a referral code'),
+                          ),
+                      ],
+                    ),
+                    if (experience.referral.pendingCode.isNotEmpty)
+                      Text(
+                        'Pending reward: ${experience.referral.pendingCode}',
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (experience.refills.isNotEmpty) ...[
+              const SizedBox(height: Planext4uSpacing.x3),
+              Text(
+                'Refill points',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: Planext4uSpacing.x2),
+              for (final offer in experience.refills)
+                Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.add_card_outlined),
+                    ),
+                    title: Text('${offer.totalPoints} points'),
+                    subtitle: Text(
+                      offer.bonusPoints == 0
+                          ? offer.price.display()
+                          : '${offer.price.display()} • includes ${offer.bonusPoints} bonus points',
+                    ),
+                    trailing: FilledButton(
+                      onPressed: () => _refill(offer),
+                      child: const Text('Refill'),
+                    ),
+                  ),
+                ),
+            ],
+            if (experience.campaigns.isNotEmpty) ...[
+              const SizedBox(height: Planext4uSpacing.x3),
+              Text(
+                'Ways to earn',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              for (final campaign in experience.campaigns)
+                ListTile(
+                  leading: const Icon(Icons.stars_outlined),
+                  title: Text(campaign.title),
+                  subtitle: Text(campaign.description),
+                  trailing: Text('+${campaign.points}'),
+                ),
+            ],
+            const SizedBox(height: Planext4uSpacing.x3),
+            Text(
+              'Points history',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+          ],
           for (final entry in wallet.entries.reversed)
             ListTile(
               leading: Icon(
@@ -549,19 +1029,29 @@ final class _OrderDetailScreenState extends State<OrderDetailScreen> {
   }
 
   Future<void> _return() async {
-    final reason = await _textDialog('Request return', 'What went wrong?');
-    if (reason == null) return;
-    final value = await widget.controller.requestReturn(_order, const [
-      {'variant_id': 'selected-item', 'quantity': 1},
-    ], reason);
+    final request = await showDialog<_ReturnRequest>(
+      context: context,
+      builder: (_) => _ReturnRequestDialog(lines: _order.lines),
+    );
+    if (request == null) return;
+    final value = await widget.controller.requestReturn(
+      _order,
+      request.lines,
+      request.reason,
+    );
     if (value != null && mounted) setState(() => _order = value);
   }
 
   Future<void> _rate() async {
+    final rating = await showDialog<_RatingRequest>(
+      context: context,
+      builder: (_) => const _RatingDialog(),
+    );
+    if (rating == null) return;
     final value = await widget.controller.rate(
       _order,
-      5,
-      'Excellent local delivery',
+      rating.score,
+      rating.comment,
     );
     if (value != null && mounted) setState(() => _order = value);
   }
@@ -609,6 +1099,35 @@ final class _OrderDetailScreenState extends State<OrderDetailScreen> {
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         Text('${_order.id} • ${_order.total.display()}'),
+        Text(
+          'Delivery ${_order.deliveryWindowStart.toLocal()} – '
+          '${_order.deliveryWindowEnd.toLocal()}',
+        ),
+        const SizedBox(height: Planext4uSpacing.x4),
+        Text('Items', style: Theme.of(context).textTheme.titleLarge),
+        for (final line in _order.lines)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(line.itemName),
+            subtitle: Text('${line.variantName} × ${line.quantity}'),
+            trailing: Text(line.lineTotal.display()),
+          ),
+        if (_order.proof != null) ...[
+          const SizedBox(height: Planext4uSpacing.x3),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.verified_user_outlined),
+              title: const Text('Proof of delivery verified'),
+              subtitle: Text(
+                _order.proof!.otpVerified
+                    ? 'Recipient OTP verified'
+                    : _order.proof!.recipientName?.isNotEmpty == true
+                    ? 'Received by ${_order.proof!.recipientName}'
+                    : 'Delivery evidence recorded',
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: Planext4uSpacing.x4),
         Text('Timeline', style: Theme.of(context).textTheme.titleLarge),
         for (final event in _order.timeline)
@@ -648,6 +1167,160 @@ final class _OrderDetailScreenState extends State<OrderDetailScreen> {
         ),
       ],
     ),
+  );
+}
+
+final class _ReturnRequest {
+  const _ReturnRequest(this.lines, this.reason);
+  final List<Map<String, Object?>> lines;
+  final String reason;
+}
+
+final class _ReturnRequestDialog extends StatefulWidget {
+  const _ReturnRequestDialog({required this.lines});
+  final List<CustomerOrderLine> lines;
+  @override
+  State<_ReturnRequestDialog> createState() => _ReturnRequestDialogState();
+}
+
+final class _ReturnRequestDialogState extends State<_ReturnRequestDialog> {
+  final _reason = TextEditingController();
+  late final Map<String, int> _quantities = {
+    for (final line in widget.lines) line.variantId: 0,
+  };
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final reason = _reason.text.trim();
+    final lines = <Map<String, Object?>>[
+      for (final line in widget.lines)
+        if ((_quantities[line.variantId] ?? 0) > 0)
+          {
+            'variant_id': line.variantId,
+            'quantity': _quantities[line.variantId],
+          },
+    ];
+    if (reason.isEmpty || lines.isEmpty) return;
+    Navigator.pop(context, _ReturnRequest(lines, reason));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Request return'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final line in widget.lines)
+            DropdownButtonFormField<int>(
+              initialValue: _quantities[line.variantId],
+              decoration: InputDecoration(
+                labelText: '${line.itemName} • ${line.variantName}',
+              ),
+              items: [
+                for (var quantity = 0; quantity <= line.quantity; quantity++)
+                  DropdownMenuItem(
+                    value: quantity,
+                    child: Text(quantity == 0 ? 'Do not return' : '$quantity'),
+                  ),
+              ],
+              onChanged: (value) =>
+                  setState(() => _quantities[line.variantId] = value ?? 0),
+            ),
+          TextField(
+            controller: _reason,
+            decoration: const InputDecoration(labelText: 'What went wrong?'),
+            maxLength: 500,
+            minLines: 2,
+            maxLines: 4,
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Back'),
+      ),
+      FilledButton(
+        onPressed:
+            _reason.text.trim().isNotEmpty &&
+                _quantities.values.any((value) => value > 0)
+            ? _submit
+            : null,
+        child: const Text('Submit return'),
+      ),
+    ],
+  );
+}
+
+final class _RatingRequest {
+  const _RatingRequest(this.score, this.comment);
+  final int score;
+  final String comment;
+}
+
+final class _RatingDialog extends StatefulWidget {
+  const _RatingDialog();
+  @override
+  State<_RatingDialog> createState() => _RatingDialogState();
+}
+
+final class _RatingDialogState extends State<_RatingDialog> {
+  final _comment = TextEditingController();
+  int _score = 5;
+  @override
+  void dispose() {
+    _comment.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Rate order'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Semantics(
+          label: 'Rating',
+          value: '$_score out of 5',
+          child: Slider(
+            value: _score.toDouble(),
+            min: 1,
+            max: 5,
+            divisions: 4,
+            label: '$_score',
+            onChanged: (value) => setState(() => _score = value.round()),
+          ),
+        ),
+        TextField(
+          controller: _comment,
+          maxLength: 1000,
+          minLines: 2,
+          maxLines: 4,
+          decoration: const InputDecoration(labelText: 'Comment (optional)'),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Back'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(
+          context,
+          _RatingRequest(_score, _comment.text.trim()),
+        ),
+        child: const Text('Submit rating'),
+      ),
+    ],
   );
 }
 

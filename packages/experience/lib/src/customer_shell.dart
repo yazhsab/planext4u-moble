@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
 import 'catalog.dart';
+import 'bootstrap.dart';
 import 'commerce.dart';
 import 'localization.dart';
 import 'marketplace.dart';
@@ -69,7 +70,11 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.marketplaceController,
     this.cartController,
     this.transactionController,
+    this.paymentLauncher = const UnavailablePaymentProviderLauncher(),
     this.onItemSelected,
+    this.profileDisplayName,
+    this.onSignOut,
+    this.homeSections = const [],
     super.key,
   });
 
@@ -79,7 +84,11 @@ final class CustomerHomeScreen extends StatefulWidget {
   final MarketplaceController? marketplaceController;
   final CartController? cartController;
   final TransactionController? transactionController;
+  final PaymentProviderLauncher paymentLauncher;
   final ValueChanged<CatalogItem>? onItemSelected;
+  final String? profileDisplayName;
+  final Future<void> Function()? onSignOut;
+  final List<HomeSectionConfig> homeSections;
 
   @override
   State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
@@ -92,6 +101,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   void initState() {
     super.initState();
     widget.controller.addListener(_changed);
+    widget.transactionController?.addListener(_changed);
+    widget.transactionController?.recoverPayment();
     if (widget.controller.state.home == null) widget.controller.loadHome();
     if (widget.initialItemId != null &&
         widget.marketplaceController != null &&
@@ -109,11 +120,17 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       oldWidget.controller.removeListener(_changed);
       widget.controller.addListener(_changed);
     }
+    if (oldWidget.transactionController != widget.transactionController) {
+      oldWidget.transactionController?.removeListener(_changed);
+      widget.transactionController?.addListener(_changed);
+      widget.transactionController?.recoverPayment();
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_changed);
+    widget.transactionController?.removeListener(_changed);
     super.dispose();
   }
 
@@ -141,7 +158,38 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             ),
         ],
       ),
-      body: SafeArea(child: _body(strings)),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (widget.transactionController?.state.payment?.pending == true)
+              MaterialBanner(
+                content: Text(
+                  widget.transactionController!.state.payment!.status ==
+                          'FAILED_RETRYABLE'
+                      ? 'Your previous payment needs attention.'
+                      : 'Your previous payment is still being confirmed.',
+                ),
+                actions: [
+                  if (widget
+                      .transactionController!
+                      .state
+                      .payment!
+                      .allowedActions
+                      .contains('RETRY'))
+                    TextButton(
+                      onPressed: _retryRecoveredPayment,
+                      child: const Text('Retry payment'),
+                    ),
+                  TextButton(
+                    onPressed: widget.transactionController!.recoverPayment,
+                    child: const Text('Check status'),
+                  ),
+                ],
+              ),
+            Expanded(child: _body(strings)),
+          ],
+        ),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _destination.index,
         onDestinationSelected: (index) =>
@@ -169,6 +217,19 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
+  Future<void> _retryRecoveredPayment() async {
+    final controller = widget.transactionController;
+    if (controller == null) return;
+    final payment = await controller.retryPayment();
+    if (payment == null) return;
+    try {
+      await widget.paymentLauncher.launch(payment);
+    } catch (_) {
+      // The encrypted payment identifier remains available for another retry.
+    }
+    await controller.recoverPayment();
+  }
+
   Widget _body(Planext4uLocalizations strings) {
     if (_destination == CustomerDestination.explore &&
         widget.marketplaceController != null) {
@@ -179,9 +240,83 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     }
     if (_destination == CustomerDestination.activity &&
         widget.transactionController != null) {
-      return CustomerActivityScreen(controller: widget.transactionController!);
+      return CustomerActivityScreen(
+        controller: widget.transactionController!,
+        paymentLauncher: widget.paymentLauncher,
+      );
     }
     if (_destination != CustomerDestination.home) {
+      if (_destination == CustomerDestination.profile) {
+        return ListView(
+          padding: const EdgeInsets.all(Planext4uSpacing.x4),
+          children: [
+            CircleAvatar(
+              radius: 36,
+              child: Text(
+                (widget.profileDisplayName?.trim().isNotEmpty ?? false)
+                    ? widget.profileDisplayName!.trim()[0].toUpperCase()
+                    : 'P',
+              ),
+            ),
+            const SizedBox(height: Planext4uSpacing.x3),
+            Text(
+              widget.profileDisplayName?.trim().isNotEmpty ?? false
+                  ? widget.profileDisplayName!.trim()
+                  : 'Planext4u customer',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: Planext4uSpacing.x5),
+            ListTile(
+              leading: const Icon(Icons.location_on_outlined),
+              title: const Text('Saved addresses'),
+              subtitle: const Text('Manage serviceable delivery locations'),
+              onTap: widget.transactionController == null
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CustomerAddressesScreen(
+                          controller: widget.transactionController!,
+                        ),
+                      ),
+                    ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.help_outline),
+              title: const Text('Help and support'),
+              subtitle: const Text('Orders, payments, returns and safety'),
+              onTap: () => showModalBottomSheet<void>(
+                context: context,
+                showDragHandle: true,
+                builder: (context) => const SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.all(Planext4uSpacing.x5),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Planext4u support'),
+                        SizedBox(height: Planext4uSpacing.x2),
+                        Text(
+                          'Open an order from Activity for order-specific help, cancellation or return actions.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: Planext4uSpacing.x4),
+            OutlinedButton.icon(
+              onPressed: widget.onSignOut == null
+                  ? null
+                  : () async => widget.onSignOut!(),
+              icon: const Icon(Icons.logout),
+              label: const Text('Sign out'),
+            ),
+          ],
+        );
+      }
       return Planext4uStatePanel(
         state: Planext4uViewState.empty,
         title:
@@ -248,6 +383,32 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 ],
               ),
             ),
+          ..._configuredHomeSlivers(
+            home,
+            strings,
+            wideLayout: wideLayout,
+            largeText: largeText,
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _configuredHomeSlivers(
+    CustomerHomeProjection home,
+    Planext4uLocalizations strings, {
+    required bool wideLayout,
+    required bool largeText,
+  }) {
+    final configured = widget.homeSections
+        .where((value) => value.enabled)
+        .toList(growable: false);
+    final kinds = configured.isEmpty
+        ? const ['CATEGORY_GRID', 'FEATURED_ITEMS']
+        : configured.map((value) => value.kind).toList(growable: false);
+    return [
+      for (final kind in kinds)
+        if (kind == 'CATEGORY_GRID')
           SliverPadding(
             padding: const EdgeInsets.all(Planext4uSpacing.x4),
             sliver: SliverList.list(
@@ -273,13 +434,22 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: Planext4uSpacing.x5),
-                Text(
-                  strings.featured,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: Planext4uSpacing.x3),
               ],
+            ),
+          )
+        else if (kind == 'FEATURED_ITEMS') ...[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              Planext4uSpacing.x4,
+              Planext4uSpacing.x2,
+              Planext4uSpacing.x4,
+              Planext4uSpacing.x3,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                strings.featured,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
             ),
           ),
           SliverPadding(
@@ -319,9 +489,116 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               },
             ),
           ),
-        ],
-      ),
-    );
+        ] else if (kind == 'RECOMMENDATIONS' && home.recommendations.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Planext4uSpacing.x4,
+                0,
+                Planext4uSpacing.x4,
+                Planext4uSpacing.x5,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Recommended for you',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x2),
+                  for (final item in home.recommendations)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.auto_awesome_outlined),
+                        title: Text(item.name),
+                        subtitle: Text(item.sellerName ?? item.summary),
+                        trailing: Text(item.price.display()),
+                        enabled: item.available,
+                        onTap: item.available
+                            ? () => _openProduct(item.id)
+                            : null,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          )
+        else if (kind == 'LEADERBOARD' && home.leaderboard.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Planext4uSpacing.x4,
+                0,
+                Planext4uSpacing.x4,
+                Planext4uSpacing.x5,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Top local sellers',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x2),
+                  for (var index = 0; index < home.leaderboard.length; index++)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(child: Text('${index + 1}')),
+                      title: Text(home.leaderboard[index].sellerName),
+                      subtitle: Text(
+                        '${home.leaderboard[index].ratingAverage.toStringAsFixed(1)} ★ • '
+                        '${home.leaderboard[index].reviewCount} reviews',
+                      ),
+                      trailing: home.leaderboard[index].verified
+                          ? const Icon(
+                              Icons.verified,
+                              semanticLabel: 'Verified',
+                            )
+                          : null,
+                    ),
+                ],
+              ),
+            ),
+          )
+        else if (kind == 'HELP_SHORTCUTS' && home.helpShortcuts.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Planext4uSpacing.x4,
+                0,
+                Planext4uSpacing.x4,
+                Planext4uSpacing.x6,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Quick help',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x2),
+                  Wrap(
+                    spacing: Planext4uSpacing.x2,
+                    runSpacing: Planext4uSpacing.x2,
+                    children: [
+                      for (final shortcut in home.helpShortcuts)
+                        ActionChip(
+                          avatar: const Icon(Icons.help_outline, size: 18),
+                          label: Text(shortcut.title),
+                          onPressed: () => setState(
+                            () =>
+                                _destination = shortcut.route == '/app/catalog'
+                                ? CustomerDestination.explore
+                                : CustomerDestination.activity,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+    ];
   }
 
   void _openProduct(String itemId) {
@@ -354,6 +631,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     builder: (_) => CheckoutReviewScreen(
                       cart: value,
                       controller: widget.transactionController!,
+                      paymentLauncher: widget.paymentLauncher,
                     ),
                   ),
                 ),

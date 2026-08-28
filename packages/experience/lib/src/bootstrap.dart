@@ -169,6 +169,42 @@ final class BootstrapConfig {
   final List<HomeSectionConfig> homeSections;
 
   bool flag(String name) => flags[name] ?? false;
+
+  Map<String, Object?> toJson() => {
+    'revision': revision,
+    'published_at': publishedAt.toIso8601String(),
+    'update_gate': switch (updateGate) {
+      UpdateGate.none => 'NONE',
+      UpdateGate.optional => 'OPTIONAL',
+      UpdateGate.required => 'REQUIRED',
+    },
+    'latest_version': latestVersion,
+    'maintenance': maintenance,
+    if (maintenanceUntil != null)
+      'maintenance_until': maintenanceUntil!.toIso8601String(),
+    if (maintenanceText.isNotEmpty) 'maintenance_text': maintenanceText,
+    'locale': locale,
+    'supported_locales': supportedLocales,
+    'consent_policies': [
+      for (final value in consentPolicies)
+        {
+          'purpose': value.purpose,
+          'policy_version': value.policyVersion,
+          'required': value.required,
+        },
+    ],
+    'flags': flags,
+    'home_sections': [
+      for (final value in homeSections)
+        {
+          'id': value.id,
+          'kind': value.kind,
+          'title_key': value.titleKey,
+          'enabled': value.enabled,
+          'priority': value.priority,
+        },
+    ],
+  };
 }
 
 abstract interface class BootstrapRemote {

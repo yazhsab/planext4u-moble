@@ -331,6 +331,17 @@ final class _Phase3TransactionRemote implements TransactionRemote {
     status: 'PLACED',
     total: quoteValue.total,
     paymentMethod: CustomerPaymentMethod.cod,
+    lines: const [
+      CustomerOrderLine(
+        variantId: 'variant-synthetic-001',
+        itemName: 'Local essentials',
+        variantName: 'Standard',
+        quantity: 1,
+        lineTotal: CatalogMoney(amountMinor: 10000, currency: 'INR'),
+      ),
+    ],
+    deliveryWindowStart: DateTime.utc(2026, 8, 28, 10),
+    deliveryWindowEnd: DateTime.utc(2026, 8, 28, 14),
     allowedActions: const {'VIEW_TRACKING', 'REQUEST_CANCELLATION'},
     timeline: [
       OrderTimelineEvent(
@@ -369,6 +380,22 @@ final class _Phase3TransactionRemote implements TransactionRemote {
   @override
   Future<List<CustomerAddress>> addresses() async => [address];
   @override
+  Future<CustomerAddress> createAddress(
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => address;
+  @override
+  Future<CustomerAddress> updateAddress(
+    CustomerAddress current,
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => current;
+  @override
+  Future<void> deleteAddress(
+    CustomerAddress value, {
+    String? idempotencyKey,
+  }) async {}
+  @override
   Future<List<CustomerDeliverySlot>> deliverySlots() async => [slot];
   @override
   Future<CheckoutQuote> quote({
@@ -392,11 +419,43 @@ final class _Phase3TransactionRemote implements TransactionRemote {
   @override
   Future<CustomerPayment> payment(String id) async => paymentValue;
   @override
+  Future<CustomerPayment> retryPayment(
+    String id, {
+    String? idempotencyKey,
+  }) async => paymentValue;
+  @override
   Future<List<CustomerOrder>> orders() async => [orderValue];
   @override
   Future<CustomerOrder> order(String id) async => orderValue;
   @override
   Future<WalletAccount> wallet() async => walletValue;
+  @override
+  Future<WalletExperience> walletExperience() async => WalletExperience(
+    account: walletValue,
+    referral: const ReferralProfile(
+      code: 'P4UTEST001',
+      shareUrl: 'https://planext4u.net/referral/P4UTEST001',
+      senderPoints: 500,
+      recipientPoints: 250,
+      rewarded: false,
+    ),
+    refills: const [],
+    campaigns: const [],
+  );
+  @override
+  Future<ReferralProfile> applyReferral(String code) async => ReferralProfile(
+    code: 'P4UTEST001',
+    shareUrl: 'https://planext4u.net/referral/P4UTEST001',
+    senderPoints: 500,
+    recipientPoints: 250,
+    pendingCode: code,
+    rewarded: false,
+  );
+  @override
+  Future<WalletRefillResult> createWalletRefill({
+    required String offerId,
+    required CustomerPaymentMethod method,
+  }) async => throw UnimplementedError();
   @override
   Future<CustomerOrder> cancel({
     required CustomerOrder order,

@@ -1,48 +1,33 @@
 PODS:
-  - cryptography_flutter (0.0.1):
-    - Flutter
   - Flutter (1.0.0)
-  - flutter_secure_storage_darwin (10.0.0):
+  - razorpay-core-pod (1.0.9)
+  - razorpay-pod (1.5.8):
+    - razorpay-core-pod (= 1.0.9)
+  - razorpay_flutter (1.1.10):
     - Flutter
-    - FlutterMacOS
-  - geolocator_apple (1.2.0):
-    - Flutter
-    - FlutterMacOS
-  - integration_test (0.0.1):
-    - Flutter
-  - package_info_plus (0.4.5):
-    - Flutter
+    - razorpay-pod
 
 DEPENDENCIES:
-  - cryptography_flutter (from `.symlinks/plugins/cryptography_flutter/ios`)
   - Flutter (from `Flutter`)
-  - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
-  - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
-  - integration_test (from `.symlinks/plugins/integration_test/ios`)
-  - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
+  - razorpay_flutter (from `.symlinks/plugins/razorpay_flutter/ios`)
+
+SPEC REPOS:
+  trunk:
+    - razorpay-core-pod
+    - razorpay-pod
 
 EXTERNAL SOURCES:
-  cryptography_flutter:
-    :path: ".symlinks/plugins/cryptography_flutter/ios"
   Flutter:
     :path: Flutter
-  flutter_secure_storage_darwin:
-    :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
-  geolocator_apple:
-    :path: ".symlinks/plugins/geolocator_apple/darwin"
-  integration_test:
-    :path: ".symlinks/plugins/integration_test/ios"
-  package_info_plus:
-    :path: ".symlinks/plugins/package_info_plus/ios"
+  razorpay_flutter:
+    :path: ".symlinks/plugins/razorpay_flutter/ios"
 
 SPEC CHECKSUMS:
-  cryptography_flutter: 4868d92d3e47f91f0bc321e63e6fa0387f365f11
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_secure_storage_darwin: 46e401699982ee74142909676535e0f6a7321e58
-  geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
-  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
+  razorpay-core-pod: 7ecea8ed3c47751e6a958f6c88126ea068f8c8fc
+  razorpay-pod: 3fc296eacb28a059c55144286ea7c04d33d894f5
+  razorpay_flutter: 0e98e4fcaae27ad50e011d85f66d85e0a008754a
 
-PODFILE CHECKSUM: d6893aaf4d073926559e446de4755936dd62bf7e
+PODFILE CHECKSUM: 7c60bec3cd991f2f7e705cc104df32d45a017996
 
 COCOAPODS: 1.16.2

@@ -93,6 +93,21 @@ void main() {
     expect(remote.calls, 2);
   });
 
+  test('manual geocoding candidate preserves server coordinates and label', () {
+    final candidate = GeocodeCandidate.fromJson({
+      'id': 'zone-chennai-0',
+      'label': 'Chennai · 600001',
+      'locality': 'Chennai',
+      'postal_code': '600001',
+      'latitude': 13.05,
+      'longitude': 80.20,
+    });
+    final location = candidate.toServiceLocation(DateTime.utc(2026, 8, 28));
+    expect(candidate.postalCode, '600001');
+    expect(location.label, 'Chennai · 600001');
+    expect(location.latitude, 13.05);
+  });
+
   test(
     'offline serviceability never treats an unchecked area as selected',
     () async {

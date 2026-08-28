@@ -23,7 +23,7 @@ remaining environment-owned release gates are recorded in
 
 Implementation starts with `MOB-P3-001` through `MOB-P3-003`: search -> golden-aligned PDP -> server-authoritative cart/reprice. It traces to `P4U-MKT-001` through `P4U-MKT-003`; all money and allowed actions come from backend responses.
 
-The completed slice is pinned to backend commit `ab3304e`. Mobile CI validates
-the exact catalog, commerce and transaction OpenAPI snapshots plus the
+The completed slice is pinned to backend commit `e78941b`. Mobile CI validates
+the exact catalog, commerce, transaction and notification OpenAPI snapshots plus the
 authoritative cart, quote, payment, order and wallet fixtures before analysis
 and tests.

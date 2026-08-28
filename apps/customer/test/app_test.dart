@@ -74,6 +74,7 @@ void main() {
         ),
         marketplaceController: MarketplaceController(remote: remote),
         cartController: CartController(remote: SyntheticCartRemote()),
+        paymentRecoveryStore: MemoryPaymentRecoveryStore(),
         initialUri: Uri.parse('https://dev.planext4u.net/app/catalog'),
       ),
     );
@@ -85,6 +86,7 @@ void main() {
   testWidgets('product deep link renders the Phase 3 PDP on a narrow device', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     tester.platformDispatcher.textScaleFactorTestValue = 1.3;
@@ -105,6 +107,7 @@ void main() {
         ),
         marketplaceController: MarketplaceController(remote: remote),
         cartController: CartController(remote: SyntheticCartRemote()),
+        paymentRecoveryStore: MemoryPaymentRecoveryStore(),
         initialUri: Uri.parse(
           'https://dev.planext4u.net/app/catalog/items/item-milk',
         ),
@@ -116,6 +119,10 @@ void main() {
     expect(find.text('Verified local seller'), findsOneWidget);
     expect(find.text('500 ml'), findsOneWidget);
     expect(find.text('Add to cart'), findsOneWidget);
+    expect(tester, meetsGuideline(androidTapTargetGuideline));
+    expect(tester, meetsGuideline(labeledTapTargetGuideline));
+    expect(tester, meetsGuideline(textContrastGuideline));
+    semantics.dispose();
     expect(tester.takeException(), isNull);
   });
 }

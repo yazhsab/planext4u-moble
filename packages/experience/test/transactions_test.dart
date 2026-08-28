@@ -126,7 +126,15 @@ final class _TransactionRemote implements TransactionRemote {
     'id': 'order-1',
     'revision': 1,
     'status': 'PENDING_PAYMENT',
-    'snapshot': {'total': _money(98765), 'payment_method': 'RAZORPAY'},
+    'snapshot': {
+      'total': _money(98765),
+      'payment_method': 'RAZORPAY',
+      'lines': [_line],
+      'delivery': {
+        'window_start': '2026-08-28T10:00:00Z',
+        'window_end': '2026-08-28T14:00:00Z',
+      },
+    },
     'allowed_actions': ['CHECK_PAYMENT'],
     'timeline': [
       {
@@ -161,12 +169,55 @@ final class _TransactionRemote implements TransactionRemote {
     }),
   ];
   @override
+  Future<CustomerAddress> createAddress(
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => (await addresses()).first;
+  @override
+  Future<CustomerAddress> updateAddress(
+    CustomerAddress current,
+    CustomerAddressDraft value, {
+    String? idempotencyKey,
+  }) async => current;
+  @override
+  Future<void> deleteAddress(
+    CustomerAddress value, {
+    String? idempotencyKey,
+  }) async {}
+  @override
   Future<List<CustomerDeliverySlot>> deliverySlots() async => [
     quoteValue.delivery,
   ];
   @override
   Future<WalletAccount> wallet() async =>
       WalletAccount.fromJson({'balance': 0, 'entries': <Object?>[]});
+  @override
+  Future<WalletExperience> walletExperience() async => WalletExperience(
+    account: await wallet(),
+    referral: const ReferralProfile(
+      code: 'P4UTEST001',
+      shareUrl: 'https://planext4u.net/referral/P4UTEST001',
+      senderPoints: 500,
+      recipientPoints: 250,
+      rewarded: false,
+    ),
+    refills: const [],
+    campaigns: const [],
+  );
+  @override
+  Future<ReferralProfile> applyReferral(String code) async => ReferralProfile(
+    code: 'P4UTEST001',
+    shareUrl: 'https://planext4u.net/referral/P4UTEST001',
+    senderPoints: 500,
+    recipientPoints: 250,
+    pendingCode: code,
+    rewarded: false,
+  );
+  @override
+  Future<WalletRefillResult> createWalletRefill({
+    required String offerId,
+    required CustomerPaymentMethod method,
+  }) async => throw UnimplementedError();
   @override
   Future<CheckoutQuote> quote({
     required int cartRevision,
@@ -188,6 +239,11 @@ final class _TransactionRemote implements TransactionRemote {
   );
   @override
   Future<CustomerPayment> payment(String id) async => _payment('RECONCILED');
+  @override
+  Future<CustomerPayment> retryPayment(
+    String id, {
+    String? idempotencyKey,
+  }) async => _payment('PROVIDER_ORDER_CREATED');
   @override
   Future<List<CustomerOrder>> orders() async => [orderValue];
   @override

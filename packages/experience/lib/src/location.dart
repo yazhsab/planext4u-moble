@@ -120,6 +120,83 @@ abstract interface class ServiceabilityRemote {
   Future<ServiceabilityDecision> check(ServiceLocation location);
 }
 
+final class GeocodeCandidate {
+  const GeocodeCandidate({
+    required this.id,
+    required this.label,
+    required this.locality,
+    required this.postalCode,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  factory GeocodeCandidate.fromJson(Object? value) {
+    if (value is! Map<String, Object?> ||
+        value['id'] is! String ||
+        value['label'] is! String ||
+        value['locality'] is! String ||
+        value['postal_code'] is! String ||
+        value['latitude'] is! num ||
+        value['longitude'] is! num) {
+      throw const FormatException('Geocoding candidate is invalid.');
+    }
+    return GeocodeCandidate(
+      id: value['id']! as String,
+      label: value['label']! as String,
+      locality: value['locality']! as String,
+      postalCode: value['postal_code']! as String,
+      latitude: (value['latitude']! as num).toDouble(),
+      longitude: (value['longitude']! as num).toDouble(),
+    );
+  }
+
+  final String id;
+  final String label;
+  final String locality;
+  final String postalCode;
+  final double latitude;
+  final double longitude;
+
+  ServiceLocation toServiceLocation(DateTime now) => ServiceLocation(
+    latitude: latitude,
+    longitude: longitude,
+    accuracyMetres: 1000,
+    capturedAt: now.toUtc(),
+    label: label,
+  );
+}
+
+abstract interface class GeocodingRemote {
+  Future<List<GeocodeCandidate>> search(String query);
+}
+
+final class GeocodingApi implements GeocodingRemote {
+  const GeocodingApi(this._client);
+  final ApiClient _client;
+
+  @override
+  Future<List<GeocodeCandidate>> search(String query) async {
+    final response = await _client.send(
+      ApiRequest.get(
+        operation: 'catalog.search_geocoding',
+        path: '/v1/geocoding/search',
+        query: {
+          'q': [query.trim()],
+        },
+      ),
+      (json) {
+        if (json is! Map<String, Object?> || json['items'] is! List<Object?>) {
+          throw const FormatException('Geocoding response is invalid.');
+        }
+        return List<GeocodeCandidate>.unmodifiable(
+          (json['items']! as List<Object?>).map(GeocodeCandidate.fromJson),
+        );
+      },
+    );
+    return response.value;
+  }
+}
+
 final class ServiceabilityApi implements ServiceabilityRemote {
   const ServiceabilityApi(this._client);
   final ApiClient _client;
