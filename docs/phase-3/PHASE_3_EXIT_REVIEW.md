@@ -1,10 +1,11 @@
 # Phase 3 mobile exit review
 
 - Review date: 2026-08-28
-- Engineering outcome: 100% of the Phase 3 source backlog implemented and verified locally; clean-checkout CI required on push
+- Engineering outcome: 100% of the Phase 3 source backlog implemented and verified locally, including the complete native build matrix and emulator commerce journeys
 - Paired backend baseline: `e78941b`
 - Cloud staging activation: Not executed; protected AWS delivery configuration is absent
 - Live provider activation: Not executed; protected merchant and Firebase credentials are absent
+- Hosted CI execution: Workflow dispatched, but GitHub rejected every job before checkout because the `yazhsab` account requires a billing/spending-limit correction
 
 ## Verified engineering evidence
 
@@ -20,8 +21,9 @@
 | Customer notifications | Firebase authorization/token refresh, authenticated register/unregister, startup failure isolation, safe order deep-link validation and platform entitlement/configuration tests | Pass |
 | Localization and accessibility | Complete core-commerce maps for `en`, `ta`, `hi`, `te`, `kn`, `ml`, `mr`, `bn`, `gu`; 390 x 844 at 130% text; tap-target, label and contrast checks | Pass |
 | Controlled checkout target | `MOB-E2E-002`: 100 quote-to-COD attempts, 100 successful, 100% success (required >=97%) | Pass |
+| Android device vertical slices | `MOB-E2E-001/002/003` passed on an Android 16 emulator: fresh-install/auth/location/catalog, controlled COD checkout and wallet-ledger reconciliation | Pass |
 | Mobile workspace quality gate | Contract/token drift, formatting, flavor/CI validation, analysis and every unit/widget test via `dart run melos run verify` | Pass |
-| Native compilation | Customer development Android APK and iOS simulator application | Pass |
+| Native compilation | Customer, vendor and rider development/staging/production builds on Android and iOS: 18 current-commit compile checks | Pass |
 
 ## Payment and deployment boundary
 
@@ -40,7 +42,11 @@ credentialed provider E2E is deliberately an environment-owned release gate.
 ## Exit decision
 
 100% of the Phase 3 source backlog is implemented against pinned deterministic
-contracts and fixtures. This is not a production-readiness approval. Cloud
-staging, credentialed live provider callbacks/push delivery, calibrated sustained
-load, store signing and live first-order smoke evidence remain deployment gates
-in the paired programme.
+contracts and fixtures. The complete local equivalent of the mobile CI quality,
+native-build and emulator gates passes. Hosted CI has not produced a run result
+because GitHub rejected the jobs before checkout for an account billing or
+spending-limit restriction; this is an external execution gate, not a source
+test failure. This is not a production-readiness approval. Cloud staging,
+credentialed live provider callbacks/push delivery, calibrated sustained load,
+store signing and live first-order smoke evidence remain deployment gates in the
+paired programme.
