@@ -1,6 +1,6 @@
 {
   "source_repository": "https://github.com/yazhsab/planext4u-backend",
-  "source_commit": "f616ee6a1f5216db5bbb90100c161e96d177243a",
+  "source_commit": "30fca1520c6c77c6d40e346c2153b015750eba14",
   "contract_path": "api/openapi/common.openapi.json",
   "contract_sha256": "332ef63e39ef8f7e4dc13a25709b697f288fbb66061f29f73ecf0ee7a8db4b0f",
   "fixture_path": "api/fixtures/problem.json",
@@ -38,5 +38,9 @@
   "food_order_fixture_path": "api/fixtures/food_order.json",
   "food_order_fixture_sha256": "9c3e75073e674b1336d5f85d32b922418018dfa7a3e0a3880c0ca51a45c9f77f",
   "rider_assignment_fixture_path": "api/fixtures/rider_assignment.json",
-  "rider_assignment_fixture_sha256": "31cc1295e7a5cab5798397b27eb211f2ba6995507616309fa7512b7c61822235"
+  "rider_assignment_fixture_sha256": "31cc1295e7a5cab5798397b27eb211f2ba6995507616309fa7512b7c61822235",
+  "social_contract_path": "api/openapi/social.openapi.json",
+  "social_contract_sha256": "124ec0f4613d3d7d958500cd079b2159c1eb0ca7c95d24516c05e06fee14b217",
+  "social_feed_fixture_path": "api/fixtures/social_feed.json",
+  "social_feed_fixture_sha256": "cf633d4544ea473b1d6652e3ecaa50c6e001f1c32300a2439dd9a8537d6a2060"
 }

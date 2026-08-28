@@ -26,7 +26,7 @@ void main() {
     'app-production-debug.apk',
     'runs-on: macos-26',
     'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
-    'MOB-E2E-001/002/003/004/005/006/007 Android emulator (2 GB)',
+    'MOB-E2E-001/002/003/004/005/006/007/008 Android emulator (2 GB)',
     'Enable KVM acceleration',
     'test -r /dev/kvm && test -w /dev/kvm',
     'customer_vertical_slice_test.dart',
@@ -96,6 +96,16 @@ void main() {
     'rider-commission-v1',
   ]) {
     _expect(failures, riderIntegration, required, 'Phase 4 rider E2E');
+  }
+  for (final required in [
+    'MOB-E2E-008',
+    'ranked_feed',
+    'revisioned_like',
+    'nested_comment_guard',
+    'moderation_report',
+    'pending_review',
+  ]) {
+    _expect(failures, integration, required, 'Phase 5 Socio trust E2E');
   }
   _expect(failures, root, 'dart run tool/validate_ci.dart', 'root gate');
 

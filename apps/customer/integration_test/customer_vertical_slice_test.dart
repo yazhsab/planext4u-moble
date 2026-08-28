@@ -227,6 +227,61 @@ void main() {
       expect(remote.chatExpiresAfterDelivery, isTrue);
     },
   );
+
+  testWidgets(
+    'MOB-E2E-008 Socio feed post engagement comment and report trust flow',
+    (tester) async {
+      final remote = _Phase5SocialRemote();
+      final controller = SocialController(remote: remote);
+      await tester.pumpWidget(
+        MaterialApp(home: CustomerSocialScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Trusted neighbourhood update'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('like-social-e2e-008')));
+      await tester.pumpAndSettle();
+      expect(find.text('8'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('comments-social-e2e-008')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('social-comment-body')),
+        'Thanks for the verified update',
+      );
+      await tester.tap(find.byKey(const ValueKey('submit-social-comment')));
+      await tester.pumpAndSettle();
+      expect(find.text('Thanks for the verified update'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Post options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Report post'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Spam or misleading'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('create-social-post')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('social-post-body')),
+        'Review this local safety notice',
+      );
+      await tester.tap(find.byKey(const ValueKey('submit-social-post')));
+      await tester.pumpAndSettle();
+      expect(find.text('Pending moderation review'), findsOneWidget);
+      expect(remote.evidence, [
+        'ranked_feed',
+        'revisioned_like',
+        'comments',
+        'nested_comment_guard',
+        'post_refresh',
+        'moderation_report',
+        'pending_review',
+      ]);
+    },
+  );
 }
 
 enum _JourneyStage { consent, login, location, home }
@@ -981,3 +1036,131 @@ final class _Phase4FoodRemote implements FoodRemote {
   @override
   Future<List<FoodOrder>> orders() async => [_order];
 }
+
+final class _Phase5SocialRemote implements SocialRemote {
+  final evidence = <String>[];
+  late SocialPost _current = _socialPost();
+
+  @override
+  Future<SocialFeedPage> feed({String? cursor, int limit = 20}) async {
+    evidence.add('ranked_feed');
+    return SocialFeedPage(
+      items: [_current],
+      nextCursor: '',
+      rankingVersion: 'socio-feed-v1',
+    );
+  }
+
+  @override
+  Future<SocialPost> post(String id) async {
+    evidence.add('post_refresh');
+    return _current;
+  }
+
+  @override
+  Future<SocialPost> createPost(String body) async {
+    evidence.add('pending_review');
+    return _socialPost(
+      id: 'social-pending-e2e-008',
+      body: body,
+      status: 'PENDING_REVIEW',
+      moderationReason: 'AUTOMATED_REVIEW',
+      likeCount: 0,
+      commentCount: 0,
+    );
+  }
+
+  @override
+  Future<SocialPost> setLike(SocialPost post, bool active) async {
+    evidence.add('revisioned_like');
+    _current = _socialPost(
+      revision: post.revision + 1,
+      liked: active,
+      likeCount: active ? 8 : 7,
+    );
+    return _current;
+  }
+
+  @override
+  Future<SocialPost> setSave(SocialPost post, bool active) async {
+    _current = _socialPost(revision: post.revision + 1, saved: active);
+    return _current;
+  }
+
+  @override
+  Future<List<SocialComment>> comments(String postId) async {
+    evidence.add('comments');
+    return const [];
+  }
+
+  @override
+  Future<SocialComment> createComment(
+    String postId,
+    String body, {
+    String? parentId,
+  }) async {
+    evidence.add('nested_comment_guard');
+    return SocialComment(
+      id: 'comment-e2e-008',
+      postId: postId,
+      parentId: parentId ?? '',
+      depth: parentId == null ? 0 : 1,
+      author: _socialProfile,
+      body: body,
+      status: 'PUBLISHED',
+      createdAt: DateTime.utc(2026, 8, 28, 12),
+    );
+  }
+
+  @override
+  Future<void> report(
+    String postId,
+    String reason, {
+    String details = '',
+  }) async {
+    if (reason != 'SPAM') throw StateError('Unexpected report reason.');
+    evidence.add('moderation_report');
+  }
+}
+
+const _socialProfile = SocialProfile(
+  id: 'customer-social-e2e-008',
+  handle: 'trusted_local',
+  displayName: 'Trusted Local',
+  bio: 'Verified local updates',
+  isPrivate: false,
+  verified: true,
+  relationship: 'FOLLOWING',
+  allowedActions: {'MUTE', 'BLOCK'},
+);
+
+SocialPost _socialPost({
+  String id = 'social-e2e-008',
+  int revision = 1,
+  String body = 'Trusted neighbourhood update',
+  String status = 'PUBLISHED',
+  String moderationReason = '',
+  int likeCount = 7,
+  int commentCount = 2,
+  bool liked = false,
+  bool saved = false,
+}) => SocialPost(
+  id: id,
+  revision: revision,
+  author: _socialProfile,
+  body: body,
+  mediaAssetIds: const [],
+  hashtags: const ['local'],
+  mentions: const [],
+  sponsored: false,
+  sponsorLabel: '',
+  status: status,
+  moderationReason: moderationReason,
+  likeCount: likeCount,
+  commentCount: commentCount,
+  liked: liked,
+  saved: saved,
+  allowedActions: const {'LIKE', 'SAVE', 'COMMENT', 'REPORT'},
+  rankingVersion: 'socio-feed-v1',
+  createdAt: DateTime.utc(2026, 8, 28, 11),
+);

@@ -51,7 +51,9 @@ dart run packages/api_client/tool/generate_contracts.dart \
   --fulfillment-from=/absolute/path/to/planext4u-backend/api/openapi/fulfillment.openapi.json \
   --vendor-program-from=/absolute/path/to/planext4u-backend/api/fixtures/vendor_program.json \
   --food-order-from=/absolute/path/to/planext4u-backend/api/fixtures/food_order.json \
-  --rider-assignment-from=/absolute/path/to/planext4u-backend/api/fixtures/rider_assignment.json
+  --rider-assignment-from=/absolute/path/to/planext4u-backend/api/fixtures/rider_assignment.json \
+  --social-from=/absolute/path/to/planext4u-backend/api/openapi/social.openapi.json \
+  --social-feed-from=/absolute/path/to/planext4u-backend/api/fixtures/social_feed.json
 ```
 
 Do not hand-edit `lib/src/generated/*.g.dart`. CI and the root verification gate

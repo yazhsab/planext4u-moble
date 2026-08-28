@@ -70,6 +70,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   TransactionController? _transactions;
   ServiceBookingController? _serviceBookings;
   FoodController? _food;
+  SocialController? _social;
   BootstrapController? _bootstrap;
   ConsentController? _consent;
   LocationController? _location;
@@ -134,6 +135,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
       remote: ServiceBookingApi(client),
     );
     _food = FoodController(remote: FoodApi(client));
+    _social = SocialController(remote: SocialApi(client));
     final messaging = widget.firebaseMessaging;
     if (messaging != null && _pushRegistration == null) {
       _pushRegistration = CustomerPushRegistration(
@@ -231,6 +233,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _transactions?.dispose();
     _serviceBookings?.dispose();
     _food?.dispose();
+    _social?.dispose();
     _bootstrap?.dispose();
     _consent?.dispose();
     _location?.dispose();
@@ -240,6 +243,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _transactions = null;
     _serviceBookings = null;
     _food = null;
+    _social = null;
     _bootstrap = null;
     _consent = null;
     _location = null;
@@ -261,6 +265,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         transactionController: _transactions,
         serviceBookingController: _serviceBookings,
         foodController: _food,
+        socialController: _social,
         bootstrapController: _bootstrap,
         consentController: _consent,
         locationController: _location,
@@ -594,6 +599,7 @@ class CustomerApp extends StatefulWidget {
     this.transactionController,
     this.serviceBookingController,
     this.foodController,
+    this.socialController,
     this.paymentRecoveryStore,
     this.bootstrapController,
     this.consentController,
@@ -613,6 +619,7 @@ class CustomerApp extends StatefulWidget {
   final TransactionController? transactionController;
   final ServiceBookingController? serviceBookingController;
   final FoodController? foodController;
+  final SocialController? socialController;
   final PaymentRecoveryStore? paymentRecoveryStore;
   final BootstrapController? bootstrapController;
   final ConsentController? consentController;
@@ -665,6 +672,10 @@ class _CustomerAppState extends State<CustomerApp> {
   late final FoodController _food =
       widget.foodController ??
       FoodController(remote: _AuthenticatedFoodRequiredRemote());
+  late final bool _ownsSocial = widget.socialController == null;
+  late final SocialController _social =
+      widget.socialController ??
+      SocialController(remote: _AuthenticatedSocialRequiredRemote());
 
   @override
   void dispose() {
@@ -674,6 +685,7 @@ class _CustomerAppState extends State<CustomerApp> {
     if (_ownsTransactions) _transactions.dispose();
     if (_ownsServiceBookings) _serviceBookings.dispose();
     if (_ownsFood) _food.dispose();
+    if (_ownsSocial) _social.dispose();
     super.dispose();
   }
 
@@ -719,6 +731,11 @@ class _CustomerAppState extends State<CustomerApp> {
               transactionController: _transactions,
               serviceBookingController: _serviceBookings,
               foodController: _food,
+              socialController: _social,
+              openSocialInitially: link is CustomerSocialLink,
+              initialSocialPostId: link is CustomerSocialLink
+                  ? link.postId
+                  : null,
               paymentLauncher: _paymentLauncher,
               profileDisplayName: widget.profileDisplayName,
               onSignOut: widget.onSignOut,
@@ -996,6 +1013,40 @@ class _ManualLocationSheetState extends State<_ManualLocationSheet> {
       ),
     ),
   );
+}
+
+final class _AuthenticatedSocialRequiredRemote implements SocialRemote {
+  Never _required() => throw const ApiAuthenticationFailure(
+    code: 'AUTHENTICATION_REQUIRED',
+    message: 'Sign in to continue.',
+    correlationId: 'local-auth-boundary',
+  );
+
+  @override
+  Future<SocialFeedPage> feed({String? cursor, int limit = 20}) async =>
+      _required();
+  @override
+  Future<SocialPost> post(String id) async => _required();
+  @override
+  Future<SocialPost> createPost(String body) async => _required();
+  @override
+  Future<SocialPost> setLike(SocialPost post, bool active) async => _required();
+  @override
+  Future<SocialPost> setSave(SocialPost post, bool active) async => _required();
+  @override
+  Future<List<SocialComment>> comments(String postId) async => _required();
+  @override
+  Future<SocialComment> createComment(
+    String postId,
+    String body, {
+    String? parentId,
+  }) async => _required();
+  @override
+  Future<void> report(
+    String postId,
+    String reason, {
+    String details = '',
+  }) async => _required();
 }
 
 final class _AuthenticatedServiceBookingRequiredRemote

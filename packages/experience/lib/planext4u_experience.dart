@@ -18,5 +18,7 @@ export 'src/role_push.dart';
 export 'src/role_runtime.dart';
 export 'src/service_booking.dart';
 export 'src/service_booking_screens.dart';
+export 'src/social.dart';
+export 'src/social_screens.dart';
 export 'src/transactions.dart';
 export 'src/transaction_screens.dart';

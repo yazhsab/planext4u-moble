@@ -11,6 +11,8 @@ import 'marketplace.dart';
 import 'marketplace_screen.dart';
 import 'service_booking.dart';
 import 'service_booking_screens.dart';
+import 'social.dart';
+import 'social_screens.dart';
 import 'transaction_screens.dart';
 import 'transactions.dart';
 
@@ -39,6 +41,15 @@ sealed class CustomerDeepLink {
       final id = Uri.decodeComponent(segments[2]);
       if (_safeIdentifier(id)) return CustomerOrderLink(id);
     }
+    if (segments.length == 2 && segments[1] == 'social') {
+      return const CustomerSocialLink();
+    }
+    if (segments.length == 4 &&
+        segments[1] == 'social' &&
+        segments[2] == 'posts') {
+      final id = Uri.decodeComponent(segments[3]);
+      if (_safeIdentifier(id)) return CustomerSocialLink(postId: id);
+    }
     return null;
   }
 }
@@ -61,6 +72,11 @@ final class CustomerOrderLink extends CustomerDeepLink {
   final String orderId;
 }
 
+final class CustomerSocialLink extends CustomerDeepLink {
+  const CustomerSocialLink({this.postId});
+  final String? postId;
+}
+
 bool _safeIdentifier(String value) =>
     value.isNotEmpty &&
     value.length <= 128 &&
@@ -76,6 +92,9 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.transactionController,
     this.serviceBookingController,
     this.foodController,
+    this.socialController,
+    this.openSocialInitially = false,
+    this.initialSocialPostId,
     this.paymentLauncher = const UnavailablePaymentProviderLauncher(),
     this.onItemSelected,
     this.profileDisplayName,
@@ -92,6 +111,9 @@ final class CustomerHomeScreen extends StatefulWidget {
   final TransactionController? transactionController;
   final ServiceBookingController? serviceBookingController;
   final FoodController? foodController;
+  final SocialController? socialController;
+  final bool openSocialInitially;
+  final String? initialSocialPostId;
   final PaymentProviderLauncher paymentLauncher;
   final ValueChanged<CatalogItem>? onItemSelected;
   final String? profileDisplayName;
@@ -117,6 +139,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         widget.cartController != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openProduct(widget.initialItemId!);
+      });
+    }
+    if (widget.openSocialInitially && widget.socialController != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openSocial(postId: widget.initialSocialPostId);
       });
     }
   }
@@ -159,6 +186,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           CustomerDestination.profile => strings.profileTitle,
         }),
         actions: [
+          if (widget.socialController != null)
+            IconButton(
+              key: const ValueKey('open-social'),
+              tooltip: 'Open Socio',
+              onPressed: _openSocial,
+              icon: const Icon(Icons.people_alt_outlined),
+            ),
           if (widget.cartController != null)
             IconButton(
               tooltip: 'Open cart',
@@ -682,6 +716,17 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                 ),
         ),
+      ),
+    );
+  }
+
+  void _openSocial({String? postId}) {
+    final social = widget.socialController;
+    if (social == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            CustomerSocialScreen(controller: social, initialPostId: postId),
       ),
     );
   }

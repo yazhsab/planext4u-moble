@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = 'f616ee6a1f5216db5bbb90100c161e96d177243a';
+const _sourceCommit = '30fca1520c6c77c6d40e346c2153b015750eba14';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
@@ -24,6 +24,8 @@ const _fulfillmentContractPath = 'api/openapi/fulfillment.openapi.json';
 const _vendorProgramFixturePath = 'api/fixtures/vendor_program.json';
 const _foodOrderFixturePath = 'api/fixtures/food_order.json';
 const _riderAssignmentFixturePath = 'api/fixtures/rider_assignment.json';
+const _socialContractPath = 'api/openapi/social.openapi.json';
+const _socialFeedFixturePath = 'api/fixtures/social_feed.json';
 
 void main(List<String> arguments) {
   final check = arguments.contains('--check');
@@ -55,6 +57,8 @@ void main(List<String> arguments) {
     arguments,
     '--rider-assignment-from=',
   );
+  final socialFrom = _argumentValue(arguments, '--social-from=');
+  final socialFeedFrom = _argumentValue(arguments, '--social-feed-from=');
   final syncArguments = [
     syncFrom,
     fixtureFrom,
@@ -75,6 +79,8 @@ void main(List<String> arguments) {
     vendorProgramFrom,
     foodOrderFrom,
     riderAssignmentFrom,
+    socialFrom,
+    socialFeedFrom,
   ];
   final syncing = syncArguments.any((value) => value != null);
   if (check && syncing) {
@@ -84,7 +90,7 @@ void main(List<String> arguments) {
   }
   if (syncing && syncArguments.any((value) => value == null)) {
     stderr.writeln(
-      'All common, marketplace, transaction, booking and Phase 4 sync paths are required.',
+      'All common, marketplace, transaction, booking, Phase 4 and Phase 5 sync paths are required.',
     );
     exitCode = 64;
     return;
@@ -141,6 +147,10 @@ void main(List<String> arguments) {
   final riderAssignmentFile = File(
     '${packageRoot.path}/contracts/rider_assignment.fixture.json',
   );
+  final socialFile = File('${packageRoot.path}/contracts/social.openapi.json');
+  final socialFeedFile = File(
+    '${packageRoot.path}/contracts/social_feed.fixture.json',
+  );
 
   if (syncing) {
     contractFile.parent.createSync(recursive: true);
@@ -175,6 +185,8 @@ void main(List<String> arguments) {
     riderAssignmentFile.writeAsBytesSync(
       File(riderAssignmentFrom!).readAsBytesSync(),
     );
+    socialFile.writeAsBytesSync(File(socialFrom!).readAsBytesSync());
+    socialFeedFile.writeAsBytesSync(File(socialFeedFrom!).readAsBytesSync());
   }
   if (!contractFile.existsSync() ||
       !fixtureFile.existsSync() ||
@@ -194,7 +206,9 @@ void main(List<String> arguments) {
       !fulfillmentFile.existsSync() ||
       !vendorProgramFile.existsSync() ||
       !foodOrderFile.existsSync() ||
-      !riderAssignmentFile.existsSync()) {
+      !riderAssignmentFile.existsSync() ||
+      !socialFile.existsSync() ||
+      !socialFeedFile.existsSync()) {
     stderr.writeln('Contract snapshots are missing. Run with sync arguments.');
     exitCode = 1;
     return;
@@ -219,6 +233,8 @@ void main(List<String> arguments) {
   final vendorProgramBytes = vendorProgramFile.readAsBytesSync();
   final foodOrderBytes = foodOrderFile.readAsBytesSync();
   final riderAssignmentBytes = riderAssignmentFile.readAsBytesSync();
+  final socialBytes = socialFile.readAsBytesSync();
+  final socialFeedBytes = socialFeedFile.readAsBytesSync();
   final contract = _decodeObject(contractBytes, 'common OpenAPI contract');
   final fixture = _decodeObject(fixtureBytes, 'problem fixture');
   final catalog = _decodeObject(catalogBytes, 'catalog OpenAPI contract');
@@ -262,6 +278,8 @@ void main(List<String> arguments) {
     riderAssignmentBytes,
     'rider assignment fixture',
   );
+  final social = _decodeObject(socialBytes, 'social OpenAPI contract');
+  final socialFeed = _decodeObject(socialFeedBytes, 'social feed fixture');
   _validateContract(contract);
   _validateFixture(fixture);
   _validateMarketplaceContracts(catalog, commerce, commerceFixture);
@@ -282,6 +300,7 @@ void main(List<String> arguments) {
     foodOrder,
     riderAssignment,
   );
+  _validatePhase5Contracts(social, socialFeed);
 
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
@@ -302,6 +321,8 @@ void main(List<String> arguments) {
   final vendorProgramHash = sha256.convert(vendorProgramBytes).toString();
   final foodOrderHash = sha256.convert(foodOrderBytes).toString();
   final riderAssignmentHash = sha256.convert(riderAssignmentBytes).toString();
+  final socialHash = sha256.convert(socialBytes).toString();
+  final socialFeedHash = sha256.convert(socialFeedBytes).toString();
   final provenance = <String, Object>{
     'source_repository': _sourceRepository,
     'source_commit': _sourceCommit,
@@ -343,6 +364,10 @@ void main(List<String> arguments) {
     'food_order_fixture_sha256': foodOrderHash,
     'rider_assignment_fixture_path': _riderAssignmentFixturePath,
     'rider_assignment_fixture_sha256': riderAssignmentHash,
+    'social_contract_path': _socialContractPath,
+    'social_contract_sha256': socialHash,
+    'social_feed_fixture_path': _socialFeedFixturePath,
+    'social_feed_fixture_sha256': socialFeedHash,
   };
   final expectedProvenance =
       '${const JsonEncoder.withIndent('  ').convert(provenance)}\n';
@@ -568,6 +593,48 @@ void _validatePhase4Contracts(
       riderEarnings is! Map<String, Object?> ||
       riderEarnings['calculation_version'] is! String) {
     throw const FormatException('Phase 4 fixtures are incomplete.');
+  }
+}
+
+void _validatePhase5Contracts(
+  Map<String, Object?> social,
+  Map<String, Object?> socialFeed,
+) {
+  final paths = social['paths'] as Map<String, Object?>?;
+  const requiredPaths = {
+    '/v1/social/feed',
+    '/v1/social/posts',
+    '/v1/social/posts/{post_id}',
+    '/v1/social/posts/{post_id}/like',
+    '/v1/social/posts/{post_id}/save',
+    '/v1/social/posts/{post_id}/comments',
+    '/v1/social/posts/{post_id}/reports',
+    '/v1/social/profiles/{profile_id}',
+    '/v1/social/profiles/{profile_id}/follow',
+    '/v1/social/profiles/{profile_id}/relationship',
+    '/v1/social/follow-requests/{follower_id}/accept',
+    '/v1/moderation/reports',
+    '/v1/moderation/reports/{report_id}/decision',
+  };
+  final items = socialFeed['items'];
+  if (social['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.keys.toSet().containsAll(requiredPaths) ||
+      socialFeed['ranking_version'] is! String ||
+      items is! List ||
+      items.isEmpty) {
+    throw const FormatException(
+      'Phase 5 social contracts are missing required trust journeys.',
+    );
+  }
+  final post = items.first;
+  if (post is! Map<String, Object?> ||
+      post['revision'] is! int ||
+      post['author'] is! Map ||
+      post['status'] is! String ||
+      post['allowed_actions'] is! List ||
+      post['ranking_version'] is! String) {
+    throw const FormatException('Phase 5 social fixture is incomplete.');
   }
 }
 
