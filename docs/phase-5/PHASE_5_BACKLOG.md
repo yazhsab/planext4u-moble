@@ -28,3 +28,9 @@ Implementation starts with `MOB-P5-001` through `MOB-P5-004`, paired with
 backend stories `BE-P5-001` through `BE-P5-004`. The slice includes a real
 customer feed/create/engage UI and explicit private, blocked, pending-review,
 offline and stale-revision states.
+
+## Completion
+
+All stories `MOB-P5-001` through `MOB-P5-012` are implemented. Contract drift,
+controller, widget, accessibility, deep-link and application quality evidence is
+recorded in the [Phase 5 exit review](PHASE_5_EXIT_REVIEW.md).

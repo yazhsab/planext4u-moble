@@ -9,6 +9,8 @@ import 'food_screens.dart';
 import 'localization.dart';
 import 'marketplace.dart';
 import 'marketplace_screen.dart';
+import 'phase5.dart';
+import 'phase5_screens.dart';
 import 'service_booking.dart';
 import 'service_booking_screens.dart';
 import 'social.dart';
@@ -44,6 +46,20 @@ sealed class CustomerDeepLink {
     if (segments.length == 2 && segments[1] == 'social') {
       return const CustomerSocialLink();
     }
+    if (segments.length == 2 &&
+        const {
+          'community',
+          'homes',
+          'classifieds',
+          'emergency',
+        }.contains(segments[1])) {
+      return CustomerCommunityLink(switch (segments[1]) {
+        'homes' => 1,
+        'classifieds' => 2,
+        'emergency' => 3,
+        _ => 0,
+      });
+    }
     if (segments.length == 4 &&
         segments[1] == 'social' &&
         segments[2] == 'posts') {
@@ -77,6 +93,11 @@ final class CustomerSocialLink extends CustomerDeepLink {
   final String? postId;
 }
 
+final class CustomerCommunityLink extends CustomerDeepLink {
+  const CustomerCommunityLink(this.tab);
+  final int tab;
+}
+
 bool _safeIdentifier(String value) =>
     value.isNotEmpty &&
     value.length <= 128 &&
@@ -93,6 +114,9 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.serviceBookingController,
     this.foodController,
     this.socialController,
+    this.phase5Controller,
+    this.openCommunityInitially = false,
+    this.initialCommunityTab = 0,
     this.openSocialInitially = false,
     this.initialSocialPostId,
     this.paymentLauncher = const UnavailablePaymentProviderLauncher(),
@@ -112,6 +136,9 @@ final class CustomerHomeScreen extends StatefulWidget {
   final ServiceBookingController? serviceBookingController;
   final FoodController? foodController;
   final SocialController? socialController;
+  final Phase5Controller? phase5Controller;
+  final bool openCommunityInitially;
+  final int initialCommunityTab;
   final bool openSocialInitially;
   final String? initialSocialPostId;
   final PaymentProviderLauncher paymentLauncher;
@@ -144,6 +171,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     if (widget.openSocialInitially && widget.socialController != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openSocial(postId: widget.initialSocialPostId);
+      });
+    }
+    if (widget.openCommunityInitially && widget.phase5Controller != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openCommunity(widget.initialCommunityTab);
       });
     }
   }
@@ -192,6 +224,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               tooltip: 'Open Socio',
               onPressed: _openSocial,
               icon: const Icon(Icons.people_alt_outlined),
+            ),
+          if (widget.phase5Controller != null)
+            IconButton(
+              key: const ValueKey('open-community'),
+              tooltip: 'Open Homes, Classifieds and Emergency',
+              onPressed: () => _openCommunity(0),
+              icon: const Icon(Icons.grid_view_rounded),
             ),
           if (widget.cartController != null)
             IconButton(
@@ -276,6 +315,97 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       // The encrypted payment identifier remains available for another retry.
     }
     await controller.recoverPayment();
+  }
+
+  Future<void> _exportAccountData() async {
+    final value = await widget.phase5Controller?.exportAccountData();
+    if (!mounted || value == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(Planext4uSpacing.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Account export ready',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: Planext4uSpacing.x3),
+              SelectableText('Identity ${value.identityId}'),
+              Text('${value.sessionCount} sessions'),
+              Text('${value.consentCount} consent records'),
+              Text('Generated ${value.generatedAt.toLocal()}'),
+              const SizedBox(height: Planext4uSpacing.x3),
+              const Text(
+                'The authenticated response contains no access tokens, provider credentials or raw device identifiers.',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _requestAccountDeletion() async {
+    final confirmation = TextEditingController();
+    final reason = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Schedule account deletion?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Your account will enter a 30-day recovery period. Type DELETE MY ACCOUNT to continue.',
+            ),
+            TextField(
+              key: const ValueKey('account-deletion-confirmation'),
+              controller: confirmation,
+              decoration: const InputDecoration(labelText: 'Confirmation'),
+            ),
+            TextField(
+              controller: reason,
+              maxLength: 500,
+              decoration: const InputDecoration(labelText: 'Reason (optional)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey('confirm-account-deletion'),
+            onPressed: () => Navigator.pop(
+              context,
+              confirmation.text == 'DELETE MY ACCOUNT',
+            ),
+            child: const Text('Schedule deletion'),
+          ),
+        ],
+      ),
+    );
+    final reasonValue = reason.text;
+    confirmation.dispose();
+    reason.dispose();
+    if (accepted != true) return;
+    final value = await widget.phase5Controller?.requestAccountDeletion(
+      reasonValue,
+    );
+    if (!mounted || value == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Deletion scheduled for ${value.effectiveAt.toLocal().toString().split(' ').first}.',
+        ),
+      ),
+    );
   }
 
   Widget _body(Planext4uLocalizations strings) {
@@ -367,6 +497,30 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 ),
               ),
             ),
+            if (widget.phase5Controller != null) ...[
+              const Divider(),
+              ListTile(
+                key: const ValueKey('export-account-data'),
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('Export my account data'),
+                subtitle: const Text(
+                  'Generate a redacted copy of profile, sessions and consent evidence',
+                ),
+                onTap: _exportAccountData,
+              ),
+              ListTile(
+                key: const ValueKey('request-account-deletion'),
+                leading: Icon(
+                  Icons.delete_forever_outlined,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                title: const Text('Delete my account'),
+                subtitle: const Text(
+                  'Schedule erasure after the 30-day recovery period',
+                ),
+                onTap: _requestAccountDeletion,
+              ),
+            ],
             const SizedBox(height: Planext4uSpacing.x4),
             OutlinedButton.icon(
               onPressed: widget.onSignOut == null
@@ -450,6 +604,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             wideLayout: wideLayout,
             largeText: largeText,
           ),
+          if (widget.phase5Controller != null)
+            SliverToBoxAdapter(child: _communityLauncher()),
         ],
       ),
     );
@@ -727,6 +883,66 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       MaterialPageRoute<void>(
         builder: (_) =>
             CustomerSocialScreen(controller: social, initialPostId: postId),
+      ),
+    );
+  }
+
+  Widget _communityLauncher() => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      Planext4uSpacing.x4,
+      0,
+      Planext4uSpacing.x4,
+      Planext4uSpacing.x6,
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Community', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: Planext4uSpacing.x2),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          childAspectRatio: 2.4,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          children: [
+            _module('Socio+', Icons.people_alt_outlined, 0),
+            _module('Homes', Icons.home_work_outlined, 1),
+            _module('Classifieds', Icons.sell_outlined, 2),
+            _module('Emergency', Icons.emergency_outlined, 3),
+          ],
+        ),
+      ],
+    ),
+  );
+  Widget _module(String label, IconData icon, int tab) => Card(
+    child: InkWell(
+      key: ValueKey('community-$tab'),
+      onTap: () => _openCommunity(tab),
+      borderRadius: BorderRadius.circular(12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+  void _openCommunity(int tab) {
+    final controller = widget.phase5Controller;
+    if (controller == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            CustomerCommunityHubScreen(controller: controller, initialTab: tab),
       ),
     );
   }

@@ -18,11 +18,13 @@ The administrator console is planned as a separately deployable web workspace un
 Phase 1 product archaeology, Phase 2 platform engineering, Phase 3 customer
 commerce and Phase 4 supply, food and fulfilment are complete. Phase 4 delivers
 customer service/food flows, complete vendor operations, complete rider duty and
-POD flows, background location, chat, push and settlement. Phase 5 has started
-with the customer Socio trust slice: ranked feed pagination, post creation,
-visible moderation state, server-authoritative reactions/saves, comments,
-reporting and safe deep links. Its contracts are pinned to backend commit
-`30fca1520c6c77c6d40e346c2153b015750eba14`. The Phase 3 source covers FTUX and
+POD flows, background location, chat, push and settlement. Phase 5 is complete:
+the authenticated customer app now provides Socio profiles and relationships,
+ranked feeds, moderated media/stories/reels, collections, DMs, presence and call
+signalling; KYC-gated Homes; safe-contact classifieds; and consent-driven
+emergency assistance with responder communications. Responsive governed admin
+operations are delivered in the backend repository. Phase 5 contracts are
+pinned to backend commit `cdfc28dbaecad124500f93bd63a50a1865bf781e`. The Phase 3 source covers FTUX and
 location, discovery, PDP/reviews/Q&A, server-authoritative cart and checkout,
 native Razorpay/Paystack/COD handoff and recovery, orders/returns/ratings,
 wallet/referrals/refills/rewards, and FCM device registration/deep links against
@@ -83,6 +85,7 @@ development, staging and production identifiers, links and build commands.
 - [Phase 4 exit review](docs/phase-4/PHASE_4_EXIT_REVIEW.md)
 - [Phase 5 executable backlog](docs/phase-5/PHASE_5_BACKLOG.md)
 - [Phase 5 Socio trust entry slice](docs/phase-5/SOCIO_TRUST_ENTRY_SLICE.md)
+- [Phase 5 exit review](docs/phase-5/PHASE_5_EXIT_REVIEW.md)
 - [Decision log](docs/phase-1/DECISION_LOG.md)
 - [Feature catalogue](docs/FEATURE_CATALOGUE.md)
 - [Design-system baseline](docs/DESIGN_SYSTEM_BASELINE.md)

@@ -24,7 +24,7 @@ incorrect optimistic count.
 - `MOB-E2E-008` exercises ranked feed, revisioned engagement, comments,
   moderation reporting and pending-review visibility on the Android CI device.
 
-This is the Phase 5 entry slice, not the Phase 5 exit gate. Profile relationship
-screens, media/reels/stories, messaging, Homes, classifieds, emergency and the
-remaining governance surfaces continue under `MOB-P5-002` through
-`MOB-P5-012`.
+This entry slice has now been extended through the Phase 5 exit gate. Profile
+relationships, media/reels/stories, messaging, Homes, classifieds, emergency
+and responsive governance evidence are summarized in
+[the Phase 5 exit review](PHASE_5_EXIT_REVIEW.md).

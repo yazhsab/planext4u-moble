@@ -11,6 +11,8 @@ export 'src/localization.dart';
 export 'src/location.dart';
 export 'src/marketplace.dart';
 export 'src/marketplace_screen.dart';
+export 'src/phase5.dart';
+export 'src/phase5_screens.dart';
 export 'src/role_shell.dart';
 export 'src/role_operations.dart';
 export 'src/role_operation_screens.dart';

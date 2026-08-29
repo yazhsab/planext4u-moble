@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = '30fca1520c6c77c6d40e346c2153b015750eba14';
+const _sourceCommit = 'cdfc28dbaecad124500f93bd63a50a1865bf781e';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
@@ -26,6 +26,13 @@ const _foodOrderFixturePath = 'api/fixtures/food_order.json';
 const _riderAssignmentFixturePath = 'api/fixtures/rider_assignment.json';
 const _socialContractPath = 'api/openapi/social.openapi.json';
 const _socialFeedFixturePath = 'api/fixtures/social_feed.json';
+const _localVerticalsContractPath = 'api/openapi/local_verticals.openapi.json';
+const _emergencyContractPath = 'api/openapi/emergency.openapi.json';
+const _governanceContractPath = 'api/openapi/governance.openapi.json';
+const _homeFixturePath = 'api/fixtures/home_listing.json';
+const _classifiedFixturePath = 'api/fixtures/classified_listing.json';
+const _emergencyFixturePath = 'api/fixtures/emergency_request.json';
+const _governanceFixturePath = 'api/fixtures/governance_dashboard.json';
 
 void main(List<String> arguments) {
   final check = arguments.contains('--check');
@@ -59,6 +66,25 @@ void main(List<String> arguments) {
   );
   final socialFrom = _argumentValue(arguments, '--social-from=');
   final socialFeedFrom = _argumentValue(arguments, '--social-feed-from=');
+  final localVerticalsFrom = _argumentValue(
+    arguments,
+    '--local-verticals-from=',
+  );
+  final emergencyFrom = _argumentValue(arguments, '--emergency-from=');
+  final governanceFrom = _argumentValue(arguments, '--governance-from=');
+  final homeFixtureFrom = _argumentValue(arguments, '--home-fixture-from=');
+  final classifiedFixtureFrom = _argumentValue(
+    arguments,
+    '--classified-fixture-from=',
+  );
+  final emergencyFixtureFrom = _argumentValue(
+    arguments,
+    '--emergency-fixture-from=',
+  );
+  final governanceFixtureFrom = _argumentValue(
+    arguments,
+    '--governance-fixture-from=',
+  );
   final syncArguments = [
     syncFrom,
     fixtureFrom,
@@ -81,6 +107,13 @@ void main(List<String> arguments) {
     riderAssignmentFrom,
     socialFrom,
     socialFeedFrom,
+    localVerticalsFrom,
+    emergencyFrom,
+    governanceFrom,
+    homeFixtureFrom,
+    classifiedFixtureFrom,
+    emergencyFixtureFrom,
+    governanceFixtureFrom,
   ];
   final syncing = syncArguments.any((value) => value != null);
   if (check && syncing) {
@@ -151,6 +184,27 @@ void main(List<String> arguments) {
   final socialFeedFile = File(
     '${packageRoot.path}/contracts/social_feed.fixture.json',
   );
+  final localVerticalsFile = File(
+    '${packageRoot.path}/contracts/local_verticals.openapi.json',
+  );
+  final emergencyFile = File(
+    '${packageRoot.path}/contracts/emergency.openapi.json',
+  );
+  final governanceFile = File(
+    '${packageRoot.path}/contracts/governance.openapi.json',
+  );
+  final homeFixtureFile = File(
+    '${packageRoot.path}/contracts/home_listing.fixture.json',
+  );
+  final classifiedFixtureFile = File(
+    '${packageRoot.path}/contracts/classified_listing.fixture.json',
+  );
+  final emergencyFixtureFile = File(
+    '${packageRoot.path}/contracts/emergency_request.fixture.json',
+  );
+  final governanceFixtureFile = File(
+    '${packageRoot.path}/contracts/governance_dashboard.fixture.json',
+  );
 
   if (syncing) {
     contractFile.parent.createSync(recursive: true);
@@ -187,6 +241,21 @@ void main(List<String> arguments) {
     );
     socialFile.writeAsBytesSync(File(socialFrom!).readAsBytesSync());
     socialFeedFile.writeAsBytesSync(File(socialFeedFrom!).readAsBytesSync());
+    localVerticalsFile.writeAsBytesSync(
+      File(localVerticalsFrom!).readAsBytesSync(),
+    );
+    emergencyFile.writeAsBytesSync(File(emergencyFrom!).readAsBytesSync());
+    governanceFile.writeAsBytesSync(File(governanceFrom!).readAsBytesSync());
+    homeFixtureFile.writeAsBytesSync(File(homeFixtureFrom!).readAsBytesSync());
+    classifiedFixtureFile.writeAsBytesSync(
+      File(classifiedFixtureFrom!).readAsBytesSync(),
+    );
+    emergencyFixtureFile.writeAsBytesSync(
+      File(emergencyFixtureFrom!).readAsBytesSync(),
+    );
+    governanceFixtureFile.writeAsBytesSync(
+      File(governanceFixtureFrom!).readAsBytesSync(),
+    );
   }
   if (!contractFile.existsSync() ||
       !fixtureFile.existsSync() ||
@@ -208,7 +277,14 @@ void main(List<String> arguments) {
       !foodOrderFile.existsSync() ||
       !riderAssignmentFile.existsSync() ||
       !socialFile.existsSync() ||
-      !socialFeedFile.existsSync()) {
+      !socialFeedFile.existsSync() ||
+      !localVerticalsFile.existsSync() ||
+      !emergencyFile.existsSync() ||
+      !governanceFile.existsSync() ||
+      !homeFixtureFile.existsSync() ||
+      !classifiedFixtureFile.existsSync() ||
+      !emergencyFixtureFile.existsSync() ||
+      !governanceFixtureFile.existsSync()) {
     stderr.writeln('Contract snapshots are missing. Run with sync arguments.');
     exitCode = 1;
     return;
@@ -235,6 +311,13 @@ void main(List<String> arguments) {
   final riderAssignmentBytes = riderAssignmentFile.readAsBytesSync();
   final socialBytes = socialFile.readAsBytesSync();
   final socialFeedBytes = socialFeedFile.readAsBytesSync();
+  final localVerticalsBytes = localVerticalsFile.readAsBytesSync();
+  final emergencyBytes = emergencyFile.readAsBytesSync();
+  final governanceBytes = governanceFile.readAsBytesSync();
+  final homeFixtureBytes = homeFixtureFile.readAsBytesSync();
+  final classifiedFixtureBytes = classifiedFixtureFile.readAsBytesSync();
+  final emergencyFixtureBytes = emergencyFixtureFile.readAsBytesSync();
+  final governanceFixtureBytes = governanceFixtureFile.readAsBytesSync();
   final contract = _decodeObject(contractBytes, 'common OpenAPI contract');
   final fixture = _decodeObject(fixtureBytes, 'problem fixture');
   final catalog = _decodeObject(catalogBytes, 'catalog OpenAPI contract');
@@ -280,6 +363,28 @@ void main(List<String> arguments) {
   );
   final social = _decodeObject(socialBytes, 'social OpenAPI contract');
   final socialFeed = _decodeObject(socialFeedBytes, 'social feed fixture');
+  final localVerticals = _decodeObject(
+    localVerticalsBytes,
+    'local verticals OpenAPI contract',
+  );
+  final emergency = _decodeObject(emergencyBytes, 'emergency OpenAPI contract');
+  final governance = _decodeObject(
+    governanceBytes,
+    'governance OpenAPI contract',
+  );
+  final homeFixture = _decodeObject(homeFixtureBytes, 'home listing fixture');
+  final classifiedFixture = _decodeObject(
+    classifiedFixtureBytes,
+    'classified listing fixture',
+  );
+  final emergencyFixture = _decodeObject(
+    emergencyFixtureBytes,
+    'emergency request fixture',
+  );
+  final governanceFixture = _decodeObject(
+    governanceFixtureBytes,
+    'governance dashboard fixture',
+  );
   _validateContract(contract);
   _validateFixture(fixture);
   _validateMarketplaceContracts(catalog, commerce, commerceFixture);
@@ -300,7 +405,17 @@ void main(List<String> arguments) {
     foodOrder,
     riderAssignment,
   );
-  _validatePhase5Contracts(social, socialFeed);
+  _validatePhase5Contracts(
+    social,
+    socialFeed,
+    localVerticals,
+    emergency,
+    governance,
+    homeFixture,
+    classifiedFixture,
+    emergencyFixture,
+    governanceFixture,
+  );
 
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
@@ -323,6 +438,17 @@ void main(List<String> arguments) {
   final riderAssignmentHash = sha256.convert(riderAssignmentBytes).toString();
   final socialHash = sha256.convert(socialBytes).toString();
   final socialFeedHash = sha256.convert(socialFeedBytes).toString();
+  final localVerticalsHash = sha256.convert(localVerticalsBytes).toString();
+  final emergencyHash = sha256.convert(emergencyBytes).toString();
+  final governanceHash = sha256.convert(governanceBytes).toString();
+  final homeFixtureHash = sha256.convert(homeFixtureBytes).toString();
+  final classifiedFixtureHash = sha256
+      .convert(classifiedFixtureBytes)
+      .toString();
+  final emergencyFixtureHash = sha256.convert(emergencyFixtureBytes).toString();
+  final governanceFixtureHash = sha256
+      .convert(governanceFixtureBytes)
+      .toString();
   final provenance = <String, Object>{
     'source_repository': _sourceRepository,
     'source_commit': _sourceCommit,
@@ -368,6 +494,20 @@ void main(List<String> arguments) {
     'social_contract_sha256': socialHash,
     'social_feed_fixture_path': _socialFeedFixturePath,
     'social_feed_fixture_sha256': socialFeedHash,
+    'local_verticals_contract_path': _localVerticalsContractPath,
+    'local_verticals_contract_sha256': localVerticalsHash,
+    'emergency_contract_path': _emergencyContractPath,
+    'emergency_contract_sha256': emergencyHash,
+    'governance_contract_path': _governanceContractPath,
+    'governance_contract_sha256': governanceHash,
+    'home_fixture_path': _homeFixturePath,
+    'home_fixture_sha256': homeFixtureHash,
+    'classified_fixture_path': _classifiedFixturePath,
+    'classified_fixture_sha256': classifiedFixtureHash,
+    'emergency_fixture_path': _emergencyFixturePath,
+    'emergency_fixture_sha256': emergencyFixtureHash,
+    'governance_fixture_path': _governanceFixturePath,
+    'governance_fixture_sha256': governanceFixtureHash,
   };
   final expectedProvenance =
       '${const JsonEncoder.withIndent('  ').convert(provenance)}\n';
@@ -599,6 +739,13 @@ void _validatePhase4Contracts(
 void _validatePhase5Contracts(
   Map<String, Object?> social,
   Map<String, Object?> socialFeed,
+  Map<String, Object?> localVerticals,
+  Map<String, Object?> emergency,
+  Map<String, Object?> governance,
+  Map<String, Object?> homeFixture,
+  Map<String, Object?> classifiedFixture,
+  Map<String, Object?> emergencyFixture,
+  Map<String, Object?> governanceFixture,
 ) {
   final paths = social['paths'] as Map<String, Object?>?;
   const requiredPaths = {
@@ -613,6 +760,13 @@ void _validatePhase5Contracts(
     '/v1/social/profiles/{profile_id}/follow',
     '/v1/social/profiles/{profile_id}/relationship',
     '/v1/social/follow-requests/{follower_id}/accept',
+    '/v1/social/media',
+    '/v1/social/ephemeral',
+    '/v1/social/collections',
+    '/v1/social/conversations',
+    '/v1/social/conversations/{conversation_id}/messages',
+    '/v1/social/presence',
+    '/v1/social/calls/{call_id}/signals',
     '/v1/moderation/reports',
     '/v1/moderation/reports/{report_id}/decision',
   };
@@ -635,6 +789,63 @@ void _validatePhase5Contracts(
       post['allowed_actions'] is! List ||
       post['ranking_version'] is! String) {
     throw const FormatException('Phase 5 social fixture is incomplete.');
+  }
+  final localPaths = localVerticals['paths'] as Map<String, Object?>?;
+  const requiredLocalPaths = {
+    '/v1/homes/listings',
+    '/v1/homes/listings/{listing_id}/publish',
+    '/v1/homes/listings/{listing_id}/estimate',
+    '/v1/homes/listings/{listing_id}/inquiries',
+    '/v1/homes/listings/{listing_id}/visits',
+    '/v1/homes/listings/{listing_id}/upgrade',
+    '/v1/classifieds/listings',
+    '/v1/classifieds/listings/{listing_id}/contact',
+    '/v1/classifieds/listings/{listing_id}/reports',
+    '/v1/classifieds/listings/{listing_id}/repost',
+    '/v1/classifieds/listings/{listing_id}/upgrade',
+  };
+  final emergencyPaths = emergency['paths'] as Map<String, Object?>?;
+  const requiredEmergencyPaths = {
+    '/v1/emergency/requests',
+    '/v1/emergency/requests/{request_id}/accept',
+    '/v1/emergency/requests/{request_id}/location',
+    '/v1/emergency/requests/{request_id}/communications',
+    '/v1/emergency/requests/{request_id}/transition',
+    '/v1/emergency/escalations/run',
+    '/v1/emergency/reports/sla',
+  };
+  final governancePaths = governance['paths'] as Map<String, Object?>?;
+  const requiredGovernancePaths = {
+    '/v1/governance/dashboard',
+    '/v1/governance/reports',
+    '/v1/governance/maps',
+    '/v1/governance/leaderboards',
+    '/v1/governance/intelligence',
+    '/v1/governance/countries',
+  };
+  if (localVerticals['openapi'] != '3.1.0' ||
+      localPaths == null ||
+      !localPaths.keys.toSet().containsAll(requiredLocalPaths) ||
+      emergency['openapi'] != '3.1.0' ||
+      emergencyPaths == null ||
+      !emergencyPaths.keys.toSet().containsAll(requiredEmergencyPaths) ||
+      governance['openapi'] != '3.1.0' ||
+      governancePaths == null ||
+      !governancePaths.keys.toSet().containsAll(requiredGovernancePaths)) {
+    throw const FormatException(
+      'Phase 5 local, emergency or governance contracts are incomplete.',
+    );
+  }
+  if (homeFixture['estimate'] is! Map ||
+      homeFixture['allowed_actions'] is! List ||
+      classifiedFixture['contact_masked'] is! String ||
+      classifiedFixture.containsKey('contact_revealed') ||
+      emergencyFixture['current_location'] is! Map ||
+      emergencyFixture['location_consent'] is! bool ||
+      governanceFixture['privacy_mode'] != 'aggregate_and_masked' ||
+      governanceFixture['reports'] is! List ||
+      governanceFixture['insights'] is! List) {
+    throw const FormatException('Phase 5 governed fixtures are incomplete.');
   }
 }
 

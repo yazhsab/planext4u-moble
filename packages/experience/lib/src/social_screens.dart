@@ -133,6 +133,14 @@ class _CustomerSocialScreenState extends State<CustomerSocialScreen> {
               onSave: () => widget.controller.toggleSave(post),
               onComments: () => _openComments(post.id),
               onReport: () => _report(post),
+              onProfile: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SocialProfileScreen(
+                    controller: widget.controller,
+                    profileId: post.author.id,
+                  ),
+                ),
+              ),
             );
           }
           return Padding(
@@ -271,6 +279,7 @@ final class _SocialPostCard extends StatelessWidget {
     required this.onSave,
     required this.onComments,
     required this.onReport,
+    required this.onProfile,
     super.key,
   });
 
@@ -280,6 +289,7 @@ final class _SocialPostCard extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onComments;
   final VoidCallback onReport;
+  final VoidCallback onProfile;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -304,42 +314,58 @@ final class _SocialPostCard extends StatelessWidget {
             ),
           Row(
             children: [
-              CircleAvatar(
-                child: Text(post.author.displayName.characters.first),
-              ),
-              const SizedBox(width: Planext4uSpacing.x3),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                child: InkWell(
+                  key: ValueKey('profile-${post.author.id}'),
+                  onTap: onProfile,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
                       children: [
-                        Flexible(
-                          child: Text(
-                            post.author.displayName,
-                            style: Theme.of(context).textTheme.titleMedium,
+                        CircleAvatar(
+                          child: Text(post.author.displayName.characters.first),
+                        ),
+                        const SizedBox(width: Planext4uSpacing.x3),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      post.author.displayName,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
+                                    ),
+                                  ),
+                                  if (post.author.verified) ...[
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.verified,
+                                      size: 17,
+                                      semanticLabel: 'Verified profile',
+                                    ),
+                                  ],
+                                  if (post.author.isPrivate) ...[
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.lock_outline,
+                                      size: 16,
+                                      semanticLabel: 'Private profile',
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              Text('@${post.author.handle}'),
+                            ],
                           ),
                         ),
-                        if (post.author.verified) ...[
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.verified,
-                            size: 17,
-                            semanticLabel: 'Verified profile',
-                          ),
-                        ],
-                        if (post.author.isPrivate) ...[
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.lock_outline,
-                            size: 16,
-                            semanticLabel: 'Private profile',
-                          ),
-                        ],
                       ],
                     ),
-                    Text('@${post.author.handle}'),
-                  ],
+                  ),
                 ),
               ),
               PopupMenuButton<String>(
@@ -408,6 +434,231 @@ final class _SocialPostCard extends StatelessWidget {
         ],
       ),
     ),
+  );
+}
+
+final class SocialProfileScreen extends StatefulWidget {
+  const SocialProfileScreen({
+    required this.controller,
+    required this.profileId,
+    super.key,
+  });
+
+  final SocialController controller;
+  final String profileId;
+
+  @override
+  State<SocialProfileScreen> createState() => _SocialProfileScreenState();
+}
+
+class _SocialProfileScreenState extends State<SocialProfileScreen> {
+  SocialProfile? _profile;
+  Object? _failure;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      _profile = await widget.controller.profile(widget.profileId);
+      _failure = null;
+    } catch (error) {
+      _failure = error;
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _follow() async {
+    await _run(() => widget.controller.followProfile(widget.profileId));
+  }
+
+  Future<void> _relationship(String action) async {
+    if (action == 'BLOCK') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Block this profile?'),
+          content: const Text(
+            'Following, messaging, presence and calling access will stop immediately.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('confirm-profile-block'),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Block'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    await _run(
+      () => widget.controller.setProfileRelationship(widget.profileId, action),
+    );
+  }
+
+  Future<void> _run(Future<SocialProfile> Function() action) async {
+    setState(() => _busy = true);
+    try {
+      _profile = await action();
+      _failure = null;
+    } catch (error) {
+      _failure = error;
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = _profile;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Socio profile')),
+      body: SafeArea(
+        child: profile == null
+            ? Center(
+                child: _failure == null
+                    ? const CircularProgressIndicator()
+                    : Planext4uStatePanel(
+                        state: Planext4uViewState.error,
+                        title: 'Profile unavailable',
+                        message:
+                            'It may be private, blocked or no longer active.',
+                        actionLabel: 'Retry',
+                        onAction: _load,
+                      ),
+              )
+            : ListView(
+                padding: const EdgeInsets.all(Planext4uSpacing.x5),
+                children: [
+                  Center(
+                    child: CircleAvatar(
+                      radius: 42,
+                      child: Text(
+                        profile.displayName.characters.first,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x3),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        profile.displayName,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      if (profile.verified) ...[
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.verified,
+                          semanticLabel: 'Verified profile',
+                        ),
+                      ],
+                    ],
+                  ),
+                  Text('@${profile.handle}', textAlign: TextAlign.center),
+                  if (profile.isPrivate)
+                    const Chip(
+                      avatar: Icon(Icons.lock_outline, size: 18),
+                      label: Text('Private account'),
+                    ),
+                  if (profile.bio.isNotEmpty) ...[
+                    const SizedBox(height: Planext4uSpacing.x3),
+                    Text(profile.bio, textAlign: TextAlign.center),
+                  ],
+                  const SizedBox(height: Planext4uSpacing.x4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _ProfileMetric(
+                        label: 'Followers',
+                        value: profile.followerCount,
+                      ),
+                      _ProfileMetric(
+                        label: 'Following',
+                        value: profile.followingCount,
+                      ),
+                      _ProfileMetric(
+                        label: 'Relationship',
+                        value: profile.relationship,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x4),
+                  if (_busy) const LinearProgressIndicator(),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: Planext4uSpacing.x2,
+                    runSpacing: Planext4uSpacing.x2,
+                    children: [
+                      if (profile.allowedActions.contains('FOLLOW'))
+                        FilledButton.icon(
+                          key: const ValueKey('follow-profile'),
+                          onPressed: _busy ? null : _follow,
+                          icon: const Icon(Icons.person_add_alt_1),
+                          label: Text(
+                            profile.isPrivate ? 'Request to follow' : 'Follow',
+                          ),
+                        ),
+                      if (profile.allowedActions.contains('MUTE'))
+                        OutlinedButton.icon(
+                          key: const ValueKey('mute-profile'),
+                          onPressed: _busy ? null : () => _relationship('MUTE'),
+                          icon: const Icon(Icons.volume_off_outlined),
+                          label: const Text('Mute'),
+                        ),
+                      if (profile.allowedActions.contains('UNMUTE'))
+                        OutlinedButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () => _relationship('UNMUTE'),
+                          icon: const Icon(Icons.volume_up_outlined),
+                          label: const Text('Unmute'),
+                        ),
+                      if (profile.allowedActions.contains('BLOCK'))
+                        OutlinedButton.icon(
+                          key: const ValueKey('block-profile'),
+                          onPressed: _busy
+                              ? null
+                              : () => _relationship('BLOCK'),
+                          icon: const Icon(Icons.block),
+                          label: const Text('Block'),
+                        ),
+                      if (profile.allowedActions.contains('UNBLOCK'))
+                        OutlinedButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () => _relationship('UNBLOCK'),
+                          icon: const Icon(Icons.person_add_alt),
+                          label: const Text('Unblock'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+final class _ProfileMetric extends StatelessWidget {
+  const _ProfileMetric({required this.label, required this.value});
+  final String label;
+  final Object value;
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Text('$value', style: Theme.of(context).textTheme.titleMedium),
+      Text(label, style: Theme.of(context).textTheme.labelSmall),
+    ],
   );
 }
 

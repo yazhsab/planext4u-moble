@@ -1,6 +1,6 @@
 {
   "source_repository": "https://github.com/yazhsab/planext4u-backend",
-  "source_commit": "30fca1520c6c77c6d40e346c2153b015750eba14",
+  "source_commit": "cdfc28dbaecad124500f93bd63a50a1865bf781e",
   "contract_path": "api/openapi/common.openapi.json",
   "contract_sha256": "332ef63e39ef8f7e4dc13a25709b697f288fbb66061f29f73ecf0ee7a8db4b0f",
   "fixture_path": "api/fixtures/problem.json",
@@ -40,7 +40,21 @@
   "rider_assignment_fixture_path": "api/fixtures/rider_assignment.json",
   "rider_assignment_fixture_sha256": "31cc1295e7a5cab5798397b27eb211f2ba6995507616309fa7512b7c61822235",
   "social_contract_path": "api/openapi/social.openapi.json",
-  "social_contract_sha256": "124ec0f4613d3d7d958500cd079b2159c1eb0ca7c95d24516c05e06fee14b217",
+  "social_contract_sha256": "c649aa94e72bb53b760a1e9c04db2f7ccabd885f0b1906f4b82ffb83918d75d4",
   "social_feed_fixture_path": "api/fixtures/social_feed.json",
-  "social_feed_fixture_sha256": "cf633d4544ea473b1d6652e3ecaa50c6e001f1c32300a2439dd9a8537d6a2060"
+  "social_feed_fixture_sha256": "cf633d4544ea473b1d6652e3ecaa50c6e001f1c32300a2439dd9a8537d6a2060",
+  "local_verticals_contract_path": "api/openapi/local_verticals.openapi.json",
+  "local_verticals_contract_sha256": "b3fd66ee1c31d34f7cc5cf80205912f344d2806cfc7d05b33bf82c4fc7ce3ab3",
+  "emergency_contract_path": "api/openapi/emergency.openapi.json",
+  "emergency_contract_sha256": "6921836f664188f36b4558567129bf13905b3f813eadb20d41ae0ee0b1b608ac",
+  "governance_contract_path": "api/openapi/governance.openapi.json",
+  "governance_contract_sha256": "1b72d17ebc914ae0fa01a3c9cca310815db3ed13d4a1e2110e9a008438031922",
+  "home_fixture_path": "api/fixtures/home_listing.json",
+  "home_fixture_sha256": "8613fa6433b73d3e5fe25ca90947b28c5c440dc649e78ebbde46f168b8664a74",
+  "classified_fixture_path": "api/fixtures/classified_listing.json",
+  "classified_fixture_sha256": "22e2e2ac3c520d726d3ea8ecc5c462d886aea3bd08d3bf2d76ce1469175e1dd4",
+  "emergency_fixture_path": "api/fixtures/emergency_request.json",
+  "emergency_fixture_sha256": "d0a00fecb2222324dbef9464129421d58945b3cad40652448c7fe7b61777df34",
+  "governance_fixture_path": "api/fixtures/governance_dashboard.json",
+  "governance_fixture_sha256": "1f94e8eddea099755be67e241cef41f0ed93f8f1ebd036b907c0918197b9a695"
 }

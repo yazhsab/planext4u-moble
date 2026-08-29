@@ -71,6 +71,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   ServiceBookingController? _serviceBookings;
   FoodController? _food;
   SocialController? _social;
+  Phase5Controller? _phase5;
   BootstrapController? _bootstrap;
   ConsentController? _consent;
   LocationController? _location;
@@ -136,6 +137,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     );
     _food = FoodController(remote: FoodApi(client));
     _social = SocialController(remote: SocialApi(client));
+    _phase5 = Phase5Controller(remote: Phase5Api(client));
     final messaging = widget.firebaseMessaging;
     if (messaging != null && _pushRegistration == null) {
       _pushRegistration = CustomerPushRegistration(
@@ -234,6 +236,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _serviceBookings?.dispose();
     _food?.dispose();
     _social?.dispose();
+    _phase5?.dispose();
     _bootstrap?.dispose();
     _consent?.dispose();
     _location?.dispose();
@@ -244,6 +247,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _serviceBookings = null;
     _food = null;
     _social = null;
+    _phase5 = null;
     _bootstrap = null;
     _consent = null;
     _location = null;
@@ -266,6 +270,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         serviceBookingController: _serviceBookings,
         foodController: _food,
         socialController: _social,
+        phase5Controller: _phase5,
         bootstrapController: _bootstrap,
         consentController: _consent,
         locationController: _location,
@@ -600,6 +605,7 @@ class CustomerApp extends StatefulWidget {
     this.serviceBookingController,
     this.foodController,
     this.socialController,
+    this.phase5Controller,
     this.paymentRecoveryStore,
     this.bootstrapController,
     this.consentController,
@@ -620,6 +626,7 @@ class CustomerApp extends StatefulWidget {
   final ServiceBookingController? serviceBookingController;
   final FoodController? foodController;
   final SocialController? socialController;
+  final Phase5Controller? phase5Controller;
   final PaymentRecoveryStore? paymentRecoveryStore;
   final BootstrapController? bootstrapController;
   final ConsentController? consentController;
@@ -732,6 +739,9 @@ class _CustomerAppState extends State<CustomerApp> {
               serviceBookingController: _serviceBookings,
               foodController: _food,
               socialController: _social,
+              phase5Controller: widget.phase5Controller,
+              openCommunityInitially: link is CustomerCommunityLink,
+              initialCommunityTab: link is CustomerCommunityLink ? link.tab : 0,
               openSocialInitially: link is CustomerSocialLink,
               initialSocialPostId: link is CustomerSocialLink
                   ? link.postId

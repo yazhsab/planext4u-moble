@@ -159,13 +159,44 @@ Directory _workspaceRoot() {
   throw StateError('Planext4u workspace root was not found.');
 }
 
-final class _SocialFakeRemote implements SocialRemote {
+final class _SocialFakeRemote
+    implements SocialRemote, SocialRelationshipRemote {
   _SocialFakeRemote({this.conflictOnce = false});
 
   final bool conflictOnce;
   bool _conflicted = false;
   String? reportReason;
   late SocialPost current = _post();
+
+  @override
+  Future<SocialProfile> profile(String id) async => _profile;
+
+  @override
+  Future<SocialProfile> follow(String id) async => const SocialProfile(
+    id: 'customer-public-001',
+    handle: 'local_guide',
+    displayName: 'Local Guide',
+    bio: 'Trusted neighbourhood updates',
+    isPrivate: false,
+    verified: true,
+    relationship: 'ACCEPTED',
+    allowedActions: {'MUTE', 'BLOCK'},
+    followerCount: 13,
+    followingCount: 7,
+  );
+
+  @override
+  Future<SocialProfile> setRelationship(String id, String action) async =>
+      SocialProfile(
+        id: _profile.id,
+        handle: _profile.handle,
+        displayName: _profile.displayName,
+        bio: _profile.bio,
+        isPrivate: _profile.isPrivate,
+        verified: _profile.verified,
+        relationship: action == 'MUTE' ? 'MUTED' : 'BLOCKED',
+        allowedActions: {action == 'MUTE' ? 'UNMUTE' : 'UNBLOCK'},
+      );
 
   @override
   Future<SocialFeedPage> feed({String? cursor, int limit = 20}) async =>

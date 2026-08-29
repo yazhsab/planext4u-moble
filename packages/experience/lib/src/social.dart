@@ -13,6 +13,8 @@ final class SocialProfile {
     required this.verified,
     required this.relationship,
     required this.allowedActions,
+    this.followerCount = 0,
+    this.followingCount = 0,
   });
 
   factory SocialProfile.fromJson(Object? value) {
@@ -26,6 +28,8 @@ final class SocialProfile {
       verified: _socialBool(json, 'verified'),
       relationship: _socialString(json, 'relationship'),
       allowedActions: _socialStrings(json, 'allowed_actions').toSet(),
+      followerCount: _socialInt(json, 'follower_count'),
+      followingCount: _socialInt(json, 'following_count'),
     );
   }
 
@@ -37,6 +41,8 @@ final class SocialProfile {
   final bool verified;
   final String relationship;
   final Set<String> allowedActions;
+  final int followerCount;
+  final int followingCount;
 }
 
 final class SocialPost {
@@ -190,7 +196,13 @@ abstract interface class SocialRemote {
   Future<void> report(String postId, String reason, {String details = ''});
 }
 
-final class SocialApi implements SocialRemote {
+abstract interface class SocialRelationshipRemote {
+  Future<SocialProfile> profile(String id);
+  Future<SocialProfile> follow(String id);
+  Future<SocialProfile> setRelationship(String id, String action);
+}
+
+final class SocialApi implements SocialRemote, SocialRelationshipRemote {
   const SocialApi(this._client);
 
   final ApiClient _client;
@@ -217,6 +229,41 @@ final class SocialApi implements SocialRemote {
     ),
     SocialPost.fromJson,
   )).value;
+
+  @override
+  Future<SocialProfile> profile(String id) async => (await _client.send(
+    ApiRequest.get(
+      operation: 'social.profile',
+      path: '/v1/social/profiles/${Uri.encodeComponent(id)}',
+    ),
+    SocialProfile.fromJson,
+  )).value;
+
+  @override
+  Future<SocialProfile> follow(String id) async {
+    await _client.send(
+      ApiRequest.command(
+        operation: 'social.follow',
+        method: 'POST',
+        path: '/v1/social/profiles/${Uri.encodeComponent(id)}/follow',
+        body: null,
+      ),
+      (value) => _socialString(_socialObject(value, 'social follow'), 'status'),
+    );
+    return profile(id);
+  }
+
+  @override
+  Future<SocialProfile> setRelationship(String id, String action) async =>
+      (await _client.send(
+        ApiRequest.command(
+          operation: 'social.set_relationship',
+          method: 'PUT',
+          path: '/v1/social/profiles/${Uri.encodeComponent(id)}/relationship',
+          body: {'action': action},
+        ),
+        SocialProfile.fromJson,
+      )).value;
 
   @override
   Future<SocialPost> createPost(String body) async => (await _client.send(
@@ -354,6 +401,39 @@ final class SocialController extends ChangeNotifier {
   final SocialRemote _remote;
   SocialState _state = const SocialState();
   SocialState get state => _state;
+
+  SocialRelationshipRemote? get _relationships =>
+      _remote is SocialRelationshipRemote
+      ? _remote as SocialRelationshipRemote
+      : null;
+
+  Future<SocialProfile> profile(String id) async {
+    final remote = _relationships;
+    if (remote == null) {
+      throw StateError('Social relationship features are unavailable.');
+    }
+    return remote.profile(id);
+  }
+
+  Future<SocialProfile> followProfile(String id) async {
+    final remote = _relationships;
+    if (remote == null) {
+      throw StateError('Social relationship features are unavailable.');
+    }
+    return remote.follow(id);
+  }
+
+  Future<SocialProfile> setProfileRelationship(String id, String action) async {
+    final remote = _relationships;
+    if (remote == null) {
+      throw StateError('Social relationship features are unavailable.');
+    }
+    final profile = await remote.setRelationship(id, action);
+    if (action == 'BLOCK' || action == 'MUTE') {
+      await loadFeed();
+    }
+    return profile;
+  }
 
   Future<void> loadFeed({bool refresh = true}) async {
     if (_state.loading || _state.submitting) return;
