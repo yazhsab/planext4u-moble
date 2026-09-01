@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
 
-final class FirebaseEmailProvider implements EmailIdentityProvider {
+final class FirebaseEmailProvider
+    implements EmailIdentityProvider, PasswordRecoveryProvider {
   FirebaseEmailProvider(this._auth);
   final FirebaseAuth _auth;
 
@@ -26,7 +27,8 @@ final class FirebaseEmailProvider implements EmailIdentityProvider {
     );
   }
 
-  Future<void> sendPasswordReset(String email) =>
+  @override
+  Future<void> requestPasswordReset({required String email}) =>
       _auth.sendPasswordResetEmail(email: email.trim());
 }
 

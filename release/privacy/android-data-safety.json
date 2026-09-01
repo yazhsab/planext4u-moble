@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "review_status": "privacy_and_legal_review_required",
+  "tracking": false,
+  "sale_of_data": false,
+  "encryption_in_transit_required": true,
+  "deletion_request_supported": true,
+  "applications": {
+    "customer": {
+      "package_id": "net.planext4u.customer",
+      "collected_data": [
+        {"type": "name", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "email_address", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "phone_number", "purposes": ["account_management", "fraud_prevention", "app_functionality"], "optional": false},
+        {"type": "address", "purposes": ["app_functionality"], "optional": true},
+        {"type": "precise_location", "purposes": ["app_functionality"], "optional": true},
+        {"type": "photos", "purposes": ["app_functionality", "fraud_prevention"], "optional": true},
+        {"type": "audio", "purposes": ["app_functionality"], "optional": true},
+        {"type": "user_ids", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "purchase_history", "purposes": ["app_functionality"], "optional": false},
+        {"type": "search_history", "purposes": ["app_functionality", "personalization"], "optional": true},
+        {"type": "app_interactions", "purposes": ["analytics", "app_functionality", "personalization"], "optional": true},
+        {"type": "crash_logs", "purposes": ["analytics", "app_functionality"], "optional": false},
+        {"type": "performance_diagnostics", "purposes": ["analytics", "app_functionality"], "optional": false}
+      ],
+      "shared_data": [
+        {"type": "payment_information", "recipient": "user_selected_payment_provider", "purpose": "app_functionality"},
+        {"type": "precise_location", "recipient": "assigned_fulfilment_provider", "purpose": "app_functionality"}
+      ]
+    },
+    "vendor": {
+      "package_id": "net.planext4u.vendor",
+      "collected_data": [
+        {"type": "name", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "email_address", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "phone_number", "purposes": ["account_management", "fraud_prevention", "app_functionality"], "optional": false},
+        {"type": "address", "purposes": ["app_functionality"], "optional": true},
+        {"type": "photos", "purposes": ["app_functionality", "fraud_prevention"], "optional": true},
+        {"type": "user_ids", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "financial_information", "purposes": ["app_functionality", "fraud_prevention"], "optional": false},
+        {"type": "purchase_history", "purposes": ["app_functionality"], "optional": false},
+        {"type": "app_interactions", "purposes": ["analytics", "app_functionality"], "optional": true},
+        {"type": "crash_logs", "purposes": ["analytics", "app_functionality"], "optional": false},
+        {"type": "performance_diagnostics", "purposes": ["analytics", "app_functionality"], "optional": false}
+      ],
+      "shared_data": []
+    },
+    "rider": {
+      "package_id": "net.planext4u.rider",
+      "collected_data": [
+        {"type": "name", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "email_address", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "phone_number", "purposes": ["account_management", "fraud_prevention", "app_functionality"], "optional": false},
+        {"type": "precise_location", "purposes": ["app_functionality", "fraud_prevention"], "optional": false, "background_collection": "only_while_on_duty"},
+        {"type": "photos", "purposes": ["app_functionality", "fraud_prevention"], "optional": true},
+        {"type": "user_ids", "purposes": ["account_management", "app_functionality"], "optional": false},
+        {"type": "financial_information", "purposes": ["app_functionality"], "optional": false},
+        {"type": "app_interactions", "purposes": ["analytics", "app_functionality"], "optional": true},
+        {"type": "crash_logs", "purposes": ["analytics", "app_functionality"], "optional": false},
+        {"type": "performance_diagnostics", "purposes": ["analytics", "app_functionality"], "optional": false}
+      ],
+      "shared_data": [
+        {"type": "precise_location", "recipient": "customer_and_fulfilment_operations", "purpose": "app_functionality"}
+      ]
+    }
+  }
+}

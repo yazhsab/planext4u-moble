@@ -175,6 +175,32 @@ abstract final class Planext4uTheme {
         behavior: SnackBarBehavior.floating,
         shape: controlShape,
       ),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: _Planext4uPageTransitionsBuilder(),
+          TargetPlatform.iOS: _Planext4uPageTransitionsBuilder(),
+          TargetPlatform.macOS: _Planext4uPageTransitionsBuilder(),
+          TargetPlatform.linux: _Planext4uPageTransitionsBuilder(),
+          TargetPlatform.windows: _Planext4uPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: _Planext4uPageTransitionsBuilder(),
+        },
+      ),
     );
+  }
+}
+
+final class _Planext4uPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _Planext4uPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return FadeTransition(opacity: animation, child: child);
   }
 }

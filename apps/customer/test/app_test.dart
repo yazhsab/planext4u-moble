@@ -5,11 +5,38 @@ import 'package:planext4u_customer/main.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 
 void main() {
+  testWidgets('customer shell uses the selected supported locale', (
+    tester,
+  ) async {
+    tester.platformDispatcher.localeTestValue = const Locale('bn');
+    addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+    final remote = SyntheticCatalogRemote();
+
+    await tester.pumpWidget(
+      CustomerApp(
+        config: AppConfig.parse(
+          rawEnvironment: 'development',
+          rawApiBaseUrl: 'http://localhost:8080',
+        ),
+        locale: const Locale('bn'),
+        catalogController: CatalogController(
+          remote: remote,
+          cache: MemoryCustomerHomeCache(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('হোম'), findsWidgets);
+    expect(find.text('বিভাগ'), findsWidgets);
+  });
+
   testWidgets('renders customer home and navigation from catalog projection', (
     tester,
   ) async {
+    final remote = SyntheticCatalogRemote();
     final controller = CatalogController(
-      remote: SyntheticCatalogRemote(),
+      remote: remote,
       cache: MemoryCustomerHomeCache(),
     );
     await tester.pumpWidget(
@@ -19,44 +46,76 @@ void main() {
           rawApiBaseUrl: 'http://localhost:8080',
         ),
         catalogController: controller,
+        marketplaceController: MarketplaceController(remote: remote),
+        cartController: CartController(remote: SyntheticCartRemote()),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Daily needs'), findsOneWidget);
+    expect(find.text('Smart shopping, everyday.'), findsOneWidget);
+    expect(find.text('Best offers'), findsOneWidget);
+    expect(find.text('Socio'), findsWidgets);
+    expect(find.text('Categories'), findsWidgets);
+    expect(find.text('Account'), findsOneWidget);
+    expect(find.text('Cart'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-module-shop')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-module-socio')), findsOneWidget);
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -700));
+    await tester.pumpAndSettle();
     expect(find.text('Fresh milk'), findsOneWidget);
     expect(find.text('₹65.00'), findsOneWidget);
-    expect(find.text('Explore'), findsOneWidget);
-    expect(find.text('Activity'), findsOneWidget);
-    expect(find.text('Profile'), findsOneWidget);
-  });
 
-  testWidgets('customer product grid fits a narrow Android viewport', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    await tester.pumpWidget(
-      CustomerApp(
-        config: AppConfig.parse(
-          rawEnvironment: 'development',
-          rawApiBaseUrl: 'http://localhost:8080',
-        ),
-        catalogController: CatalogController(
-          remote: SyntheticCatalogRemote(),
-          cache: MemoryCustomerHomeCache(),
-        ),
-      ),
-    );
+    await tester.tap(find.text('Categories').last);
     await tester.pumpAndSettle();
+    expect(find.text('Search local products and services'), findsOneWidget);
 
-    expect(find.text('Available'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Account'));
+    await tester.pumpAndSettle();
+    expect(find.text('Planext4u customer'), findsOneWidget);
+
+    await tester.tap(find.text('Cart'));
+    await tester.pumpAndSettle();
+    expect(find.text('Your cart is empty'), findsOneWidget);
   });
+
+  for (final textScale in const [1.3, 2.0]) {
+    testWidgets(
+      'customer product grid fits a narrow Android viewport at ${textScale}x text',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.platformDispatcher.textScaleFactorTestValue = textScale;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await tester.pumpWidget(
+          CustomerApp(
+            config: AppConfig.parse(
+              rawEnvironment: 'development',
+              rawApiBaseUrl: 'http://localhost:8080',
+            ),
+            catalogController: CatalogController(
+              remote: SyntheticCatalogRemote(),
+              cache: MemoryCustomerHomeCache(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        for (var index = 0; index < 6; index++) {
+          await tester.drag(
+            find.byType(CustomScrollView),
+            const Offset(0, -420),
+          );
+          await tester.pumpAndSettle();
+        }
+        expect(find.text('Available'), findsWidgets);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('catalog deep link opens the explore destination', (
     tester,

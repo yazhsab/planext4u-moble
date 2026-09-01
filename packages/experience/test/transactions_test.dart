@@ -72,6 +72,43 @@ void main() {
       expect(await recovery.read(), isNull);
     },
   );
+
+  test('terminal payment failures are never reported as success', () async {
+    for (final status in const [
+      'FAILED_FINAL',
+      'SIGNATURE_INVALID',
+      'CANCELLED',
+    ]) {
+      final remote = _TransactionRemote()..recoveryStatus = status;
+      final recovery = MemoryPaymentRecoveryStore();
+      final controller = TransactionController(
+        remote: remote,
+        recoveryStore: recovery,
+      );
+      await controller.loadCheckout();
+      await controller.createQuote(
+        cartRevision: 7,
+        addressId: 'address-1',
+        slotId: 'slot-1',
+      );
+      await controller.place(CustomerPaymentMethod.razorpay);
+      await controller.recoverPayment();
+      expect(controller.state.status, TransactionStatus.failure);
+      expect(controller.state.payment?.status, status);
+      expect(controller.state.message, contains('not completed'));
+      expect(await recovery.read(), isNull);
+      controller.dispose();
+    }
+  });
+
+  test('payment outcome classification is webhook-authoritative', () {
+    final remote = _TransactionRemote();
+    expect(remote.paymentValue('FAILED_RETRYABLE').pending, isTrue);
+    expect(remote.paymentValue('CAPTURED').successful, isTrue);
+    expect(remote.paymentValue('RECONCILED').successful, isTrue);
+    expect(remote.paymentValue('REFUNDED').successful, isFalse);
+    expect(remote.paymentValue('FAILED_FINAL').terminal, isTrue);
+  });
 }
 
 Directory _workspaceRoot() {
@@ -89,6 +126,7 @@ Directory _workspaceRoot() {
 
 final class _TransactionRemote implements TransactionRemote {
   final now = DateTime.utc(2026, 8, 27, 10);
+  String recoveryStatus = 'RECONCILED';
   late final quoteValue = CheckoutQuote.fromJson({
     'id': 'quote-1',
     'cart_revision': 7,
@@ -146,16 +184,18 @@ final class _TransactionRemote implements TransactionRemote {
     'created_at': '2026-08-27T10:00:00Z',
     'updated_at': '2026-08-27T10:00:00Z',
   });
-  CustomerPayment _payment(String status) => CustomerPayment.fromJson({
+  CustomerPayment paymentValue(String status) => CustomerPayment.fromJson({
     'id': 'payment-1',
     'order_reference': 'checkout-1',
     'method': 'RAZORPAY',
     'status': status,
     'amount': _money(98765),
     'provider_reference': 'provider-1',
-    'allowed_actions': status == 'RECONCILED'
-        ? ['VIEW_ORDER']
-        : ['CHECK_STATUS'],
+    'allowed_actions': switch (status) {
+      'RECONCILED' || 'CAPTURED' => ['VIEW_ORDER'],
+      'FAILED_RETRYABLE' => ['RETRY'],
+      _ => ['CHECK_STATUS'],
+    },
     'created_at': '2026-08-27T10:00:00Z',
     'updated_at': '2026-08-27T10:00:00Z',
   });
@@ -234,16 +274,17 @@ final class _TransactionRemote implements TransactionRemote {
     String? idempotencyKey,
   }) async => PlaceOrderResult(
     quote: quoteValue,
-    payment: _payment('PROVIDER_ORDER_CREATED'),
+    payment: paymentValue('PROVIDER_ORDER_CREATED'),
     order: orderValue,
   );
   @override
-  Future<CustomerPayment> payment(String id) async => _payment('RECONCILED');
+  Future<CustomerPayment> payment(String id) async =>
+      paymentValue(recoveryStatus);
   @override
   Future<CustomerPayment> retryPayment(
     String id, {
     String? idempotencyKey,
-  }) async => _payment('PROVIDER_ORDER_CREATED');
+  }) async => paymentValue('PROVIDER_ORDER_CREATED');
   @override
   Future<List<CustomerOrder>> orders() async => [orderValue];
   @override

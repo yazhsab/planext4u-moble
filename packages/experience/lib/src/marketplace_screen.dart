@@ -672,12 +672,10 @@ final class _ProductMedia extends StatelessWidget {
                               _ZoomedProductImage(url: url, label: item.name),
                         ),
                       ),
-                      child: Image.network(
-                        url,
+                      child: Planext4uNetworkImage(
+                        url: url,
+                        semanticLabel: '${item.name} product image',
                         fit: BoxFit.contain,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(Icons.broken_image_outlined, size: 64),
-                        ),
                       ),
                     ),
                   ),
@@ -698,10 +696,10 @@ final class _ZoomedProductImage extends StatelessWidget {
       minScale: 0.8,
       maxScale: 5,
       child: Center(
-        child: Image.network(
-          url,
-          errorBuilder: (_, _, _) =>
-              const Icon(Icons.broken_image_outlined, size: 64),
+        child: Planext4uNetworkImage(
+          url: url,
+          semanticLabel: '$label zoomed product image',
+          fit: BoxFit.contain,
         ),
       ),
     ),

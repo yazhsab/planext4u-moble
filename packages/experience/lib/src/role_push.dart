@@ -89,6 +89,15 @@ final class RolePushDeviceApi implements RolePushDeviceRemote {
   }
 }
 
+enum RolePushRegistrationStatus {
+  idle,
+  requestingPermission,
+  denied,
+  registering,
+  registered,
+  unavailable,
+}
+
 final class RolePushRegistration {
   RolePushRegistration({
     required RolePushMessaging messaging,
@@ -96,19 +105,33 @@ final class RolePushRegistration {
     required this.role,
     required this.platform,
     this.locale = 'en-IN',
+    String? allowedHost,
+    String? allowedScheme,
     this.onDeepLink,
+    this.onStatusChanged,
   }) : _messaging = messaging,
-       _remote = remote;
+       _remote = remote,
+       allowedHost = allowedHost ?? 'planext4u.net',
+       allowedScheme = allowedScheme ?? 'planext4u-${role.name}';
 
   final RolePushMessaging _messaging;
   final RolePushDeviceRemote _remote;
   final AppRole role;
   final String platform;
   final String locale;
+  final String allowedHost;
+  final String allowedScheme;
   final void Function(Uri uri)? onDeepLink;
+  final void Function(RolePushRegistrationStatus status)? onStatusChanged;
   StreamSubscription<String>? _tokens;
   StreamSubscription<Map<String, String>>? _interactions;
   bool _started = false;
+  bool _authorized = false;
+  bool _initialInteractionHandled = false;
+  String? _lastToken;
+  RolePushRegistrationStatus _status = RolePushRegistrationStatus.idle;
+
+  RolePushRegistrationStatus get status => _status;
 
   Future<void> start() async {
     if (_started) return;
@@ -117,33 +140,72 @@ final class RolePushRegistration {
       _handleInteraction,
       onError: (_) {},
     );
+    await retry();
+  }
+
+  Future<void> retry() async {
+    if (!_started) return start();
     try {
-      _handleInteraction(await _messaging.initialInteraction());
-      if (!await _messaging.authorize()) return;
-      final current = await _messaging.token();
-      if (current != null) await _registerSafely(current);
-      _tokens = _messaging.tokenRefreshes.listen(
-        (value) => unawaited(_registerSafely(value)),
-        onError: (_) {},
-      );
+      if (!_initialInteractionHandled) {
+        _initialInteractionHandled = true;
+        _handleInteraction(await _messaging.initialInteraction());
+      }
+      if (!_authorized) {
+        _setStatus(RolePushRegistrationStatus.requestingPermission);
+        _authorized = await _messaging.authorize();
+      }
+      if (!_authorized) {
+        _setStatus(RolePushRegistrationStatus.denied);
+        return;
+      }
+      _tokens ??= _messaging.tokenRefreshes.listen((value) {
+        _lastToken = value;
+        unawaited(_registerSafely(value));
+      }, onError: (_) => _setStatus(RolePushRegistrationStatus.unavailable));
+      final current = _lastToken ?? await _messaging.token();
+      if (current == null || current.isEmpty) {
+        _setStatus(RolePushRegistrationStatus.unavailable);
+        return;
+      }
+      _lastToken = current;
+      await _registerSafely(current);
     } catch (_) {
+      _setStatus(RolePushRegistrationStatus.unavailable);
       // Push is optional. Authentication and operational queues remain usable
       // when Firebase, APNS or the notification service is unavailable.
     }
   }
 
   Future<void> _registerSafely(String token) async {
+    _setStatus(RolePushRegistrationStatus.registering);
     try {
       await _remote.register(token: token, platform: platform, locale: locale);
+      _setStatus(RolePushRegistrationStatus.registered);
     } catch (_) {
-      // Token refresh and the next authenticated launch provide safe retries.
+      _setStatus(RolePushRegistrationStatus.unavailable);
+      // Explicit retry, token refresh and the next authenticated launch are
+      // safe recovery paths.
     }
+  }
+
+  void _setStatus(RolePushRegistrationStatus value) {
+    if (_status == value) return;
+    _status = value;
+    onStatusChanged?.call(value);
   }
 
   void _handleInteraction(Map<String, String>? data) {
     final raw = data?['deep_link'];
     final uri = raw == null ? null : Uri.tryParse(raw);
-    if (uri == null || !isSafeRoleDeepLink(uri, role)) return;
+    if (uri == null ||
+        !isSafeRoleDeepLink(
+          uri,
+          role,
+          allowedHost: allowedHost,
+          allowedScheme: allowedScheme,
+        )) {
+      return;
+    }
     onDeepLink?.call(uri);
   }
 
@@ -153,6 +215,10 @@ final class RolePushRegistration {
     _tokens = null;
     _interactions = null;
     _started = false;
+    _authorized = false;
+    _initialInteractionHandled = false;
+    _lastToken = null;
+    _setStatus(RolePushRegistrationStatus.idle);
     if (!unregister) return;
     try {
       await _remote.unregister();
@@ -166,20 +232,30 @@ final class RolePushLifecycle {
   RolePushLifecycle({
     required this.role,
     required RolePushMessaging messaging,
+    String? allowedHost,
+    String? allowedScheme,
     this.onDeepLink,
-  }) : _messaging = messaging;
+  }) : _messaging = messaging,
+       allowedHost = allowedHost ?? 'planext4u.net',
+       allowedScheme = allowedScheme ?? 'planext4u-${role.name}';
 
   factory RolePushLifecycle.firebase({
     required AppRole role,
+    String? allowedHost,
+    String? allowedScheme,
     void Function(Uri uri)? onDeepLink,
   }) => RolePushLifecycle(
     role: role,
     messaging: FirebaseRolePushMessaging(FirebaseMessaging.instance),
+    allowedHost: allowedHost,
+    allowedScheme: allowedScheme,
     onDeepLink: onDeepLink,
   );
 
   final AppRole role;
   final RolePushMessaging _messaging;
+  final String allowedHost;
+  final String allowedScheme;
   final void Function(Uri uri)? onDeepLink;
   RolePushRegistration? _registration;
 
@@ -189,6 +265,8 @@ final class RolePushLifecycle {
       remote: RolePushDeviceApi(client),
       role: role,
       platform: Platform.isIOS ? 'IOS' : 'ANDROID',
+      allowedHost: allowedHost,
+      allowedScheme: allowedScheme,
       onDeepLink: onDeepLink,
     );
     _registration = registration;
@@ -201,7 +279,12 @@ final class RolePushLifecycle {
   }
 }
 
-bool isSafeRoleDeepLink(Uri uri, AppRole role) {
+bool isSafeRoleDeepLink(
+  Uri uri,
+  AppRole role, {
+  String? allowedHost,
+  String? allowedScheme,
+}) {
   final path = uri.path.isEmpty ? '/' : uri.path;
   if (!(path == '/${role.name}' || path.startsWith('/${role.name}/'))) {
     return false;
@@ -209,8 +292,9 @@ bool isSafeRoleDeepLink(Uri uri, AppRole role) {
   if (!uri.isAbsolute) return true;
   final officialWeb =
       uri.scheme == 'https' &&
-      (uri.host == 'planext4u.net' || uri.host.endsWith('.planext4u.net'));
-  final officialScheme = uri.scheme == 'planext4u-${role.name}';
+      uri.host.toLowerCase() == (allowedHost ?? 'planext4u.net').toLowerCase();
+  final officialScheme =
+      uri.scheme == (allowedScheme ?? 'planext4u-${role.name}');
   return officialWeb || officialScheme;
 }
 

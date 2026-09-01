@@ -265,6 +265,8 @@ final class CustomerPayment {
     'AUTHORISED',
     'FAILED_RETRYABLE',
   }.contains(status);
+  bool get successful => const {'CAPTURED', 'RECONCILED'}.contains(status);
+  bool get terminal => !pending;
 }
 
 final class PaymentClientHandoff {
@@ -1200,13 +1202,12 @@ final class TransactionController extends ChangeNotifier {
       }
       _set(
         TransactionState(
-          status: value.payment.pending
-              ? TransactionStatus.paymentPending
-              : TransactionStatus.success,
+          status: _statusForPayment(value.payment),
           quote: quote,
           payment: value.payment,
           order: value.order,
           wallet: _state.wallet,
+          message: _messageForPayment(value.payment),
         ),
       );
       return value;
@@ -1231,12 +1232,12 @@ final class TransactionController extends ChangeNotifier {
       if (!value.pending) await _recovery.clear();
       _set(
         TransactionState(
-          status: value.pending
-              ? TransactionStatus.paymentPending
-              : TransactionStatus.success,
+          status: _statusForPayment(value),
           payment: value,
           quote: _state.quote,
+          order: _state.order,
           wallet: _state.wallet,
+          message: _messageForPayment(value),
         ),
       );
     } catch (_) {
@@ -1256,14 +1257,19 @@ final class TransactionController extends ChangeNotifier {
     }
     try {
       final value = await _remote.retryPayment(current.id);
-      await _recovery.save(value.id);
+      if (value.pending) {
+        await _recovery.save(value.id);
+      } else {
+        await _recovery.clear();
+      }
       _set(
         TransactionState(
-          status: TransactionStatus.paymentPending,
+          status: _statusForPayment(value),
           payment: value,
           order: _state.order,
           quote: _state.quote,
           wallet: _state.wallet,
+          message: _messageForPayment(value),
         ),
       );
       return value;
@@ -1368,13 +1374,18 @@ final class TransactionController extends ChangeNotifier {
         offerId: offer.id,
         method: method,
       );
-      await _recovery.save(result.payment.id);
+      if (result.payment.pending) {
+        await _recovery.save(result.payment.id);
+      } else {
+        await _recovery.clear();
+      }
       _set(
         TransactionState(
-          status: TransactionStatus.paymentPending,
+          status: _statusForPayment(result.payment),
           orders: _state.orders,
           wallet: _state.wallet,
           payment: result.payment,
+          message: _messageForPayment(result.payment),
         ),
       );
       return result.payment;
@@ -1425,6 +1436,19 @@ final class TransactionController extends ChangeNotifier {
   void _set(TransactionState value) {
     _state = value;
     notifyListeners();
+  }
+
+  TransactionStatus _statusForPayment(CustomerPayment payment) {
+    if (payment.pending) return TransactionStatus.paymentPending;
+    if (payment.successful) return TransactionStatus.success;
+    return TransactionStatus.failure;
+  }
+
+  String? _messageForPayment(CustomerPayment payment) {
+    if (payment.pending || payment.successful) return null;
+    return payment.allowedActions.contains('RETRY')
+        ? 'Payment was not completed. You can try again safely.'
+        : 'Payment was not completed. No successful charge was confirmed.';
   }
 }
 

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "review_status": "store_owner_and_legal_review_required",
+  "privacy_policy_url": "https://planext4u.net/privacy",
+  "support_url": "https://planext4u.net/support",
+  "endpoint_verification_required": true,
+  "applications": {
+    "customer": {
+      "android_package_id": "net.planext4u.customer",
+      "ios_bundle_id": "net.planext4u.customer",
+      "display_name": "Planext4u",
+      "category": "Shopping",
+      "short_description": "Shop, book services and manage local needs in one place."
+    },
+    "vendor": {
+      "android_package_id": "net.planext4u.vendor",
+      "ios_bundle_id": "net.planext4u.vendor",
+      "display_name": "Planext4u Vendor",
+      "category": "Business",
+      "short_description": "Manage Planext4u products, orders, bookings and settlements."
+    },
+    "rider": {
+      "android_package_id": "net.planext4u.rider",
+      "ios_bundle_id": "net.planext4u.rider",
+      "display_name": "Planext4u Rider",
+      "category": "Business",
+      "short_description": "Accept assignments, navigate and complete Planext4u deliveries."
+    }
+  },
+  "localized_release_notes": {
+    "en": "Production-readiness update with accessibility, reliability and privacy improvements.",
+    "ta": "அணுகல்தன்மை, நம்பகத்தன்மை மற்றும் தனியுரிமை மேம்பாடுகளுடன் தயாரிப்பு வெளியீட்டுத் தயார்நிலை புதுப்பிப்பு.",
+    "hi": "सुलभता, विश्वसनीयता और गोपनीयता सुधारों के साथ उत्पादन-तैयारी अपडेट।",
+    "te": "యాక్సెసిబిలిటీ, విశ్వసనీయత మరియు గోప్యత మెరుగుదలలతో ప్రొడక్షన్ సిద్ధత నవీకరణ.",
+    "kn": "ಪ್ರವೇಶಸಾಧ್ಯತೆ, ವಿಶ್ವಾಸಾರ್ಹತೆ ಮತ್ತು ಗೌಪ್ಯತೆ ಸುಧಾರಣೆಗಳೊಂದಿಗೆ ಉತ್ಪಾದನಾ ಸಿದ್ಧತಾ ನವೀಕರಣ.",
+    "ml": "ആക്‌സസിബിലിറ്റി, വിശ്വാസ്യത, സ്വകാര്യത മെച്ചപ്പെടുത്തലുകളോടെയുള്ള പ്രൊഡക്ഷൻ തയ്യാറെടുപ്പ് അപ്‌ഡേറ്റ്.",
+    "mr": "प्रवेशयोग्यता, विश्वासार्हता आणि गोपनीयता सुधारणांसह उत्पादन-सज्जता अद्यतन.",
+    "bn": "অ্যাক্সেসিবিলিটি, নির্ভরযোগ্যতা ও গোপনীয়তার উন্নতিসহ প্রোডাকশন প্রস্তুতি আপডেট।",
+    "gu": "ઍક્સેસિબિલિટી, વિશ્વસનીયતા અને ગોપનીયતા સુધારાઓ સાથે પ્રોડક્શન તૈયારી અપડેટ."
+  },
+  "screenshot_specification": {
+    "review_status": "capture_from_signed_release_candidate_required",
+    "locales": ["en", "ta", "hi", "te", "kn", "ml", "mr", "bn", "gu"],
+    "themes": ["light", "dark"],
+    "required_surfaces": {
+      "customer": ["home", "catalog", "checkout_pending", "order_tracking", "account_privacy"],
+      "vendor": ["overview", "catalog", "orders", "bookings", "earnings"],
+      "rider": ["duty", "offers", "active_assignment", "proof_of_delivery", "earnings"]
+    }
+  }
+}

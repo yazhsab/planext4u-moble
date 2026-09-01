@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
@@ -51,7 +53,9 @@ final class _CheckoutReviewScreenState extends State<CheckoutReviewScreen> {
   void initState() {
     super.initState();
     widget.controller.addListener(_changed);
-    widget.controller.loadCheckout();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(widget.controller.loadCheckout());
+    });
   }
 
   @override

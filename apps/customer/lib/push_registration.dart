@@ -116,6 +116,15 @@ final class PushDeviceApi implements PushDeviceRemote {
   }
 }
 
+enum PushRegistrationStatus {
+  idle,
+  requestingPermission,
+  denied,
+  registering,
+  registered,
+  unavailable,
+}
+
 final class CustomerPushRegistration {
   CustomerPushRegistration({
     required PushMessaging messaging,
@@ -123,6 +132,9 @@ final class CustomerPushRegistration {
     required String platform,
     required String locale,
     required void Function(Uri) onDeepLink,
+    this.allowedHost = 'planext4u.net',
+    this.allowedScheme = 'planext4u-customer',
+    this.onStatusChanged,
   }) : _messaging = messaging,
        _remote = remote,
        _platform = platform,
@@ -134,9 +146,18 @@ final class CustomerPushRegistration {
   final String _platform;
   final String _locale;
   final void Function(Uri) _onDeepLink;
+  final String allowedHost;
+  final String allowedScheme;
+  final void Function(PushRegistrationStatus status)? onStatusChanged;
   StreamSubscription<String>? _tokens;
   StreamSubscription<Map<String, String>>? _interactions;
   bool _started = false;
+  bool _authorized = false;
+  bool _initialInteractionHandled = false;
+  String? _lastToken;
+  PushRegistrationStatus _status = PushRegistrationStatus.idle;
+
+  PushRegistrationStatus get status => _status;
 
   Future<void> start() async {
     if (_started) return;
@@ -145,32 +166,62 @@ final class CustomerPushRegistration {
       _handleInteraction,
       onError: (_) {},
     );
+    await retry();
+  }
+
+  Future<void> retry() async {
+    if (!_started) return start();
     try {
-      _handleInteraction(await _messaging.initialInteraction());
-      if (!await _messaging.authorize()) return;
-      final current = await _messaging.token();
-      if (current != null) await _registerSafely(current);
-      _tokens = _messaging.tokenRefreshes.listen(
-        (value) => unawaited(_registerSafely(value)),
-        onError: (_) {},
-      );
+      if (!_initialInteractionHandled) {
+        _initialInteractionHandled = true;
+        _handleInteraction(await _messaging.initialInteraction());
+      }
+      if (!_authorized) {
+        _setStatus(PushRegistrationStatus.requestingPermission);
+        _authorized = await _messaging.authorize();
+      }
+      if (!_authorized) {
+        _setStatus(PushRegistrationStatus.denied);
+        return;
+      }
+      _tokens ??= _messaging.tokenRefreshes.listen((value) {
+        _lastToken = value;
+        unawaited(_registerSafely(value));
+      }, onError: (_) => _setStatus(PushRegistrationStatus.unavailable));
+      final current = _lastToken ?? await _messaging.token();
+      if (current == null || current.isEmpty) {
+        _setStatus(PushRegistrationStatus.unavailable);
+        return;
+      }
+      _lastToken = current;
+      await _registerSafely(current);
     } catch (_) {
+      _setStatus(PushRegistrationStatus.unavailable);
       // Push is an optional delivery channel. Startup and authentication must
       // remain usable when Firebase or the notification API is unavailable.
     }
   }
 
   Future<void> _registerSafely(String token) async {
+    _setStatus(PushRegistrationStatus.registering);
     try {
       await _remote.register(
         token: token,
         platform: _platform,
         locale: _locale,
       );
+      _setStatus(PushRegistrationStatus.registered);
     } catch (_) {
-      // A future token refresh or the next authenticated launch retries this
-      // without exposing the provider token to logs or crash reporting.
+      _setStatus(PushRegistrationStatus.unavailable);
+      // Explicit retry, a token refresh or the next authenticated launch can
+      // retry without exposing the provider token to logs or crash reporting.
     }
+  }
+
+  void _setStatus(PushRegistrationStatus value) {
+    if (_status == value) return;
+    _status = value;
+    onStatusChanged?.call(value);
   }
 
   void _handleInteraction(Map<String, String>? data) {
@@ -179,8 +230,9 @@ final class CustomerPushRegistration {
     final uri = Uri.tryParse(raw);
     if (uri == null || CustomerDeepLink.parse(uri) == null) return;
     if (uri.isAbsolute &&
-        !((uri.scheme == 'https' && uri.host.endsWith('planext4u.net')) ||
-            uri.scheme.startsWith('planext4u-customer'))) {
+        !((uri.scheme == 'https' &&
+                uri.host.toLowerCase() == allowedHost.toLowerCase()) ||
+            uri.scheme == allowedScheme)) {
       return;
     }
     _onDeepLink(uri);
@@ -189,6 +241,13 @@ final class CustomerPushRegistration {
   Future<void> dispose({bool unregister = false}) async {
     await _tokens?.cancel();
     await _interactions?.cancel();
+    _tokens = null;
+    _interactions = null;
+    _started = false;
+    _authorized = false;
+    _initialInteractionHandled = false;
+    _lastToken = null;
+    _setStatus(PushRegistrationStatus.idle);
     if (unregister) {
       try {
         await _remote.unregister();

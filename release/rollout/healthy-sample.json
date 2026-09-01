@@ -1,0 +1,11 @@
+{
+  "sessions": 3200,
+  "checkout_attempts": 420,
+  "crash_free_session_percent": 99.92,
+  "checkout_success_percent": 98.1,
+  "payment_failure_percent": 0.8,
+  "order_failure_percent": 0.7,
+  "notification_loss_percent": 1.4,
+  "backend_availability_percent": 99.97,
+  "api_p95_ms": 310
+}

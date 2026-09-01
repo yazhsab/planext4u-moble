@@ -5,6 +5,14 @@ import 'package:planext4u_design_system/planext4u_design_system.dart';
 
 import 'phase5.dart';
 
+/// Platform WebRTC adapters create opaque session descriptions locally. The
+/// backend only relays those descriptions and remains authoritative for call
+/// policy, expiry and block state.
+abstract interface class SocialRtcOfferProvider {
+  Future<String> createOffer(SocialCall call);
+  Future<void> close();
+}
+
 final class CustomerCommunityHubScreen extends StatefulWidget {
   const CustomerCommunityHubScreen({
     required this.controller,
@@ -304,7 +312,6 @@ final class _SocioPlusTab extends StatelessWidget {
       context,
       title: 'Create story or reel',
       label: 'Uploaded media asset identifier',
-      initial: 'media-asset-',
     );
     if (asset == null || !context.mounted) return;
     final kind = await showDialog<String>(
@@ -558,10 +565,12 @@ final class SocialCallScreen extends StatefulWidget {
   const SocialCallScreen({
     required this.controller,
     required this.initialCall,
+    this.rtcProvider,
     super.key,
   });
   final Phase5Controller controller;
   final SocialCall initialCall;
+  final SocialRtcOfferProvider? rtcProvider;
   @override
   State<SocialCallScreen> createState() => _SocialCallScreenState();
 }
@@ -569,18 +578,39 @@ final class SocialCallScreen extends StatefulWidget {
 class _SocialCallScreenState extends State<SocialCallScreen> {
   late SocialCall _call = widget.initialCall;
   bool _busy = false;
+  String? _providerFailure;
 
   Future<void> _signal(String type) async {
     setState(() => _busy = true);
-    final next = await widget.controller.signalCall(
-      _call.id,
-      type,
-      payload: type == 'OFFER' ? 'mobile-webrtc-offer-v1' : '',
-    );
-    if (!mounted) return;
-    if (next != null) _call = next;
-    setState(() => _busy = false);
-    if (type == 'END') Navigator.pop(context);
+    try {
+      var payload = '';
+      if (type == 'OFFER') {
+        final provider = widget.rtcProvider;
+        if (provider == null) {
+          throw StateError('Secure calling is unavailable on this build.');
+        }
+        payload = await provider.createOffer(_call);
+        if (payload.length < 16 || payload.length > 65536) {
+          throw const FormatException('WebRTC offer is invalid.');
+        }
+      }
+      final next = await widget.controller.signalCall(
+        _call.id,
+        type,
+        payload: payload,
+      );
+      if (!mounted) return;
+      if (next != null) _call = next;
+      _providerFailure = null;
+      if (type == 'END') {
+        await widget.rtcProvider?.close();
+        if (mounted) Navigator.pop(context);
+      }
+    } catch (_) {
+      _providerFailure = 'Secure calling could not connect. Try again later.';
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -623,11 +653,25 @@ class _SocialCallScreenState extends State<SocialCallScreen> {
                     padding: EdgeInsets.all(16),
                     child: CircularProgressIndicator(),
                   ),
+                if (widget.rtcProvider == null || _providerFailure != null)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      _providerFailure ??
+                          'Secure calling is unavailable until the environment-owned WebRTC provider is configured.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onInverseSurface,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 32),
                 if (_call.status == 'RINGING')
                   FilledButton.tonalIcon(
                     key: const ValueKey('start-call-signalling'),
-                    onPressed: _busy ? null : () => _signal('OFFER'),
+                    onPressed: _busy || widget.rtcProvider == null
+                        ? null
+                        : () => _signal('OFFER'),
                     icon: const Icon(Icons.wifi_calling_3),
                     label: const Text('Connect securely'),
                   ),

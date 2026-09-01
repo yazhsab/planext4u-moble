@@ -24,7 +24,7 @@ jobs:
           flutter-version: 3.41.4
           channel: stable
           cache: true
-      - name: Run the complete synthetic customer journey
+      - name: Run customer, vendor and rider staging readiness
         run: >-
           dart run tool/staging_smoke.dart
           --base-url=https://staging-api.planext4u.net

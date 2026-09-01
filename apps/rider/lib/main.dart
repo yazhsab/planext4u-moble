@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -10,9 +11,12 @@ import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
+import 'package:planext4u_observability/planext4u_observability.dart';
 import 'package:planext4u_storage/planext4u_storage.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 Future<void> main() async {
+  final startup = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
   FirebaseAuth? auth;
   try {
@@ -22,10 +26,20 @@ Future<void> main() async {
     // The runtime shows an actionable configuration state outside development.
   }
   final config = AppConfig.fromCompileTime();
+  final identity = AppIdentity.forBuild(
+    application: Planext4uApplication.rider,
+    environment: config.environment,
+  );
+  final observability = _observability(config.environment);
+  _installRuntimeErrorBoundary(observability.runtimeMetrics);
   final commands = _EncryptedRiderCommandStore();
   final push = auth == null
       ? null
-      : RolePushLifecycle.firebase(role: AppRole.rider);
+      : RolePushLifecycle.firebase(
+          role: AppRole.rider,
+          allowedHost: config.deepLinkHost,
+          allowedScheme: identity.customScheme,
+        );
   runApp(
     RoleApplicationRuntime<RiderOperationsController>(
       apiBaseUrl: config.apiBaseUrl,
@@ -33,7 +47,9 @@ Future<void> main() async {
       environmentLabel: config.environmentLabel,
       development: config.environment == AppEnvironment.development,
       developmentProviderToken: 'synthetic-rider',
+      apiDiagnostics: observability.apiDiagnostics,
       emailProvider: auth == null ? null : _FirebaseEmailProvider(auth),
+      phoneProvider: auth == null ? null : _FirebasePhoneProvider(auth),
       onAuthenticatedSession: push?.start,
       onSessionEnded: push?.end,
       controllerFactory: (client) => RiderOperationsController(
@@ -41,14 +57,77 @@ Future<void> main() async {
         commandStore: commands,
         locationTracker: GeolocatorRiderLocationTracker(),
       ),
-      authenticatedBuilder: (context, controller, roles, signOut) => RiderApp(
-        config: config,
-        controller: controller,
-        grantedRoles: roles,
-        onSignOut: signOut,
-      ),
+      authenticatedBuilder:
+          (
+            context,
+            controller,
+            roles,
+            signOut,
+            sessionManagement,
+            notificationPreferences,
+            appearancePreferences,
+            accountPrivacy,
+          ) => RiderApp(
+            config: config,
+            controller: controller,
+            grantedRoles: roles,
+            sessionManagementController: sessionManagement,
+            notificationPreferencesController: notificationPreferences,
+            appearancePreferencesController: appearancePreferences,
+            accountPrivacyController: accountPrivacy,
+            onNavigate: RiderMapsLauncher.open,
+            onSignOut: signOut,
+          ),
     ),
   );
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => observability.runtimeMetrics.firstFrame(
+      startup.elapsed,
+      application: 'rider',
+    ),
+  );
+}
+
+abstract final class RiderMapsLauncher {
+  static Future<void> open(RiderTask task) async {
+    final destination = task.navigationDestination;
+    if (destination == null) {
+      throw const FormatException(
+        'The server did not provide a safe navigation destination.',
+      );
+    }
+    final uri = Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      'destination': '${destination.latitude},${destination.longitude}',
+      'travelmode': 'driving',
+    });
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      throw StateError('No supported navigation application is available.');
+    }
+  }
+}
+
+MobileObservability _observability(AppEnvironment environment) =>
+    MobileObservability(
+      deployment: switch (environment) {
+        AppEnvironment.development => TelemetryDeployment.development,
+        AppEnvironment.staging => TelemetryDeployment.staging,
+        AppEnvironment.production => TelemetryDeployment.production,
+      },
+      sink: JsonLineTelemetrySink(debugPrint),
+    );
+
+void _installRuntimeErrorBoundary(MobileRuntimeMetrics metrics) {
+  final previousFlutterHandler = FlutterError.onError;
+  FlutterError.onError = (details) {
+    metrics.runtimeError(details.exception, fatal: false);
+    previousFlutterHandler?.call(details);
+  };
+  final previousPlatformHandler = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    metrics.runtimeError(error, fatal: true);
+    return previousPlatformHandler?.call(error, stack) ?? false;
+  };
 }
 
 final class GeolocatorRiderLocationTracker implements RiderLocationTracker {
@@ -60,7 +139,8 @@ final class GeolocatorRiderLocationTracker implements RiderLocationTracker {
   ) async {
     if (_positions != null) return;
     if (!await Geolocator.isLocationServiceEnabled()) {
-      throw StateError(
+      throw const RiderLocationException(
+        RiderLocationIssue.serviceDisabled,
         'Location services must be enabled before going online.',
       );
     }
@@ -68,9 +148,17 @@ final class GeolocatorRiderLocationTracker implements RiderLocationTracker {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      throw StateError('Rider location permission is required while on duty.');
+    if (permission == LocationPermission.deniedForever) {
+      throw const RiderLocationException(
+        RiderLocationIssue.permissionPermanentlyDenied,
+        'Location permission is blocked. Open settings to go on duty.',
+      );
+    }
+    if (permission == LocationPermission.denied) {
+      throw const RiderLocationException(
+        RiderLocationIssue.permissionDenied,
+        'Rider location permission is required while on duty.',
+      );
     }
 
     final settings = Platform.isAndroid
@@ -117,6 +205,16 @@ final class GeolocatorRiderLocationTracker implements RiderLocationTracker {
     await _positions?.cancel();
     _positions = null;
   }
+
+  @override
+  Future<void> openAppSettings() async {
+    await Geolocator.openAppSettings();
+  }
+
+  @override
+  Future<void> openServiceSettings() async {
+    await Geolocator.openLocationSettings();
+  }
 }
 
 class RiderApp extends StatelessWidget {
@@ -136,6 +234,14 @@ class RiderApp extends StatelessWidget {
       'rider_earnings': true,
       'rider_emergency': true,
     },
+    this.onNavigate,
+    this.onCapturePhoto,
+    this.onCaptureSignature,
+    this.locale,
+    this.sessionManagementController,
+    this.notificationPreferencesController,
+    this.appearancePreferencesController,
+    this.accountPrivacyController,
     this.onSignOut,
     super.key,
   });
@@ -145,29 +251,61 @@ class RiderApp extends StatelessWidget {
   final Set<AppRole> grantedRoles;
   final Set<RoleCapability> capabilities;
   final Map<String, bool> featureFlags;
+  final RiderNavigationAction? onNavigate;
+  final RiderEvidenceCapture? onCapturePhoto;
+  final RiderEvidenceCapture? onCaptureSignature;
+  final Locale? locale;
+  final IdentitySessionManagementController? sessionManagementController;
+  final NotificationPreferencesController? notificationPreferencesController;
+  final AppearancePreferencesController? appearancePreferencesController;
+  final AccountPrivacyController? accountPrivacyController;
   final Future<void> Function()? onSignOut;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    title: 'Planext4u Rider',
-    theme: Planext4uTheme.light,
-    darkTheme: Planext4uTheme.dark,
-    home: AuthenticatedRoleShell(
-      applicationRole: AppRole.rider,
-      grantedRoles: grantedRoles,
-      capabilities: capabilities,
-      featureFlags: featureFlags,
-      environmentLabel: config.environmentLabel,
-      onSignOut: onSignOut,
-      destinationBuilder: controller == null
-          ? null
-          : (context, destination) => RiderOperationsView(
-              controller: controller!,
-              destination: destination,
-            ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final appearance =
+        appearancePreferencesController?.state.preferences ??
+        AppearancePreferences.defaults();
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Planext4u Rider',
+      locale: locale ?? appearance.locale,
+      theme: Planext4uTheme.light,
+      darkTheme: Planext4uTheme.dark,
+      themeMode: appearance.themeMode,
+      supportedLocales: Planext4uLocalizations.supportedLocales,
+      localizationsDelegates: Planext4uLocalizations.localizationsDelegates,
+      builder: (context, child) => Planext4uAdaptiveAppBuilder(
+        dataSaver: appearance.dataSaver,
+        forceReducedMotion: appearance.reduceMotion,
+        minimumTextScale: appearance.textScale.minimumScale,
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: AuthenticatedRoleShell(
+        applicationRole: AppRole.rider,
+        grantedRoles: grantedRoles,
+        capabilities: capabilities,
+        featureFlags: featureFlags,
+        environmentLabel: config.environmentLabel,
+        onSignOut: onSignOut,
+        destinationBuilder: controller == null
+            ? null
+            : (context, destination) => RiderOperationsView(
+                controller: controller!,
+                destination: destination,
+                onNavigate: onNavigate,
+                onCapturePhoto: onCapturePhoto,
+                onCaptureSignature: onCaptureSignature,
+                sessionManagementController: sessionManagementController,
+                notificationPreferencesController:
+                    notificationPreferencesController,
+                appearancePreferencesController:
+                    appearancePreferencesController,
+                accountPrivacyController: accountPrivacyController,
+              ),
+      ),
+    );
+  }
 }
 
 final class _EncryptedRiderCommandStore implements RiderCommandStore {
@@ -201,7 +339,7 @@ final class _EncryptedRiderCommandStore implements RiderCommandStore {
             if (item is! Map<String, Object?>) {
               throw const FormatException('Rider command is invalid.');
             }
-            return RiderOfflineCommand(
+            final command = RiderOfflineCommand(
               deviceSequence: item['device_sequence']! as int,
               commandId: item['command_id']! as String,
               kind: item['kind']! as String,
@@ -211,6 +349,8 @@ final class _EncryptedRiderCommandStore implements RiderCommandStore {
                 item['payload'] as Map<String, Object?>? ?? const {},
               ),
             );
+            command.validate();
+            return command;
           })
           .toList(growable: false);
     });
@@ -219,6 +359,12 @@ final class _EncryptedRiderCommandStore implements RiderCommandStore {
 
   @override
   Future<void> replace(List<RiderOfflineCommand> commands) async {
+    if (commands.length > RiderCommandQueuePolicy.maxCommands) {
+      throw StateError('Rider offline command queue is full.');
+    }
+    for (final command in commands) {
+      command.validate();
+    }
     if (commands.isEmpty) {
       await _store.delete(_key);
       return;
@@ -235,7 +381,8 @@ final class _EncryptedRiderCommandStore implements RiderCommandStore {
   }
 }
 
-final class _FirebaseEmailProvider implements EmailIdentityProvider {
+final class _FirebaseEmailProvider
+    implements EmailIdentityProvider, PasswordRecoveryProvider {
   const _FirebaseEmailProvider(this._auth);
   final FirebaseAuth _auth;
   @override
@@ -256,4 +403,92 @@ final class _FirebaseEmailProvider implements EmailIdentityProvider {
       token: token,
     );
   }
+
+  @override
+  Future<void> requestPasswordReset({required String email}) =>
+      _auth.sendPasswordResetEmail(email: email.trim());
+}
+
+final class _FirebasePhoneProvider implements PhoneOtpProvider {
+  _FirebasePhoneProvider(this._auth);
+
+  final FirebaseAuth _auth;
+  final Map<String, String> _verificationIds = {};
+
+  @override
+  Future<String> requestCode({required String phoneNumber}) async {
+    if (!PhoneOtpPolicy.isValidPhoneNumber(phoneNumber)) {
+      throw const FormatException('The phone number is invalid.');
+    }
+    final result = Completer<String>();
+    await _auth.verifyPhoneNumber(
+      phoneNumber: phoneNumber.trim(),
+      timeout: const Duration(seconds: 60),
+      verificationCompleted: (credential) async {
+        try {
+          final authenticated = await _auth.signInWithCredential(credential);
+          final assertion = await _firebaseAssertion(authenticated.user);
+          final challenge =
+              'automatic-${DateTime.now().microsecondsSinceEpoch}';
+          _verificationIds[challenge] = 'assertion:${assertion.token}';
+          if (!result.isCompleted) result.complete(challenge);
+        } catch (error, stackTrace) {
+          if (!result.isCompleted) result.completeError(error, stackTrace);
+        }
+      },
+      verificationFailed: (error) {
+        if (!result.isCompleted) result.completeError(error);
+      },
+      codeSent: (verificationId, _) {
+        final challenge = 'phone-${DateTime.now().microsecondsSinceEpoch}';
+        _verificationIds[challenge] = verificationId;
+        if (!result.isCompleted) result.complete(challenge);
+      },
+      codeAutoRetrievalTimeout: (_) {
+        if (!result.isCompleted) {
+          result.completeError(
+            TimeoutException('The verification code timed out.'),
+          );
+        }
+      },
+    );
+    return result.future.timeout(const Duration(seconds: 75));
+  }
+
+  @override
+  Future<ProviderAssertion> verifyCode({
+    required String challengeId,
+    required String code,
+  }) async {
+    if (!PhoneOtpPolicy.isValidCode(code)) {
+      throw const FormatException('The verification code is invalid.');
+    }
+    final verification = _verificationIds.remove(challengeId);
+    if (verification == null) {
+      throw const FormatException('The phone verification has expired.');
+    }
+    if (verification.startsWith('assertion:')) {
+      return ProviderAssertion(
+        provider: IdentityProviderKind.firebase,
+        token: verification.substring('assertion:'.length),
+      );
+    }
+    final credential = PhoneAuthProvider.credential(
+      verificationId: verification,
+      smsCode: code.trim(),
+    );
+    final authenticated = await _auth.signInWithCredential(credential);
+    return _firebaseAssertion(authenticated.user);
+  }
+}
+
+Future<ProviderAssertion> _firebaseAssertion(User? user) async {
+  final token = await user?.getIdToken(true);
+  if (token == null || token.length < 8) {
+    throw const FormatException('Firebase token is unavailable.');
+  }
+  return ProviderAssertion(
+    provider: IdentityProviderKind.firebase,
+    token: token,
+  );
 }

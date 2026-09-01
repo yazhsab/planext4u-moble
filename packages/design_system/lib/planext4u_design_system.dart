@@ -1,5 +1,6 @@
 library;
 
+export 'src/adaptive_experience.dart';
 export 'src/app_shell.dart';
 export 'src/catalogue.dart';
 export 'src/components.dart';

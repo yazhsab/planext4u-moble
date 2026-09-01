@@ -42,16 +42,45 @@ final class HomeSectionConfig {
     required this.titleKey,
     required this.enabled,
     required this.priority,
+    this.displayTitle = '',
+    this.displaySubtitle = '',
+    this.actionLabel = '',
+    this.actionRoute = '',
+    this.items = const [],
   });
 
   factory HomeSectionConfig.fromJson(Object? value) {
     final json = _object(value, 'home section');
+    final id = _string(json, 'id');
+    final kind = _string(json, 'kind');
+    final titleKey = _string(json, 'title_key');
+    if (id.length > 80 || kind.length > 48 || titleKey.length > 96) {
+      throw const FormatException('Home section identifier is invalid.');
+    }
+    final actionRoute = _optionalText(json, 'action_route', maxLength: 96);
+    if (actionRoute.isNotEmpty &&
+        !supportedCustomerHomeRoutes.contains(actionRoute)) {
+      throw const FormatException('Home section action route is invalid.');
+    }
+    final rawItems = json['items'];
+    if (rawItems != null && rawItems is! List<Object?>) {
+      throw const FormatException('Home section items must be a list.');
+    }
+    final items = rawItems as List<Object?>? ?? const [];
+    if (items.length > 8) {
+      throw const FormatException('Home section has too many items.');
+    }
     return HomeSectionConfig(
-      id: _string(json, 'id'),
-      kind: _string(json, 'kind'),
-      titleKey: _string(json, 'title_key'),
+      id: id,
+      kind: kind,
+      titleKey: titleKey,
       enabled: _boolean(json, 'enabled'),
       priority: _integer(json, 'priority'),
+      displayTitle: _optionalText(json, 'display_title', maxLength: 120),
+      displaySubtitle: _optionalText(json, 'display_subtitle', maxLength: 240),
+      actionLabel: _optionalText(json, 'action_label', maxLength: 40),
+      actionRoute: actionRoute,
+      items: List.unmodifiable(items.map(HomeSectionItemConfig.fromJson)),
     );
   }
 
@@ -60,7 +89,106 @@ final class HomeSectionConfig {
   final String titleKey;
   final bool enabled;
   final int priority;
+  final String displayTitle;
+  final String displaySubtitle;
+  final String actionLabel;
+  final String actionRoute;
+  final List<HomeSectionItemConfig> items;
 }
+
+final class HomeSectionItemConfig {
+  const HomeSectionItemConfig({
+    required this.id,
+    required this.title,
+    this.subtitle = '',
+    this.icon = 'default',
+    this.actionRoute = '',
+  });
+
+  factory HomeSectionItemConfig.fromJson(Object? value) {
+    final json = _object(value, 'home section item');
+    final id = _string(json, 'id');
+    final title = _string(json, 'title');
+    if (id.length > 80 || title.length > 120) {
+      throw const FormatException('Home section item text is invalid.');
+    }
+    final actionRoute = _optionalText(json, 'action_route', maxLength: 96);
+    if (actionRoute.isNotEmpty &&
+        !supportedCustomerHomeRoutes.contains(actionRoute)) {
+      throw const FormatException('Home section item action route is invalid.');
+    }
+    return HomeSectionItemConfig(
+      id: id,
+      title: title,
+      subtitle: _optionalText(json, 'subtitle', maxLength: 160),
+      icon: _optionalText(json, 'icon', maxLength: 32, fallback: 'default'),
+      actionRoute: actionRoute,
+    );
+  }
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String icon;
+  final String actionRoute;
+}
+
+const supportedCustomerHomeRoutes = <String>{
+  '/app/catalog',
+  '/app/orders',
+  '/app/services',
+  '/app/food',
+  '/app/social',
+  '/app/community',
+  '/app/homes',
+  '/app/classifieds',
+  '/app/emergency',
+};
+
+const supportedCustomerHomeSectionKinds = <String>{
+  'HERO',
+  'TRUST_BENEFITS',
+  'CATEGORY_GRID',
+  'FEATURED_ITEMS',
+  'BESTSELLERS',
+  'RECOMMENDATIONS',
+  'SERVICE_DISCOVERY',
+  'LEADERBOARD',
+  'HELP_SHORTCUTS',
+};
+
+/// Returns the presentation-safe subset of the server-owned home composition.
+///
+/// The lowest-priority entry wins when a bootstrap response accidentally
+/// publishes the same section kind more than once. Unknown kinds are ignored so
+/// a newer backend configuration cannot break an older mobile binary.
+List<HomeSectionConfig> normalizeCustomerHomeSections(
+  Iterable<HomeSectionConfig> sections,
+) {
+  final ordered =
+      sections
+          .where(
+            (section) =>
+                section.enabled &&
+                supportedCustomerHomeSectionKinds.contains(section.kind),
+          )
+          .toList(growable: false)
+        ..sort((left, right) {
+          final priority = left.priority.compareTo(right.priority);
+          return priority == 0 ? left.id.compareTo(right.id) : priority;
+        });
+  final seenKinds = <String>{};
+  return List.unmodifiable([
+    for (final section in ordered)
+      if (seenKinds.add(_canonicalCustomerHomeSectionKind(section.kind)))
+        section,
+  ]);
+}
+
+String _canonicalCustomerHomeSectionKind(String kind) => switch (kind) {
+  'BESTSELLERS' => 'FEATURED_ITEMS',
+  _ => kind,
+};
 
 final class BootstrapConfig {
   const BootstrapConfig({
@@ -202,6 +330,24 @@ final class BootstrapConfig {
           'title_key': value.titleKey,
           'enabled': value.enabled,
           'priority': value.priority,
+          if (value.displayTitle.isNotEmpty)
+            'display_title': value.displayTitle,
+          if (value.displaySubtitle.isNotEmpty)
+            'display_subtitle': value.displaySubtitle,
+          if (value.actionLabel.isNotEmpty) 'action_label': value.actionLabel,
+          if (value.actionRoute.isNotEmpty) 'action_route': value.actionRoute,
+          if (value.items.isNotEmpty)
+            'items': [
+              for (final item in value.items)
+                {
+                  'id': item.id,
+                  'title': item.title,
+                  if (item.subtitle.isNotEmpty) 'subtitle': item.subtitle,
+                  if (item.icon.isNotEmpty) 'icon': item.icon,
+                  if (item.actionRoute.isNotEmpty)
+                    'action_route': item.actionRoute,
+                },
+            ],
         },
     ],
   };
@@ -391,6 +537,22 @@ String _string(Map<String, Object?> json, String key) {
     throw FormatException('$key must be a non-empty string.');
   }
   return value;
+}
+
+String _optionalText(
+  Map<String, Object?> json,
+  String key, {
+  required int maxLength,
+  String fallback = '',
+}) {
+  final value = json[key];
+  if (value == null) return fallback;
+  if (value is! String) throw FormatException('$key must be a string.');
+  final normalized = value.trim();
+  if (normalized.length > maxLength) {
+    throw FormatException('$key is too long.');
+  }
+  return normalized.isEmpty ? fallback : normalized;
 }
 
 bool _boolean(Map<String, Object?> json, String key) {

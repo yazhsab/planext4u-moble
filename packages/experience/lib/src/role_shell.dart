@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
+import 'localization.dart';
+
 enum RoleCapability {
   vendorOverview,
   vendorOrders,
+  vendorBookings,
   vendorCatalog,
+  vendorPromotions,
   vendorEarnings,
   riderDuty,
   riderAssignments,
@@ -77,6 +81,20 @@ const _vendorDestinations = <RoleDestination>[
     icon: Icons.inventory_2_outlined,
     capability: RoleCapability.vendorCatalog,
     featureFlag: 'vendor_catalog',
+  ),
+  RoleDestination(
+    id: 'bookings',
+    label: 'Bookings',
+    icon: Icons.event_available_outlined,
+    capability: RoleCapability.vendorBookings,
+    featureFlag: 'vendor_bookings',
+  ),
+  RoleDestination(
+    id: 'promotions',
+    label: 'Promotions',
+    icon: Icons.campaign_outlined,
+    capability: RoleCapability.vendorPromotions,
+    featureFlag: 'vendor_promotions',
   ),
   RoleDestination(
     id: 'earnings',
@@ -158,6 +176,7 @@ class _AuthenticatedRoleShellState extends State<AuthenticatedRoleShell> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = Planext4uLocalizations.of(context);
     final destinations = RoleNavigationPolicy.destinations(
       applicationRole: widget.applicationRole,
       grantedRoles: widget.grantedRoles,
@@ -191,57 +210,148 @@ class _AuthenticatedRoleShellState extends State<AuthenticatedRoleShell> {
       );
     }
     if (_selected >= destinations.length) _selected = 0;
-    final destination = destinations[_selected];
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Planext4u ${widget.applicationRole.label}'),
-        actions: [
-          Semantics(
-            label: 'Build environment: ${widget.environmentLabel}',
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Planext4uSpacing.x4,
-              ),
-              child: Center(
-                child: Text(
-                  widget.environmentLabel.toUpperCase(),
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-              ),
-            ),
-          ),
-          if (widget.onSignOut != null)
-            IconButton(
-              tooltip: 'Sign out',
-              onPressed: () => widget.onSignOut!(),
-              icon: const Icon(Icons.logout),
-            ),
-        ],
-      ),
-      body: SafeArea(
-        child: Center(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final destination = destinations[_selected];
+        final destinationLabel = strings.destinationLabel(destination.id);
+        final roleLabel = strings.roleLabel(widget.applicationRole.name);
+        final useNavigationRail = constraints.maxWidth >= 840;
+        final useNavigationDrawer =
+            !useNavigationRail && destinations.length > 5;
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
+        final content = Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
             child:
                 widget.destinationBuilder?.call(context, destination) ??
                 Planext4uStatePanel(
                   state: Planext4uViewState.empty,
-                  title: destination.label,
+                  title: destinationLabel,
                   message:
-                      '${widget.applicationRole.label} ${destination.label.toLowerCase()} '
+                      '$roleLabel ${destinationLabel.toLowerCase()} '
                       'is permission-verified and ready for its domain workflow.',
                 ),
           ),
-        ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selected,
-        onDestinationSelected: (index) => setState(() => _selected = index),
-        destinations: [
-          for (final item in destinations)
-            NavigationDestination(icon: Icon(item.icon), label: item.label),
-        ],
-      ),
+        );
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              useNavigationDrawer
+                  ? textScale >= 1.8
+                        ? destinationLabel
+                        : '$roleLabel • $destinationLabel'
+                  : 'Planext4u $roleLabel',
+            ),
+            actions: [
+              if (constraints.maxWidth >= 480)
+                Semantics(
+                  label: 'Build environment: ${widget.environmentLabel}',
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Planext4uSpacing.x4,
+                    ),
+                    child: Center(
+                      child: Text(
+                        widget.environmentLabel.toUpperCase(),
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                  ),
+                ),
+              if (widget.onSignOut != null)
+                IconButton(
+                  tooltip: strings.signOut,
+                  onPressed: () => widget.onSignOut!(),
+                  icon: const Icon(Icons.logout),
+                ),
+            ],
+          ),
+          drawer: useNavigationDrawer
+              ? Drawer(
+                  child: SafeArea(
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: Planext4uSpacing.x3,
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            Planext4uSpacing.x6,
+                            Planext4uSpacing.x3,
+                            Planext4uSpacing.x4,
+                            Planext4uSpacing.x3,
+                          ),
+                          child: Text(
+                            strings.workspace,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ),
+                        for (
+                          var index = 0;
+                          index < destinations.length;
+                          index++
+                        )
+                          ListTile(
+                            selected: index == _selected,
+                            leading: Icon(destinations[index].icon),
+                            title: Text(
+                              strings.destinationLabel(destinations[index].id),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: () {
+                              setState(() => _selected = index);
+                              Navigator.of(context).pop();
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                )
+              : null,
+          body: SafeArea(
+            child: Row(
+              children: [
+                if (useNavigationRail)
+                  NavigationRail(
+                    extended: constraints.maxWidth >= 1100,
+                    selectedIndex: _selected,
+                    onDestinationSelected: (index) =>
+                        setState(() => _selected = index),
+                    destinations: [
+                      for (final item in destinations)
+                        NavigationRailDestination(
+                          icon: Icon(item.icon),
+                          label: Text(strings.destinationLabel(item.id)),
+                        ),
+                    ],
+                  ),
+                Expanded(child: content),
+              ],
+            ),
+          ),
+          bottomNavigationBar: useNavigationRail || useNavigationDrawer
+              ? null
+              : NavigationBar(
+                  height: textScale >= 1.8
+                      ? 112
+                      : (textScale > 1.15 ? 96 : null),
+                  labelBehavior: textScale >= 1.8
+                      ? NavigationDestinationLabelBehavior.onlyShowSelected
+                      : NavigationDestinationLabelBehavior.alwaysShow,
+                  selectedIndex: _selected,
+                  onDestinationSelected: (index) =>
+                      setState(() => _selected = index),
+                  destinations: [
+                    for (final item in destinations)
+                      NavigationDestination(
+                        icon: Icon(item.icon),
+                        label: strings.destinationLabel(item.id),
+                      ),
+                  ],
+                ),
+        );
+      },
     );
   }
 }

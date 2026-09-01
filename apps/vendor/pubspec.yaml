@@ -19,6 +19,7 @@ dependencies:
   planext4u_design_system: ^0.1.0
   planext4u_experience: ^0.1.0
   planext4u_identity: ^0.1.0
+  planext4u_observability: ^0.1.0
 
 dev_dependencies:
   integration_test:

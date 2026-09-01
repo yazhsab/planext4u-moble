@@ -1,0 +1,208 @@
+name: Protected mobile release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Application to build
+        required: true
+        type: choice
+        options: [customer, vendor, rider]
+      version:
+        description: Semantic version such as 1.0.0
+        required: true
+        type: string
+      build_number:
+        description: Monotonically increasing positive build number
+        required: true
+        type: string
+      rollout_stage:
+        description: Intended controlled-rollout stage; this workflow never promotes it
+        required: true
+        default: internal
+        type: choice
+        options: [internal, cityPilot, percent5, percent25, percent50, percent100]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: protected-mobile-release-${{ inputs.app }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.41.4
+
+jobs:
+  signed-candidate:
+    name: Signed ${{ inputs.app }} candidate
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter config --enable-swift-package-manager
+      - run: flutter pub get
+      - name: Validate source and release policy
+        run: |
+          set -euo pipefail
+          dart run tool/security_audit.dart
+          dart run tool/validate_phase3_release.dart
+          dart run melos run verify
+      - name: Validate protected inputs
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          IOS_DISTRIBUTION_CERTIFICATE_B64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_B64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_B64 }}
+          IOS_EXPORT_OPTIONS_PLIST_B64: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST_B64 }}
+          IOS_DEVELOPMENT_TEAM: ${{ secrets.IOS_DEVELOPMENT_TEAM }}
+          MOBILE_ANDROID_FIREBASE_CONFIG_B64: ${{ secrets.MOBILE_ANDROID_FIREBASE_CONFIG_B64 }}
+          MOBILE_IOS_FIREBASE_CONFIG_B64: ${{ secrets.MOBILE_IOS_FIREBASE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$RELEASE_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          for variable in \
+            ANDROID_KEYSTORE_B64 ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD \
+            IOS_DISTRIBUTION_CERTIFICATE_B64 IOS_CERTIFICATE_PASSWORD \
+            IOS_PROVISIONING_PROFILE_B64 IOS_EXPORT_OPTIONS_PLIST_B64 \
+            IOS_DEVELOPMENT_TEAM MOBILE_ANDROID_FIREBASE_CONFIG_B64 \
+            MOBILE_IOS_FIREBASE_CONFIG_B64; do
+            test -n "${!variable:-}" || {
+              echo "Protected production environment is missing $variable." >&2
+              exit 1
+            }
+          done
+      - name: Install protected signing and provider configuration
+        env:
+          RELEASE_APP: ${{ inputs.app }}
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_B64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_B64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_B64 }}
+          IOS_EXPORT_OPTIONS_PLIST_B64: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST_B64 }}
+          IOS_DEVELOPMENT_TEAM: ${{ secrets.IOS_DEVELOPMENT_TEAM }}
+          MOBILE_ANDROID_FIREBASE_CONFIG_B64: ${{ secrets.MOBILE_ANDROID_FIREBASE_CONFIG_B64 }}
+          MOBILE_IOS_FIREBASE_CONFIG_B64: ${{ secrets.MOBILE_IOS_FIREBASE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_APP" in
+            customer) EXPECTED_IDENTIFIER=net.planext4u.customer ;;
+            vendor) EXPECTED_IDENTIFIER=net.planext4u.vendor ;;
+            rider) EXPECTED_IDENTIFIER=net.planext4u.rider ;;
+            *) exit 64 ;;
+          esac
+          SIGNING_ROOT="$RUNNER_TEMP/planext4u-signing"
+          mkdir -p "$SIGNING_ROOT" "apps/$RELEASE_APP/android/app/src/production"
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -D > "$SIGNING_ROOT/release.jks"
+          printf '%s' "$MOBILE_ANDROID_FIREBASE_CONFIG_B64" | base64 -D > \
+            "apps/$RELEASE_APP/android/app/src/production/google-services.json"
+          printf '%s' "$MOBILE_IOS_FIREBASE_CONFIG_B64" | base64 -D > \
+            "apps/$RELEASE_APP/ios/Runner/GoogleService-Info.plist"
+          jq -e --arg id "$EXPECTED_IDENTIFIER" \
+            'any(.client[]; .client_info.android_client_info.package_name == $id)' \
+            "apps/$RELEASE_APP/android/app/src/production/google-services.json" >/dev/null
+          test "$(plutil -extract BUNDLE_ID raw apps/$RELEASE_APP/ios/Runner/GoogleService-Info.plist)" \
+            = "$EXPECTED_IDENTIFIER"
+
+          printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_B64" | base64 -D > "$SIGNING_ROOT/distribution.p12"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_B64" | base64 -D > "$SIGNING_ROOT/profile.mobileprovision"
+          printf '%s' "$IOS_EXPORT_OPTIONS_PLIST_B64" | base64 -D > "$SIGNING_ROOT/export-options.plist"
+          plutil -lint "$SIGNING_ROOT/export-options.plist"
+          security cms -D -i "$SIGNING_ROOT/profile.mobileprovision" > "$SIGNING_ROOT/profile.plist"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$SIGNING_ROOT/profile.plist")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$SIGNING_ROOT/profile.plist")
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$SIGNING_ROOT/profile.mobileprovision" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/planext4u-release.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 24)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$SIGNING_ROOT/distribution.p12" -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          {
+            printf '\nDEVELOPMENT_TEAM = %s\n' "$IOS_DEVELOPMENT_TEAM"
+            printf 'CODE_SIGN_STYLE = Manual\n'
+            printf 'CODE_SIGN_IDENTITY = Apple Distribution\n'
+            printf 'PROVISIONING_PROFILE_SPECIFIER = %s\n' "$PROFILE_NAME"
+          } >> "apps/$RELEASE_APP/ios/Flutter/Release-production.xcconfig"
+
+          echo "ANDROID_KEYSTORE_PATH=$SIGNING_ROOT/release.jks" >> "$GITHUB_ENV"
+          echo "IOS_EXPORT_OPTIONS_PATH=$SIGNING_ROOT/export-options.plist" >> "$GITHUB_ENV"
+          echo "PLANEXT4U_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "PLANEXT4U_PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+      - name: Build signed Android and iOS candidates
+        working-directory: apps/${{ inputs.app }}
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          flutter build appbundle --release --flavor production \
+            --build-name=${{ inputs.version }} \
+            --build-number=${{ inputs.build_number }} \
+            --obfuscate \
+            --split-debug-info="$RUNNER_TEMP/planext4u-symbols/android" \
+            --dart-define=APP_ENV=production \
+            --dart-define=API_BASE_URL=https://api.planext4u.net
+          flutter build ipa --release --flavor production \
+            --build-name=${{ inputs.version }} \
+            --build-number=${{ inputs.build_number }} \
+            --obfuscate \
+            --split-debug-info="$RUNNER_TEMP/planext4u-symbols/ios" \
+            --dart-define=APP_ENV=production \
+            --dart-define=API_BASE_URL=https://api.planext4u.net \
+            --export-options-plist="$IOS_EXPORT_OPTIONS_PATH"
+          test -s build/app/outputs/bundle/productionRelease/app-production-release.aab
+          find build/ios/ipa -name '*.ipa' -type f -size +0 | grep -q .
+      - name: Upload immutable release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: planext4u-${{ inputs.app }}-${{ inputs.version }}-${{ inputs.build_number }}-${{ inputs.rollout_stage }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            apps/${{ inputs.app }}/build/app/outputs/bundle/productionRelease/app-production-release.aab
+            apps/${{ inputs.app }}/build/ios/ipa/*.ipa
+            apps/${{ inputs.app }}/build/ios/archive/Runner.xcarchive/dSYMs/**
+            ${{ runner.temp }}/planext4u-symbols/**
+      - name: Attest Android provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: apps/${{ inputs.app }}/build/app/outputs/bundle/productionRelease/app-production-release.aab
+      - name: Attest iOS provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: apps/${{ inputs.app }}/build/ios/ipa/*.ipa
+      - name: Confirm promotion boundary
+        run: echo 'Store promotion is deliberately manual and requires rollout policy approval.'
+      - name: Remove protected material
+        if: always()
+        run: |
+          security delete-keychain "$PLANEXT4U_KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PLANEXT4U_PROFILE_UUID.mobileprovision"
+          rm -rf "$RUNNER_TEMP/planext4u-signing"
+          rm -f "apps/${{ inputs.app }}/android/app/src/production/google-services.json"
+          rm -f "apps/${{ inputs.app }}/ios/Runner/GoogleService-Info.plist"

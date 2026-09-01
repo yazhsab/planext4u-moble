@@ -4,6 +4,8 @@ void main() {
   final failures = <String>[];
   final mobile = _read('.github/workflows/mobile-ci.yml');
   final smoke = _read('.github/workflows/staging-smoke.yml');
+  final security = _read('.github/workflows/mobile-security.yml');
+  final release = _read('.github/workflows/mobile-release.yml');
   final integration = _read(
     'apps/customer/integration_test/customer_vertical_slice_test.dart',
   );
@@ -38,11 +40,43 @@ void main() {
   }
   for (final required in [
     'environment: staging',
-    'complete synthetic customer journey',
+    'customer, vendor and rider staging readiness',
     'tool/staging_smoke.dart',
     'https://staging-api.planext4u.net',
   ]) {
     _expect(failures, smoke, required, 'staging smoke');
+  }
+  for (final required in [
+    'tool/security_audit.dart',
+    'tool/validate_phase3_release.dart',
+    'google/osv-scanner-action/osv-scanner-action@baa4139e56d6312335d899e6ba045fa16d1d3d0b',
+    'gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e',
+  ]) {
+    _expect(failures, security, required, 'mobile security');
+  }
+  for (final required in [
+    'environment: production',
+    'flutter build appbundle',
+    'flutter build ipa',
+    'actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a',
+    'Store promotion is deliberately manual',
+  ]) {
+    _expect(failures, release, required, 'protected mobile release');
+  }
+  for (final required in [
+    'MOB-P2-XROLE-001',
+    "role: 'customer'",
+    "role: 'vendor'",
+    "role: 'rider'",
+    '/v1/vendor/work',
+    '/v1/rider/offers',
+  ]) {
+    _expect(
+      failures,
+      _read('tool/staging_smoke.dart'),
+      required,
+      'Phase 2 staging smoke',
+    );
   }
   for (final stage in ['consent', 'login', 'location', 'home', 'catalog']) {
     _expect(failures, integration, stage, 'MOB-E2E-001');
@@ -108,10 +142,24 @@ void main() {
     _expect(failures, integration, required, 'Phase 5 Socio trust E2E');
   }
   _expect(failures, root, 'dart run tool/validate_ci.dart', 'root gate');
+  _expect(
+    failures,
+    root,
+    'dart run tool/security_audit.dart',
+    'root security gate',
+  );
+  _expect(
+    failures,
+    root,
+    'dart run tool/validate_phase3_release.dart',
+    'root Phase 3 gate',
+  );
 
   for (final workflow in {
     'mobile CI': mobile,
     'staging smoke': smoke,
+    'mobile security': security,
+    'protected mobile release': release,
   }.entries) {
     for (final line in workflow.value.split('\n')) {
       final trimmed = line.trim();
@@ -130,7 +178,7 @@ void main() {
     }
   }
 
-  final combined = '$mobile\n$smoke';
+  final combined = '$mobile\n$smoke\n$security\n$release';
   for (final prohibited in [
     'admin@planext4u.com',
     'Planext@2026',

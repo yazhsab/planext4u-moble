@@ -111,6 +111,128 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('campaign and benefit components fit narrow large-text layouts', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await tester.pumpWidget(
+        _testApp(
+          SizedBox(
+            width: 390,
+            height: 500,
+            child: ListView(
+              children: const [
+                Planext4uCampaignHero(
+                  title: 'Smart shopping, everyday.',
+                  subtitle: 'Everything you need from trusted local sellers.',
+                  actionLabel: 'Start shopping',
+                  onAction: _noop,
+                ),
+                SizedBox(height: Planext4uSpacing.x3),
+                Planext4uBenefitStrip(
+                  items: [
+                    Planext4uBenefitItem(
+                      title: 'Secure shopping',
+                      subtitle: 'Protected payments and privacy',
+                      icon: Icons.verified_user_outlined,
+                    ),
+                    Planext4uBenefitItem(
+                      title: 'Fast delivery',
+                      subtitle: 'Live fulfilment updates',
+                      icon: Icons.local_shipping_outlined,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          textScale: 1.3,
+        ),
+      );
+
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            r'^Smart shopping, everyday\. Everything you need from trusted local sellers\.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Secure shopping'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('discovery and commerce components fit at 200% text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _testApp(
+        SizedBox(
+          width: 390,
+          height: 760,
+          child: ListView(
+            key: const ValueKey('a11y-discovery-list'),
+            children: const [
+              Planext4uCampaignHero(
+                title: 'Smart shopping, everyday.',
+                subtitle: 'Everything you need from trusted local sellers.',
+                actionLabel: 'Start shopping',
+                onAction: _noop,
+              ),
+              SizedBox(height: Planext4uSpacing.x3),
+              Planext4uBenefitStrip(
+                items: [
+                  Planext4uBenefitItem(
+                    title: 'Secure shopping',
+                    subtitle: 'Protected payments and privacy',
+                    icon: Icons.verified_user_outlined,
+                  ),
+                ],
+              ),
+              SizedBox(height: Planext4uSpacing.x3),
+              SizedBox(
+                height: 520,
+                child: Planext4uProductCard(
+                  name: 'Synthetic neighbourhood essentials basket',
+                  vendor: 'Verified local seller',
+                  price: '₹1,249.00',
+                  status: 'Available',
+                  onPressed: _noop,
+                  onFavorite: _noop,
+                  onAddToCart: _noop,
+                ),
+              ),
+            ],
+          ),
+        ),
+        textScale: 2,
+      ),
+    );
+
+    for (var index = 0; index < 4; index++) {
+      await tester.drag(
+        find.byKey(const ValueKey('a11y-discovery-list')),
+        const Offset(0, -360),
+      );
+      await tester.pumpAndSettle();
+    }
+    expect(
+      find.byTooltip('Add Synthetic neighbourhood essentials basket to cart'),
+      findsOneWidget,
+    );
+    expect(
+      find.byTooltip(
+        'Add Synthetic neighbourhood essentials basket to favourites',
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   for (final state in Planext4uViewState.values) {
     testWidgets('$state has a stable accessible rendering at 130% text', (
       tester,

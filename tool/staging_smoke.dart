@@ -36,28 +36,12 @@ Future<void> main(List<String> arguments) async {
       step: 'ready',
       assertion: (body) => body['status'] == 'ok',
     );
-    final authentication = await _request(
+    final accessToken = await _authenticate(
       client,
       origin,
-      'POST',
-      '/v1/auth/exchange',
-      step: 'login',
-      expectedStatus: HttpStatus.created,
-      jsonBody: const {
-        'provider': 'local',
-        'provider_token': 'synthetic-customer',
-        'device_id': 'device-mobile-staging-smoke-001',
-        'country': 'IN',
-      },
-      assertion: (body) => body['identity_id'] == 'customer-synthetic-001',
+      role: 'customer',
+      deviceId: 'device-00000000000000000000000000000001',
     );
-    final tokens = authentication['tokens'];
-    final accessToken = tokens is Map<String, Object?>
-        ? tokens['access_token']
-        : null;
-    if (accessToken is! String || !accessToken.startsWith('p4us_v1.')) {
-      throw const FormatException('Synthetic login token contract failed.');
-    }
 
     await _request(
       client,
@@ -120,12 +104,96 @@ Future<void> main(List<String> arguments) async {
             });
       },
     );
+    final vendorToken = await _authenticate(
+      client,
+      origin,
+      role: 'vendor',
+      deviceId: 'device-00000000000000000000000000000002',
+    );
+    await _request(
+      client,
+      origin,
+      'GET',
+      '/v1/vendor/application',
+      step: 'vendor-application',
+      bearerToken: vendorToken,
+      assertion: _hasIdentityAndStatus,
+    );
+    await _request(
+      client,
+      origin,
+      'GET',
+      '/v1/vendor/work',
+      step: 'vendor-work',
+      bearerToken: vendorToken,
+      assertion: _hasItems,
+    );
+    final riderToken = await _authenticate(
+      client,
+      origin,
+      role: 'rider',
+      deviceId: 'device-00000000000000000000000000000003',
+    );
+    await _request(
+      client,
+      origin,
+      'GET',
+      '/v1/rider/profile',
+      step: 'rider-profile',
+      bearerToken: riderToken,
+      assertion: _hasIdentityAndStatus,
+    );
+    await _request(
+      client,
+      origin,
+      'GET',
+      '/v1/rider/offers',
+      step: 'rider-offers',
+      bearerToken: riderToken,
+      assertion: _hasItems,
+    );
     stdout.writeln(
-      'MOB-E2E-001 staging slice passed: login -> location -> home -> catalog.',
+      'MOB-P2-XROLE-001 staging readiness passed: customer -> vendor -> rider.',
     );
   } finally {
     client.close(force: true);
   }
+}
+
+Future<String> _authenticate(
+  HttpClient client,
+  Uri origin, {
+  required String role,
+  required String deviceId,
+}) async {
+  final authentication = await _request(
+    client,
+    origin,
+    'POST',
+    '/v1/auth/exchange',
+    step: '$role-login',
+    expectedStatus: HttpStatus.created,
+    jsonBody: {
+      'provider': 'local',
+      'provider_token': 'synthetic-$role',
+      'device_id': deviceId,
+      'country': 'IN',
+    },
+    assertion: (body) {
+      final roles = body['roles'];
+      return body['identity_id'] is String &&
+          roles is List<Object?> &&
+          roles.contains(role.toUpperCase());
+    },
+  );
+  final tokens = authentication['tokens'];
+  final accessToken = tokens is Map<String, Object?>
+      ? tokens['access_token']
+      : null;
+  if (accessToken is! String || !accessToken.startsWith('p4us_v1.')) {
+    throw FormatException('Synthetic $role token contract failed.');
+  }
+  return accessToken;
 }
 
 Future<Map<String, Object?>> _request(
@@ -184,6 +252,11 @@ bool _containsNamed(Object? values, String expected) =>
     values.any(
       (value) => value is Map<String, Object?> && value['name'] == expected,
     );
+
+bool _hasIdentityAndStatus(Map<String, Object?> body) =>
+    body['id'] is String && body['revision'] is int && body['status'] is String;
+
+bool _hasItems(Map<String, Object?> body) => body['items'] is List<Object?>;
 
 String? _argument(List<String> arguments, String prefix, {String? fallback}) =>
     arguments

@@ -7,6 +7,7 @@ coverage/
 *.iml
 *.log
 .DS_Store
+.understand-anything/
 
 # Local, non-secret developer overrides. Typed compile-time configuration is preferred.
 *.local.json

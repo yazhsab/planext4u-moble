@@ -235,6 +235,332 @@ class Planext4uSectionCard extends StatelessWidget {
   }
 }
 
+class Planext4uSectionHeader extends StatelessWidget {
+  const Planext4uSectionHeader({
+    required this.title,
+    this.subtitle,
+    this.actionLabel,
+    this.onAction,
+    super.key,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            if (subtitle?.isNotEmpty == true) ...[
+              const SizedBox(height: Planext4uSpacing.x1),
+              Text(subtitle!, style: Theme.of(context).textTheme.bodyMedium),
+            ],
+          ],
+        ),
+      ),
+      if (actionLabel?.isNotEmpty == true)
+        TextButton(onPressed: onAction, child: Text(actionLabel!)),
+    ],
+  );
+}
+
+class Planext4uHorizontalRail extends StatelessWidget {
+  const Planext4uHorizontalRail({
+    required this.children,
+    required this.height,
+    this.itemWidth = 224,
+    this.semanticLabel,
+    super.key,
+  });
+
+  final List<Widget> children;
+  final double height;
+  final double itemWidth;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) return const SizedBox.shrink();
+    return Semantics(
+      container: true,
+      label: semanticLabel,
+      child: SizedBox(
+        height: height,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: children.length,
+          separatorBuilder: (_, _) =>
+              const SizedBox(width: Planext4uSpacing.x3),
+          itemBuilder: (_, index) =>
+              SizedBox(width: itemWidth, child: children[index]),
+        ),
+      ),
+    );
+  }
+}
+
+class Planext4uMediaPlaceholder extends StatelessWidget {
+  const Planext4uMediaPlaceholder({
+    required this.label,
+    this.height = 112,
+    this.icon = Icons.image_outlined,
+    super.key,
+  });
+
+  final String label;
+  final double height;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    image: true,
+    label: label,
+    child: ExcludeSemantics(
+      child: Container(
+        height: height,
+        width: double.infinity,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        alignment: Alignment.center,
+        child: Icon(icon, size: 40),
+      ),
+    ),
+  );
+}
+
+class Planext4uCampaignHero extends StatelessWidget {
+  const Planext4uCampaignHero({
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+    this.icon = Icons.shopping_bag_outlined,
+    super.key,
+  });
+
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final semanticsLabel = title.endsWith('.')
+        ? '$title $subtitle'
+        : '$title. $subtitle';
+    return Semantics(
+      container: true,
+      label: semanticsLabel,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [colors.primaryContainer, colors.secondaryContainer],
+          ),
+          borderRadius: BorderRadius.circular(Planext4uRadii.hero),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(Planext4uSpacing.x5),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 420;
+              final accessibleText =
+                  MediaQuery.textScalerOf(context).scale(1) >= 1.8;
+              final copy = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style:
+                        (compact
+                                ? theme.textTheme.headlineSmall
+                                : theme.textTheme.headlineMedium)
+                            ?.copyWith(
+                              color: colors.onPrimaryContainer,
+                              fontWeight: FontWeight.w800,
+                            ),
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: colors.onPrimaryContainer,
+                    ),
+                  ),
+                  if (actionLabel?.isNotEmpty == true) ...[
+                    const SizedBox(height: Planext4uSpacing.x4),
+                    FilledButton.tonalIcon(
+                      onPressed: onAction,
+                      icon: const Icon(Icons.arrow_forward),
+                      label: Text(actionLabel!),
+                    ),
+                  ],
+                ],
+              );
+              final artwork = DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colors.surface.withValues(alpha: 0.72),
+                  shape: BoxShape.circle,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(
+                    compact ? Planext4uSpacing.x3 : Planext4uSpacing.x5,
+                  ),
+                  child: Icon(
+                    icon,
+                    size: compact ? 40 : 56,
+                    color: colors.primary,
+                  ),
+                ),
+              );
+              if (accessibleText && compact) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    artwork,
+                    const SizedBox(height: Planext4uSpacing.x3),
+                    copy,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: copy),
+                  const SizedBox(width: Planext4uSpacing.x3),
+                  artwork,
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class Planext4uBenefitItem {
+  const Planext4uBenefitItem({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback? onTap;
+}
+
+class Planext4uBenefitStrip extends StatelessWidget {
+  const Planext4uBenefitStrip({required this.items, super.key});
+
+  final List<Planext4uBenefitItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final largeText = textScale > 1.15;
+    final accessibleText = textScale >= 1.8;
+    return SizedBox(
+      height: accessibleText ? 320 : (largeText ? 176 : 112),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: Planext4uSpacing.x2),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return Semantics(
+            container: true,
+            button: item.onTap != null,
+            label: '${item.title}. ${item.subtitle}',
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: item.onTap,
+                child: SizedBox(
+                  width: accessibleText ? 232 : 184,
+                  child: Padding(
+                    padding: const EdgeInsets.all(Planext4uSpacing.x3),
+                    child: accessibleText
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                item.icon,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(height: Planext4uSpacing.x2),
+                              _Planext4uBenefitCopy(item: item, maxLines: 4),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              Icon(
+                                item.icon,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(width: Planext4uSpacing.x2),
+                              Expanded(
+                                child: _Planext4uBenefitCopy(
+                                  item: item,
+                                  maxLines: largeText ? 3 : 2,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _Planext4uBenefitCopy extends StatelessWidget {
+  const _Planext4uBenefitCopy({required this.item, required this.maxLines});
+
+  final Planext4uBenefitItem item;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        item.title,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelLarge,
+      ),
+      const SizedBox(height: Planext4uSpacing.x1),
+      Text(
+        item.subtitle,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    ],
+  );
+}
+
 class Planext4uMetricCard extends StatelessWidget {
   const Planext4uMetricCard({
     required this.label,
@@ -302,6 +628,10 @@ class Planext4uProductCard extends StatelessWidget {
     required this.price,
     required this.status,
     this.onPressed,
+    this.available = true,
+    this.favorite = false,
+    this.onFavorite,
+    this.onAddToCart,
     super.key,
   });
 
@@ -310,32 +640,51 @@ class Planext4uProductCard extends StatelessWidget {
   final String price;
   final String status;
   final VoidCallback? onPressed;
+  final bool available;
+  final bool favorite;
+  final VoidCallback? onFavorite;
+  final VoidCallback? onAddToCart;
 
   @override
   Widget build(BuildContext context) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Semantics(
-            label: 'Product image placeholder for $name',
-            child: Container(
-              height: 112,
-              width: double.infinity,
-              color: Theme.of(context).colorScheme.surfaceContainerLow,
-              alignment: Alignment.center,
-              child: const Icon(Icons.image_outlined, size: 40),
-            ),
-          ),
-          Padding(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final media = Stack(
+            children: [
+              Planext4uMediaPlaceholder(
+                label: 'Product image placeholder for $name',
+              ),
+              if (onFavorite != null)
+                Positioned(
+                  top: Planext4uSpacing.x1,
+                  right: Planext4uSpacing.x1,
+                  child: IconButton.filledTonal(
+                    tooltip: favorite
+                        ? 'Remove $name from favourites'
+                        : 'Add $name to favourites',
+                    onPressed: onFavorite,
+                    icon: Icon(
+                      favorite ? Icons.favorite : Icons.favorite_border,
+                    ),
+                  ),
+                ),
+            ],
+          );
+          final details = Padding(
             padding: const EdgeInsets.all(Planext4uSpacing.x4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: Planext4uSpacing.x1),
-                Text(vendor),
+                Text(vendor, maxLines: 2, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: Planext4uSpacing.x2),
                 Text(
                   price,
@@ -349,10 +698,20 @@ class Planext4uProductCard extends StatelessWidget {
                     Expanded(
                       child: Planext4uStatusPill(
                         label: status,
-                        tone: Planext4uStatusTone.success,
+                        tone: available
+                            ? Planext4uStatusTone.success
+                            : Planext4uStatusTone.danger,
                       ),
                     ),
-                    const SizedBox(width: Planext4uSpacing.x2),
+                    if (onAddToCart != null) ...[
+                      const SizedBox(width: Planext4uSpacing.x1),
+                      IconButton(
+                        tooltip: 'Add $name to cart',
+                        onPressed: available ? onAddToCart : null,
+                        icon: const Icon(Icons.add_shopping_cart_outlined),
+                      ),
+                    ],
+                    const SizedBox(width: Planext4uSpacing.x1),
                     IconButton(
                       tooltip: 'View $name',
                       onPressed: onPressed,
@@ -362,8 +721,18 @@ class Planext4uProductCard extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ],
+          );
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              media,
+              if (constraints.hasBoundedHeight)
+                Expanded(child: details)
+              else
+                details,
+            ],
+          );
+        },
       ),
     );
   }
@@ -395,7 +764,9 @@ class Planext4uStatePanel extends StatelessWidget {
       Planext4uViewState.permissionDenied => Icons.lock_outline,
     };
     return Semantics(
-      liveRegion: state == Planext4uViewState.error,
+      container: true,
+      liveRegion: state != Planext4uViewState.loading,
+      label: '$title. $message',
       child: Card(
         child: Padding(
           padding: const EdgeInsets.all(Planext4uSpacing.x5),

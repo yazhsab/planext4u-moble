@@ -1,19 +1,18 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
+import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:planext4u_api_client/planext4u_api_client.dart';
 import 'package:planext4u_config/planext4u_config.dart';
 import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
+import 'package:planext4u_observability/planext4u_observability.dart';
 import 'package:planext4u_storage/planext4u_storage.dart';
 
 import 'firebase_identity_providers.dart';
@@ -21,6 +20,7 @@ import 'payment_provider_launcher.dart';
 import 'push_registration.dart';
 
 Future<void> main() async {
+  final startup = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
   FirebaseAuth? firebaseAuth;
   FirebaseMessaging? firebaseMessaging;
@@ -32,12 +32,22 @@ Future<void> main() async {
   } catch (error) {
     firebaseFailure = error;
   }
+  final config = AppConfig.fromCompileTime();
+  final observability = _observability(config.environment);
+  _installRuntimeErrorBoundary(observability.runtimeMetrics);
   runApp(
     CustomerRuntime(
-      config: AppConfig.fromCompileTime(),
+      config: config,
+      apiDiagnostics: observability.apiDiagnostics,
       firebaseAuth: firebaseAuth,
       firebaseMessaging: firebaseMessaging,
       firebaseFailure: firebaseFailure,
+    ),
+  );
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => observability.runtimeMetrics.firstFrame(
+      startup.elapsed,
+      application: 'customer',
     ),
   );
 }
@@ -48,6 +58,7 @@ class CustomerRuntime extends StatefulWidget {
     this.firebaseAuth,
     this.firebaseMessaging,
     this.firebaseFailure,
+    this.apiDiagnostics = const NoopApiDiagnostics(),
     super.key,
   });
 
@@ -55,6 +66,7 @@ class CustomerRuntime extends StatefulWidget {
   final FirebaseAuth? firebaseAuth;
   final FirebaseMessaging? firebaseMessaging;
   final Object? firebaseFailure;
+  final ApiDiagnostics apiDiagnostics;
 
   @override
   State<CustomerRuntime> createState() => _CustomerRuntimeState();
@@ -72,6 +84,10 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   FoodController? _food;
   SocialController? _social;
   Phase5Controller? _phase5;
+  AccountPrivacyController? _accountPrivacy;
+  IdentitySessionManagementController? _sessionManagement;
+  NotificationPreferencesController? _notificationPreferences;
+  AppearancePreferencesController? _appearancePreferences;
   BootstrapController? _bootstrap;
   ConsentController? _consent;
   LocationController? _location;
@@ -89,11 +105,20 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
 
   Future<void> _initialize() async {
     try {
+      final appearance = AppearancePreferencesController.platform(
+        namespace: 'planext4u.customer.appearance.v1',
+      );
+      _appearancePreferences = appearance;
+      appearance.addListener(_appearanceChanged);
+      await appearance.load();
       final identityClient = ApiClient(
         baseUrl: widget.config.apiBaseUrl,
         transport: _transport,
+        diagnostics: widget.apiDiagnostics,
       );
-      final deviceId = await _deviceId();
+      final deviceId = await PlatformInstallIdStore(
+        namespace: 'planext4u.customer',
+      ).readOrCreate();
       final session = IdentitySessionController(
         remote: IdentityApi(identityClient),
         store: PlatformSecureSessionStore(
@@ -115,12 +140,17 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     if (mounted) setState(() {});
   }
 
+  void _appearanceChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _buildControllers(IdentitySessionController session) {
     if (_catalog != null) return;
     final client = ApiClient(
       baseUrl: widget.config.apiBaseUrl,
       transport: _transport,
       authSession: session,
+      diagnostics: widget.apiDiagnostics,
     );
     _catalog = CatalogController(
       remote: CatalogApi(client),
@@ -137,14 +167,28 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     );
     _food = FoodController(remote: FoodApi(client));
     _social = SocialController(remote: SocialApi(client));
-    _phase5 = Phase5Controller(remote: Phase5Api(client));
+    final phase5Api = Phase5Api(client);
+    _phase5 = Phase5Controller(remote: phase5Api);
+    _accountPrivacy = AccountPrivacyController(phase5Api);
+    _sessionManagement = IdentitySessionManagementController(
+      IdentitySessionManagementApi(client),
+    );
+    _notificationPreferences = NotificationPreferencesController(
+      NotificationPreferencesApi(client),
+    );
     final messaging = widget.firebaseMessaging;
     if (messaging != null && _pushRegistration == null) {
+      final identity = AppIdentity.forBuild(
+        application: Planext4uApplication.customer,
+        environment: widget.config.environment,
+      );
       _pushRegistration = CustomerPushRegistration(
         messaging: FirebasePushMessaging(messaging),
         remote: PushDeviceApi(client),
         platform: Platform.isIOS ? 'IOS' : 'ANDROID',
         locale: Platform.localeName.replaceAll('_', '-').split('.').first,
+        allowedHost: widget.config.deepLinkHost,
+        allowedScheme: identity.customScheme,
         onDeepLink: (uri) {
           _notificationUri = uri;
           if (mounted) setState(() {});
@@ -224,6 +268,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     unawaited(_sessionSubscription?.cancel());
     unawaited(_session?.dispose());
     unawaited(_pushRegistration?.dispose());
+    _appearancePreferences?.dispose();
     _transport.close(force: true);
     super.dispose();
   }
@@ -237,6 +282,9 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _food?.dispose();
     _social?.dispose();
     _phase5?.dispose();
+    _accountPrivacy?.dispose();
+    _sessionManagement?.dispose();
+    _notificationPreferences?.dispose();
     _bootstrap?.dispose();
     _consent?.dispose();
     _location?.dispose();
@@ -248,6 +296,9 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _food = null;
     _social = null;
     _phase5 = null;
+    _accountPrivacy = null;
+    _sessionManagement = null;
+    _notificationPreferences = null;
     _bootstrap = null;
     _consent = null;
     _location = null;
@@ -258,6 +309,9 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   Widget build(BuildContext context) {
     final session = _session;
     final authentication = session?.state.authentication;
+    final appearance =
+        _appearancePreferences?.state.preferences ??
+        AppearancePreferences.defaults();
     if (authentication != null) {
       _buildControllers(session!);
       return CustomerApp(
@@ -271,6 +325,10 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         foodController: _food,
         socialController: _social,
         phase5Controller: _phase5,
+        accountPrivacyController: _accountPrivacy,
+        sessionManagementController: _sessionManagement,
+        notificationPreferencesController: _notificationPreferences,
+        appearancePreferencesController: _appearancePreferences,
         bootstrapController: _bootstrap,
         consentController: _consent,
         locationController: _location,
@@ -283,8 +341,18 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     }
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      locale: appearance.locale,
       theme: Planext4uTheme.light,
       darkTheme: Planext4uTheme.dark,
+      themeMode: appearance.themeMode,
+      supportedLocales: Planext4uLocalizations.supportedLocales,
+      localizationsDelegates: Planext4uLocalizations.localizationsDelegates,
+      builder: (context, child) => Planext4uAdaptiveAppBuilder(
+        dataSaver: appearance.dataSaver,
+        forceReducedMotion: appearance.reduceMotion,
+        minimumTextScale: appearance.textScale.minimumScale,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: session == null
           ? _RuntimeStateScreen(failure: _startupFailure)
           : CustomerSignInScreen(
@@ -297,6 +365,29 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
             ),
     );
   }
+}
+
+MobileObservability _observability(AppEnvironment environment) =>
+    MobileObservability(
+      deployment: switch (environment) {
+        AppEnvironment.development => TelemetryDeployment.development,
+        AppEnvironment.staging => TelemetryDeployment.staging,
+        AppEnvironment.production => TelemetryDeployment.production,
+      },
+      sink: JsonLineTelemetrySink(debugPrint),
+    );
+
+void _installRuntimeErrorBoundary(MobileRuntimeMetrics metrics) {
+  final previousFlutterHandler = FlutterError.onError;
+  FlutterError.onError = (details) {
+    metrics.runtimeError(details.exception, fatal: false);
+    previousFlutterHandler?.call(details);
+  };
+  final previousPlatformHandler = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    metrics.runtimeError(error, fatal: true);
+    return previousPlatformHandler?.call(error, stack) ?? false;
+  };
 }
 
 class _RuntimeStateScreen extends StatelessWidget {
@@ -503,6 +594,10 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
                 onPressed: _busy ? null : _emailSignIn,
                 child: const Text('Sign in with email'),
               ),
+              PasswordRecoveryButton(
+                emailController: _email,
+                provider: FirebaseEmailProvider(widget.firebaseAuth!),
+              ),
               OutlinedButton(
                 onPressed: _busy ? null : _googleSignIn,
                 child: const Text('Continue with Google'),
@@ -573,23 +668,6 @@ final class _DevelopmentIdentityProvider implements EmailIdentityProvider {
   );
 }
 
-Future<String> _deviceId() async {
-  const storage = FlutterSecureStorage();
-  const key = 'planext4u.customer.device-id.v1';
-  final existing = await storage.read(key: key);
-  if (existing != null && RegExp(r'^device-[a-f0-9]{32}$').hasMatch(existing)) {
-    return existing;
-  }
-  final random = Random.secure();
-  final value = List<int>.generate(
-    16,
-    (_) => random.nextInt(256),
-  ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
-  final generated = 'device-$value';
-  await storage.write(key: key, value: generated);
-  return generated;
-}
-
 abstract interface class CustomerLocationStore {
   Future<ServiceLocation?> read();
   Future<void> write(ServiceLocation value);
@@ -606,6 +684,10 @@ class CustomerApp extends StatefulWidget {
     this.foodController,
     this.socialController,
     this.phase5Controller,
+    this.accountPrivacyController,
+    this.sessionManagementController,
+    this.notificationPreferencesController,
+    this.appearancePreferencesController,
     this.paymentRecoveryStore,
     this.bootstrapController,
     this.consentController,
@@ -614,6 +696,7 @@ class CustomerApp extends StatefulWidget {
     this.locationStore,
     this.initialUri,
     this.profileDisplayName,
+    this.locale,
     this.onSignOut,
     super.key,
   });
@@ -627,6 +710,10 @@ class CustomerApp extends StatefulWidget {
   final FoodController? foodController;
   final SocialController? socialController;
   final Phase5Controller? phase5Controller;
+  final AccountPrivacyController? accountPrivacyController;
+  final IdentitySessionManagementController? sessionManagementController;
+  final NotificationPreferencesController? notificationPreferencesController;
+  final AppearancePreferencesController? appearancePreferencesController;
   final PaymentRecoveryStore? paymentRecoveryStore;
   final BootstrapController? bootstrapController;
   final ConsentController? consentController;
@@ -635,6 +722,7 @@ class CustomerApp extends StatefulWidget {
   final CustomerLocationStore? locationStore;
   final Uri? initialUri;
   final String? profileDisplayName;
+  final Locale? locale;
   final Future<void> Function()? onSignOut;
 
   @override
@@ -698,6 +786,9 @@ class _CustomerAppState extends State<CustomerApp> {
 
   @override
   Widget build(BuildContext context) {
+    final appearance =
+        widget.appearancePreferencesController?.state.preferences ??
+        AppearancePreferences.defaults();
     final link = widget.initialUri == null
         ? null
         : CustomerDeepLink.parse(widget.initialUri!);
@@ -709,16 +800,18 @@ class _CustomerAppState extends State<CustomerApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Planext4u Customer',
+      locale: widget.locale ?? appearance.locale,
       theme: Planext4uTheme.light,
       darkTheme: Planext4uTheme.dark,
-      themeMode: ThemeMode.system,
+      themeMode: appearance.themeMode,
       supportedLocales: Planext4uLocalizations.supportedLocales,
-      localizationsDelegates: const [
-        Planext4uLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
+      localizationsDelegates: Planext4uLocalizations.localizationsDelegates,
+      builder: (context, child) => Planext4uAdaptiveAppBuilder(
+        dataSaver: appearance.dataSaver,
+        forceReducedMotion: appearance.reduceMotion,
+        minimumTextScale: appearance.textScale.minimumScale,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: AnimatedBuilder(
         animation: Listenable.merge([
           if (widget.bootstrapController != null) widget.bootstrapController!,
@@ -740,6 +833,12 @@ class _CustomerAppState extends State<CustomerApp> {
               foodController: _food,
               socialController: _social,
               phase5Controller: widget.phase5Controller,
+              accountPrivacyController: widget.accountPrivacyController,
+              sessionManagementController: widget.sessionManagementController,
+              notificationPreferencesController:
+                  widget.notificationPreferencesController,
+              appearancePreferencesController:
+                  widget.appearancePreferencesController,
               openCommunityInitially: link is CustomerCommunityLink,
               initialCommunityTab: link is CustomerCommunityLink ? link.tab : 0,
               openSocialInitially: link is CustomerSocialLink,

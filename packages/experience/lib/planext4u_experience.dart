@@ -1,5 +1,9 @@
 library;
 
+export 'src/account_privacy.dart';
+export 'src/account_privacy_screen.dart';
+export 'src/appearance_preferences.dart';
+export 'src/appearance_preferences_screen.dart';
 export 'src/bootstrap.dart';
 export 'src/catalog.dart';
 export 'src/commerce.dart';
@@ -11,6 +15,8 @@ export 'src/localization.dart';
 export 'src/location.dart';
 export 'src/marketplace.dart';
 export 'src/marketplace_screen.dart';
+export 'src/notification_preferences.dart';
+export 'src/notification_preferences_screen.dart';
 export 'src/phase5.dart';
 export 'src/phase5_screens.dart';
 export 'src/role_shell.dart';
@@ -20,6 +26,7 @@ export 'src/role_push.dart';
 export 'src/role_runtime.dart';
 export 'src/service_booking.dart';
 export 'src/service_booking_screens.dart';
+export 'src/session_management_screen.dart';
 export 'src/social.dart';
 export 'src/social_screens.dart';
 export 'src/transactions.dart';

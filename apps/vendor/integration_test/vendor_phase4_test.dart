@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:planext4u_config/planext4u_config.dart';
@@ -18,11 +19,31 @@ void main() {
         businessType: 'Home services',
         contactName: 'Synthetic Vendor',
       );
-      await controller.submitDocuments();
+      await controller.submitDocuments(const [
+        {
+          'kind': 'BUSINESS_REGISTRATION',
+          'asset_id': 'asset-business-registration-e2e-006',
+        },
+        {'kind': 'OWNER_IDENTITY', 'asset_id': 'asset-owner-identity-e2e-006'},
+      ]);
       await controller.scheduleFieldVisit();
       remote.fieldVisitPassed();
-      await controller.configureZone();
-      await controller.configureBank();
+      await controller.configureZones(const [
+        {
+          'id': 'zone-chennai-core',
+          'postal_codes': ['600001'],
+          'latitude': 13.0827,
+          'longitude': 80.2707,
+          'radius_km': 25,
+          'policy_version': 'zone-policy-v1',
+        },
+      ]);
+      await controller.configureBank(const {
+        'reference': 'bank-reference-tokenized-e2e-006',
+        'holder_name': 'Synthetic Vendor',
+        'last4': '1234',
+        'ifsc': 'HDFC0001234',
+      });
       remote.approve();
       await controller.loadAll();
       await controller.createCatalog(
@@ -46,11 +67,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Synthetic Home Services'), findsOneWidget);
       expect(find.text('APPROVED'), findsOneWidget);
-      await tester.tap(find.text('Catalog').last);
+      await tester.tap(find.byIcon(Icons.menu));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Catalog'));
       await tester.pumpAndSettle();
       expect(find.text('Deep cleaning'), findsOneWidget);
       expect(find.textContaining('Stock 4'), findsOneWidget);
-      await tester.tap(find.text('Earnings').last);
+      await tester.tap(find.byIcon(Icons.menu));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Earnings'));
       await tester.pumpAndSettle();
       expect(find.text('₹88.20'), findsWidgets);
       expect(find.textContaining('settlement-v1'), findsOneWidget);

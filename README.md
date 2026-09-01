@@ -34,6 +34,14 @@ activity are pinned to backend commit
 `bf0b8b1cf01e559dccca030e237459e882dc0331`. Cloud staging and live provider
 credentials remain controlled deployment gates, not client-side configuration.
 
+The three-phase production-hardening programme now has repository implementation
+for all three roles: nine-locale/adaptive runtime behavior, privacy-redacted
+release health, fail-closed Android signing, iOS privacy manifests, store/privacy
+source declarations, pinned security scanning, provenance-attested release
+candidates and controlled rollout evaluation. Production approval remains
+blocked until the documented external device, provider, security, privacy,
+performance, store and organizational evidence is supplied.
+
 The workspace contains the three role-specific Flutter applications and shared
 configuration, core, identity, secure storage, experience, API, observability
 and design-system packages. It remains greenfield and does not import the
@@ -80,6 +88,10 @@ development, staging and production identifiers, links and build commands.
 - [Phase 2 executable backlog](docs/phase-1/PHASE_2_BACKLOG.md)
 - [Phase 1 exit review](docs/phase-1/PHASE_1_EXIT_REVIEW.md)
 - [Phase 3 exit review](docs/phase-3/PHASE_3_EXIT_REVIEW.md)
+- [Three-phase production-hardening exit review](docs/phase-3/PRODUCTION_HARDENING_EXIT_REVIEW.md)
+- [Release and rollback runbook](docs/phase-3/RELEASE_AND_ROLLBACK_RUNBOOK.md)
+- [Store and privacy checklist](docs/phase-3/STORE_PRIVACY_CHECKLIST.md)
+- [Security and performance runbook](docs/phase-3/SECURITY_AND_PERFORMANCE_RUNBOOK.md)
 - [Phase 4 executable backlog](docs/phase-4/PHASE_4_BACKLOG.md)
 - [Phase 4 service-booking entry slice](docs/phase-4/SERVICE_BOOKING_ENTRY_SLICE.md)
 - [Phase 4 exit review](docs/phase-4/PHASE_4_EXIT_REVIEW.md)

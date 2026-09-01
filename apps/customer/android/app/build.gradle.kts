@@ -4,6 +4,26 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val protectedFirebaseConfigPresent =
+    file("google-services.json").isFile ||
+        listOf("development", "staging", "production").any {
+            file("src/$it/google-services.json").isFile
+        }
+if (protectedFirebaseConfigPresent) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
+val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+val releaseKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+val protectedAndroidSigningPresent = listOf(
+    releaseKeystorePath,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() } && file(releaseKeystorePath ?: "missing").isFile
+
 android {
     namespace = "net.planext4u.customer"
     compileSdk = 37
@@ -35,6 +55,7 @@ android {
             manifestPlaceholders["deepLinkHost"] = "dev.planext4u.net"
             manifestPlaceholders["deepLinkScheme"] = "planext4u-customer-dev"
             manifestPlaceholders["deepLinkPathPrefix"] = "/app"
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
         create("staging") {
             dimension = "environment"
@@ -43,6 +64,7 @@ android {
             manifestPlaceholders["deepLinkHost"] = "staging.planext4u.net"
             manifestPlaceholders["deepLinkScheme"] = "planext4u-customer-staging"
             manifestPlaceholders["deepLinkPathPrefix"] = "/app"
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
         }
         create("production") {
             dimension = "environment"
@@ -50,13 +72,39 @@ android {
             manifestPlaceholders["deepLinkHost"] = "planext4u.net"
             manifestPlaceholders["deepLinkScheme"] = "planext4u-customer"
             manifestPlaceholders["deepLinkPathPrefix"] = "/app"
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
+        }
+    }
+
+    signingConfigs {
+        if (protectedAndroidSigningPresent) {
+            create("protectedRelease") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
     buildTypes {
         release {
-            // Release signing is injected by protected CI and never stored here.
+            if (protectedAndroidSigningPresent) {
+                signingConfig = signingConfigs.getByName("protectedRelease")
+            }
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val productionReleaseRequested = allTasks.any {
+        it.name.contains("production", ignoreCase = true) &&
+            it.name.contains("release", ignoreCase = true)
+    }
+    if (productionReleaseRequested && !protectedAndroidSigningPresent) {
+        throw GradleException(
+            "Production release signing must be supplied by the protected CI environment.",
+        )
     }
 }
 

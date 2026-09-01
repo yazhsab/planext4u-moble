@@ -7,6 +7,126 @@ import 'catalog.dart';
 
 enum OperationsStatus { idle, loading, ready, submitting, offline, failure }
 
+final class VendorDocumentSummary {
+  const VendorDocumentSummary({
+    required this.kind,
+    required this.ocrStatus,
+    this.reviewReason,
+  });
+
+  factory VendorDocumentSummary.fromJson(Object? value) {
+    final json = _roleObject(value, 'vendor document');
+    return VendorDocumentSummary(
+      kind: _roleString(json, 'kind'),
+      ocrStatus: _roleString(json, 'ocr_status'),
+      reviewReason: _optionalRoleString(json, 'review_reason'),
+    );
+  }
+
+  final String kind;
+  final String ocrStatus;
+  final String? reviewReason;
+}
+
+final class VendorServiceZoneSummary {
+  const VendorServiceZoneSummary({
+    required this.id,
+    required this.postalCodes,
+    required this.radiusKm,
+    required this.policyVersion,
+  });
+
+  factory VendorServiceZoneSummary.fromJson(Object? value) {
+    final json = _roleObject(value, 'vendor service zone');
+    final radius = json['radius_km'];
+    if (radius is! num || !radius.toDouble().isFinite || radius <= 0) {
+      throw const FormatException('radius_km is invalid.');
+    }
+    return VendorServiceZoneSummary(
+      id: _roleString(json, 'id'),
+      postalCodes: List.unmodifiable(
+        _roleList(json, 'postal_codes').cast<String>(),
+      ),
+      radiusKm: radius.toDouble(),
+      policyVersion: _roleString(json, 'policy_version'),
+    );
+  }
+
+  final String id;
+  final List<String> postalCodes;
+  final double radiusKm;
+  final String policyVersion;
+}
+
+final class VendorBankSummary {
+  const VendorBankSummary({
+    required this.holderName,
+    required this.last4,
+    required this.ifsc,
+    required this.status,
+  });
+
+  factory VendorBankSummary.fromJson(Object? value) {
+    final json = _roleObject(value, 'vendor bank account');
+    return VendorBankSummary(
+      holderName: _roleString(json, 'holder_name'),
+      last4: _roleString(json, 'last4'),
+      ifsc: _roleString(json, 'ifsc'),
+      status: _roleString(json, 'status'),
+    );
+  }
+
+  final String holderName;
+  final String last4;
+  final String ifsc;
+  final String status;
+}
+
+final class VendorFieldVisitSummary {
+  const VendorFieldVisitSummary({
+    required this.id,
+    required this.scheduledAt,
+    this.checkedInAt,
+  });
+
+  factory VendorFieldVisitSummary.fromJson(Object? value) {
+    final json = _roleObject(value, 'vendor field visit');
+    return VendorFieldVisitSummary(
+      id: _roleString(json, 'id'),
+      scheduledAt: _roleInstant(json, 'scheduled_at'),
+      checkedInAt: _optionalRoleInstant(json, 'checked_in_at'),
+    );
+  }
+
+  final String id;
+  final DateTime scheduledAt;
+  final DateTime? checkedInAt;
+}
+
+final class VendorTimelineEvent {
+  const VendorTimelineEvent({
+    required this.status,
+    required this.actor,
+    required this.createdAt,
+    this.reason,
+  });
+
+  factory VendorTimelineEvent.fromJson(Object? value) {
+    final json = _roleObject(value, 'vendor timeline event');
+    return VendorTimelineEvent(
+      status: _roleString(json, 'status'),
+      actor: _roleString(json, 'actor'),
+      createdAt: _roleInstant(json, 'created_at'),
+      reason: _optionalRoleString(json, 'reason'),
+    );
+  }
+
+  final String status;
+  final String actor;
+  final DateTime createdAt;
+  final String? reason;
+}
+
 final class VendorApplication {
   const VendorApplication({
     required this.id,
@@ -18,21 +138,56 @@ final class VendorApplication {
     required this.bankStatus,
     required this.verified,
     required this.allowedActions,
+    this.businessType = '',
+    this.contactName = '',
+    this.documentSummaries = const [],
+    this.serviceZones = const [],
+    this.bank,
+    this.fieldVisit,
+    this.timeline = const [],
+    this.updatedAt,
   });
 
   factory VendorApplication.fromJson(Object? value) {
     final json = _roleObject(value, 'vendor application');
     final bank = json['bank_account'];
+    final documents = _roleList(json, 'documents');
+    final documentSummaries = documents
+        .map(VendorDocumentSummary.fromJson)
+        .toList(growable: false);
+    final serviceZones = _roleList(json, 'service_zones');
     return VendorApplication(
       id: _roleString(json, 'id'),
       revision: _roleInteger(json, 'revision'),
       status: _roleString(json, 'status'),
       businessName: _roleString(json, 'business_name'),
-      documents: List.unmodifiable(_roleList(json, 'documents')),
-      zoneCount: _roleList(json, 'service_zones').length,
+      businessType: _roleString(json, 'business_type'),
+      contactName: _roleString(json, 'contact_name'),
+      documents: List.unmodifiable([
+        for (final document in documentSummaries)
+          <String, Object?>{
+            'kind': document.kind,
+            'ocr_status': document.ocrStatus,
+            if (document.reviewReason != null)
+              'review_reason': document.reviewReason,
+          },
+      ]),
+      documentSummaries: List.unmodifiable(documentSummaries),
+      zoneCount: serviceZones.length,
+      serviceZones: List.unmodifiable(
+        serviceZones.map(VendorServiceZoneSummary.fromJson),
+      ),
       bankStatus: bank is Map<String, Object?>
           ? bank['status'] as String? ?? 'NOT_CONFIGURED'
           : 'NOT_CONFIGURED',
+      bank: bank == null ? null : VendorBankSummary.fromJson(bank),
+      fieldVisit: json['field_visit'] == null
+          ? null
+          : VendorFieldVisitSummary.fromJson(json['field_visit']),
+      timeline: List.unmodifiable(
+        _roleList(json, 'timeline').map(VendorTimelineEvent.fromJson),
+      ),
+      updatedAt: _roleInstant(json, 'updated_at'),
       verified: _roleBoolean(json, 'verified'),
       allowedActions: Set.unmodifiable(
         _roleList(json, 'allowed_actions').cast<String>(),
@@ -44,9 +199,17 @@ final class VendorApplication {
   final int revision;
   final String status;
   final String businessName;
+  final String businessType;
+  final String contactName;
   final List<Object?> documents;
+  final List<VendorDocumentSummary> documentSummaries;
   final int zoneCount;
+  final List<VendorServiceZoneSummary> serviceZones;
   final String bankStatus;
+  final VendorBankSummary? bank;
+  final VendorFieldVisitSummary? fieldVisit;
+  final List<VendorTimelineEvent> timeline;
+  final DateTime? updatedAt;
   final bool verified;
   final Set<String> allowedActions;
 }
@@ -64,6 +227,8 @@ final class VendorCatalogItem {
     required this.active,
     required this.schedules,
     required this.allowedActions,
+    this.description = '',
+    this.updatedAt,
   });
 
   factory VendorCatalogItem.fromJson(Object? value) {
@@ -73,6 +238,7 @@ final class VendorCatalogItem {
       revision: _roleInteger(json, 'revision'),
       kind: _roleString(json, 'kind'),
       name: _roleString(json, 'name'),
+      description: _roleString(json, 'description'),
       sku: _roleString(json, 'sku'),
       price: CatalogMoney.fromJson(json['price']),
       stock: _roleInteger(json, 'stock'),
@@ -82,6 +248,7 @@ final class VendorCatalogItem {
       allowedActions: Set.unmodifiable(
         _roleList(json, 'allowed_actions').cast<String>(),
       ),
+      updatedAt: _roleInstant(json, 'updated_at'),
     );
   }
 
@@ -89,6 +256,7 @@ final class VendorCatalogItem {
   final int revision;
   final String kind;
   final String name;
+  final String description;
   final String sku;
   final CatalogMoney price;
   final int stock;
@@ -96,6 +264,7 @@ final class VendorCatalogItem {
   final bool active;
   final List<Object?> schedules;
   final Set<String> allowedActions;
+  final DateTime? updatedAt;
 }
 
 final class VendorWorkItem {
@@ -106,6 +275,8 @@ final class VendorWorkItem {
     required this.total,
     required this.customerLabel,
     required this.allowedActions,
+    this.referenceId = '',
+    this.updatedAt,
   });
 
   factory VendorWorkItem.fromJson(Object? value) {
@@ -113,21 +284,25 @@ final class VendorWorkItem {
     return VendorWorkItem(
       id: _roleString(json, 'id'),
       referenceType: _roleString(json, 'reference_type'),
+      referenceId: _roleString(json, 'reference_id'),
       status: _roleString(json, 'status'),
       total: CatalogMoney.fromJson(json['total']),
       customerLabel: _roleString(json, 'customer_label'),
       allowedActions: Set.unmodifiable(
         _roleList(json, 'allowed_actions').cast<String>(),
       ),
+      updatedAt: _roleInstant(json, 'updated_at'),
     );
   }
 
   final String id;
   final String referenceType;
+  final String referenceId;
   final String status;
   final CatalogMoney total;
   final String customerLabel;
   final Set<String> allowedActions;
+  final DateTime? updatedAt;
 }
 
 final class SettlementEntry {
@@ -219,6 +394,10 @@ abstract interface class VendorOperationsRemote {
   Future<Map<String, Object?>> dashboard();
   Future<List<VendorCatalogItem>> catalog();
   Future<VendorCatalogItem> createCatalog(Map<String, Object?> value);
+  Future<VendorCatalogItem> updateCatalog(
+    VendorCatalogItem item,
+    Map<String, Object?> value,
+  );
   Future<VendorCatalogItem> setInventory(VendorCatalogItem item, int stock);
   Future<VendorCatalogItem> setSchedule(
     VendorCatalogItem item,
@@ -326,6 +505,18 @@ final class VendorOperationsApi implements VendorOperationsRemote {
         value,
         VendorCatalogItem.fromJson,
       );
+
+  @override
+  Future<VendorCatalogItem> updateCatalog(
+    VendorCatalogItem item,
+    Map<String, Object?> value,
+  ) => _revisionPutCommand(
+    'supply.update_catalog',
+    '/v1/vendor/catalog/${Uri.encodeComponent(item.id)}',
+    item.revision,
+    value,
+    VendorCatalogItem.fromJson,
+  );
 
   @override
   Future<VendorCatalogItem> setInventory(VendorCatalogItem item, int stock) =>
@@ -436,6 +627,73 @@ final class VendorOperationsApi implements VendorOperationsRemote {
     ),
     decode,
   )).value;
+
+  Future<T> _revisionPutCommand<T>(
+    String operation,
+    String path,
+    int revision,
+    Object? body,
+    T Function(Object?) decode,
+  ) async => (await _client.send(
+    ApiRequest.command(
+      operation: operation,
+      method: 'PUT',
+      path: path,
+      headers: {'If-Match': '"$revision"'},
+      body: body,
+    ),
+    decode,
+  )).value;
+}
+
+enum VendorDraftSyncStatus {
+  none,
+  draft,
+  syncing,
+  synced,
+  offline,
+  conflict,
+  failure,
+}
+
+final class VendorCatalogDraft {
+  const VendorCatalogDraft({
+    required this.kind,
+    required this.name,
+    required this.description,
+    required this.sku,
+    required this.amountMinor,
+  });
+
+  final String kind;
+  final String name;
+  final String description;
+  final String sku;
+  final int amountMinor;
+}
+
+final class VendorScheduleDraft {
+  const VendorScheduleDraft({
+    required this.itemId,
+    required this.baseRevision,
+    required this.schedules,
+  });
+
+  final String itemId;
+  final int baseRevision;
+  final List<Map<String, Object?>> schedules;
+}
+
+final class VendorPromotionDraft {
+  const VendorPromotionDraft({
+    required this.title,
+    required this.budgetMinor,
+    required this.durationDays,
+  });
+
+  final String title;
+  final int budgetMinor;
+  final int durationDays;
 }
 
 final class VendorOperationsState {
@@ -447,6 +705,12 @@ final class VendorOperationsState {
     this.work = const [],
     this.ledger = const [],
     this.payouts = const [],
+    this.catalogDraft,
+    this.scheduleDraft,
+    this.promotionDraft,
+    this.catalogDraftStatus = VendorDraftSyncStatus.none,
+    this.scheduleDraftStatus = VendorDraftSyncStatus.none,
+    this.promotionDraftStatus = VendorDraftSyncStatus.none,
     this.message,
   });
   final OperationsStatus status;
@@ -456,6 +720,12 @@ final class VendorOperationsState {
   final List<VendorWorkItem> work;
   final List<SettlementEntry> ledger;
   final List<PayoutRecord> payouts;
+  final VendorCatalogDraft? catalogDraft;
+  final VendorScheduleDraft? scheduleDraft;
+  final VendorPromotionDraft? promotionDraft;
+  final VendorDraftSyncStatus catalogDraftStatus;
+  final VendorDraftSyncStatus scheduleDraftStatus;
+  final VendorDraftSyncStatus promotionDraftStatus;
   final String? message;
 
   VendorOperationsState copyWith({
@@ -466,6 +736,15 @@ final class VendorOperationsState {
     List<VendorWorkItem>? work,
     List<SettlementEntry>? ledger,
     List<PayoutRecord>? payouts,
+    VendorCatalogDraft? catalogDraft,
+    VendorScheduleDraft? scheduleDraft,
+    VendorPromotionDraft? promotionDraft,
+    VendorDraftSyncStatus? catalogDraftStatus,
+    VendorDraftSyncStatus? scheduleDraftStatus,
+    VendorDraftSyncStatus? promotionDraftStatus,
+    bool clearCatalogDraft = false,
+    bool clearScheduleDraft = false,
+    bool clearPromotionDraft = false,
     String? message,
     bool clearMessage = false,
   }) => VendorOperationsState(
@@ -476,6 +755,16 @@ final class VendorOperationsState {
     work: work ?? this.work,
     ledger: ledger ?? this.ledger,
     payouts: payouts ?? this.payouts,
+    catalogDraft: clearCatalogDraft ? null : catalogDraft ?? this.catalogDraft,
+    scheduleDraft: clearScheduleDraft
+        ? null
+        : scheduleDraft ?? this.scheduleDraft,
+    promotionDraft: clearPromotionDraft
+        ? null
+        : promotionDraft ?? this.promotionDraft,
+    catalogDraftStatus: catalogDraftStatus ?? this.catalogDraftStatus,
+    scheduleDraftStatus: scheduleDraftStatus ?? this.scheduleDraftStatus,
+    promotionDraftStatus: promotionDraftStatus ?? this.promotionDraftStatus,
     message: clearMessage ? null : message ?? this.message,
   );
 }
@@ -527,15 +816,43 @@ final class VendorOperationsController extends ChangeNotifier {
     _state = _state.copyWith(application: value);
   });
 
-  Future<void> submitDocuments() => _applicationCommand(
-    (application) => _remote.submitDocuments(application.revision, const [
-      {
-        'kind': 'BUSINESS_REGISTRATION',
-        'asset_id': 'asset-private-business-registration',
-      },
-      {'kind': 'OWNER_IDENTITY', 'asset_id': 'asset-private-owner-identity'},
-    ]),
-  );
+  Future<void> submitDocuments(List<Map<String, Object?>> documents) {
+    if (documents.isEmpty || documents.length > 10) {
+      throw const FormatException('Vendor documents are invalid.');
+    }
+    final normalizedDocuments = <Map<String, Object?>>[];
+    final kinds = <String>{};
+    for (final document in documents) {
+      final kind = document['kind'];
+      final assetId = document['asset_id'];
+      if (kind is! String ||
+          !const {
+            'BUSINESS_REGISTRATION',
+            'OWNER_IDENTITY',
+            'TAX_REGISTRATION',
+            'ADDRESS_PROOF',
+          }.contains(kind) ||
+          assetId is! String ||
+          !_validPrivateReference(assetId)) {
+        throw const FormatException('Vendor document reference is invalid.');
+      }
+      if (!kinds.add(kind)) {
+        throw const FormatException('Vendor document kinds must be unique.');
+      }
+      normalizedDocuments.add({'kind': kind, 'asset_id': assetId});
+    }
+    if (!kinds.containsAll(const {'BUSINESS_REGISTRATION', 'OWNER_IDENTITY'})) {
+      throw const FormatException(
+        'Vendor business and owner identity documents are required.',
+      );
+    }
+    return _applicationCommand(
+      (application) => _remote.submitDocuments(
+        application.revision,
+        List.unmodifiable(normalizedDocuments),
+      ),
+    );
+  }
 
   Future<void> scheduleFieldVisit() => _applicationCommand(
     (application) => _remote.scheduleVisit(
@@ -544,27 +861,91 @@ final class VendorOperationsController extends ChangeNotifier {
     ),
   );
 
-  Future<void> configureZone() => _applicationCommand(
-    (application) => _remote.setZones(application.revision, const [
-      {
-        'id': 'zone-chennai-core',
-        'postal_codes': ['600001'],
-        'latitude': 13.0827,
-        'longitude': 80.2707,
-        'radius_km': 25,
-        'policy_version': 'zone-policy-v1',
-      },
-    ]),
-  );
+  Future<void> configureZones(List<Map<String, Object?>> zones) {
+    if (zones.isEmpty || zones.length > 20) {
+      throw const FormatException('Vendor service zones are invalid.');
+    }
+    final normalizedZones = <Map<String, Object?>>[];
+    final zoneIds = <String>{};
+    for (final zone in zones) {
+      final id = zone['id'];
+      final postalCodes = zone['postal_codes'];
+      final latitude = zone['latitude'];
+      final longitude = zone['longitude'];
+      final radius = zone['radius_km'];
+      final policy = zone['policy_version'];
+      if (id is! String ||
+          id.trim().isEmpty ||
+          postalCodes is! List<Object?> ||
+          postalCodes.isEmpty ||
+          postalCodes.any(
+            (value) =>
+                value is! String || !RegExp(r'^[0-9]{4,10}$').hasMatch(value),
+          ) ||
+          latitude is! num ||
+          latitude < -90 ||
+          latitude > 90 ||
+          longitude is! num ||
+          longitude < -180 ||
+          longitude > 180 ||
+          radius is! num ||
+          radius <= 0 ||
+          radius > 250 ||
+          policy is! String ||
+          policy.trim().isEmpty) {
+        throw const FormatException('Vendor service zone is invalid.');
+      }
+      if (!zoneIds.add(id)) {
+        throw const FormatException('Vendor service-zone IDs must be unique.');
+      }
+      normalizedZones.add({
+        'id': id,
+        'postal_codes': List<String>.unmodifiable(
+          postalCodes.whereType<String>(),
+        ),
+        'latitude': latitude,
+        'longitude': longitude,
+        'radius_km': radius,
+        'policy_version': policy,
+      });
+    }
+    return _applicationCommand(
+      (application) => _remote.setZones(
+        application.revision,
+        List.unmodifiable(normalizedZones),
+      ),
+    );
+  }
 
-  Future<void> configureBank() => _applicationCommand(
-    (application) => _remote.setBank(application.revision, const {
-      'reference': 'bank-reference-tokenized',
-      'holder_name': 'Planext4u Vendor',
-      'last4': '1234',
-      'ifsc': 'HDFC0001234',
-    }),
-  );
+  Future<void> configureBank(Map<String, Object?> bank) {
+    final reference = bank['reference'];
+    final holderName = bank['holder_name'];
+    final last4 = bank['last4'];
+    final ifsc = bank['ifsc'];
+    if (reference is! String ||
+        !_validPrivateReference(reference) ||
+        holderName is! String ||
+        holderName.trim().length < 2 ||
+        last4 is! String ||
+        !RegExp(r'^[0-9]{4}$').hasMatch(last4) ||
+        ifsc is! String ||
+        !RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(ifsc)) {
+      throw const FormatException(
+        'Tokenized vendor bank reference is invalid.',
+      );
+    }
+    return _applicationCommand(
+      (application) => _remote.setBank(
+        application.revision,
+        Map.unmodifiable({
+          'reference': reference,
+          'holder_name': holderName.trim(),
+          'last4': last4,
+          'ifsc': ifsc,
+        }),
+      ),
+    );
+  }
 
   Future<void> _applicationCommand(
     Future<VendorApplication> Function(VendorApplication application) action,
@@ -578,25 +959,152 @@ final class VendorOperationsController extends ChangeNotifier {
     required String kind,
     required String name,
     required int amountMinor,
-  }) => _run(() async {
-    final value = await _remote.createCatalog({
-      'kind': kind,
-      'name': name,
-      'description': '$name published from the vendor mobile app',
-      'sku': '${kind.substring(0, 1)}-${DateTime.now().millisecondsSinceEpoch}',
-      'price': {'amount_minor': amountMinor, 'currency': 'INR'},
-    });
-    _state = _state.copyWith(catalog: [value, ..._state.catalog]);
-  });
+    String? description,
+    String? sku,
+  }) async {
+    saveCatalogDraft(
+      kind: kind,
+      name: name,
+      description: description,
+      sku: sku,
+      amountMinor: amountMinor,
+    );
+    await publishCatalogDraft();
+  }
 
-  Future<void> setInventory(VendorCatalogItem item, int stock) =>
-      _run(() async {
-        final updated = await _remote.setInventory(item, stock);
-        _replaceCatalog(updated);
+  void saveCatalogDraft({
+    required String kind,
+    required String name,
+    required int amountMinor,
+    String? description,
+    String? sku,
+  }) {
+    final normalizedKind = kind.trim().toUpperCase();
+    final normalizedName = name.trim();
+    final normalizedDescription = description?.trim().isNotEmpty == true
+        ? description!.trim()
+        : '$normalizedName published from the vendor mobile app';
+    final generatedPrefix = normalizedKind.isEmpty
+        ? 'I'
+        : normalizedKind.substring(0, 1);
+    final normalizedSku = sku?.trim().isNotEmpty == true
+        ? sku!.trim()
+        : '$generatedPrefix-${DateTime.now().millisecondsSinceEpoch}';
+    if (!{'PRODUCT', 'SERVICE', 'FOOD'}.contains(normalizedKind) ||
+        normalizedName.length < 3 ||
+        normalizedName.length > 120 ||
+        normalizedDescription.length < 3 ||
+        normalizedDescription.length > 500 ||
+        !_vendorSafeId.hasMatch(normalizedSku) ||
+        amountMinor < 1) {
+      throw const FormatException('Catalog draft is invalid.');
+    }
+    _state = _state.copyWith(
+      catalogDraft: VendorCatalogDraft(
+        kind: normalizedKind,
+        name: normalizedName,
+        description: normalizedDescription,
+        sku: normalizedSku,
+        amountMinor: amountMinor,
+      ),
+      catalogDraftStatus: VendorDraftSyncStatus.draft,
+      clearMessage: true,
+    );
+    notifyListeners();
+  }
+
+  Future<void> publishCatalogDraft() async {
+    final draft = _state.catalogDraft;
+    if (draft == null) throw StateError('A catalog draft is required.');
+    _state = _state.copyWith(
+      status: OperationsStatus.submitting,
+      catalogDraftStatus: VendorDraftSyncStatus.syncing,
+      clearMessage: true,
+    );
+    notifyListeners();
+    try {
+      final value = await _remote.createCatalog({
+        'kind': draft.kind,
+        'name': draft.name,
+        'description': draft.description,
+        'sku': draft.sku,
+        'price': {'amount_minor': draft.amountMinor, 'currency': 'INR'},
       });
+      _state = _state.copyWith(
+        status: OperationsStatus.ready,
+        catalog: [value, ..._state.catalog],
+        catalogDraftStatus: VendorDraftSyncStatus.synced,
+        clearCatalogDraft: true,
+        message:
+            'Catalog item submitted with server revision ${value.revision}.',
+      );
+    } catch (error) {
+      _state = _state.copyWith(
+        status: _draftOperationStatus(error),
+        catalogDraftStatus: _draftFailureStatus(error),
+        message: _draftFailureMessage(error),
+      );
+    }
+    notifyListeners();
+  }
 
-  Future<void> setSchedule(VendorCatalogItem item) => _run(() async {
-    final updated = await _remote.setSchedule(item, const [
+  Future<void> updateCatalog({
+    required VendorCatalogItem item,
+    required String kind,
+    required String name,
+    required String description,
+    required String sku,
+    required int amountMinor,
+    String currency = 'INR',
+  }) {
+    final normalizedKind = kind.trim().toUpperCase();
+    final normalizedName = name.trim();
+    final normalizedDescription = description.trim();
+    final normalizedSku = sku.trim();
+    final normalizedCurrency = currency.trim().toUpperCase();
+    if (!item.allowedActions.contains('EDIT') ||
+        !{'PRODUCT', 'SERVICE', 'FOOD'}.contains(normalizedKind) ||
+        normalizedName.length < 3 ||
+        normalizedName.length > 120 ||
+        normalizedDescription.length < 3 ||
+        normalizedDescription.length > 500 ||
+        !_vendorSafeId.hasMatch(normalizedSku) ||
+        amountMinor < 0 ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(normalizedCurrency)) {
+      throw const FormatException('Catalog update is invalid.');
+    }
+    return _run(() async {
+      final updated = await _remote.updateCatalog(item, {
+        'kind': normalizedKind,
+        'name': normalizedName,
+        'description': normalizedDescription,
+        'sku': normalizedSku,
+        'price': {'amount_minor': amountMinor, 'currency': normalizedCurrency},
+      });
+      _replaceCatalog(updated);
+    });
+  }
+
+  Future<void> setInventory(VendorCatalogItem item, int stock) {
+    if (!item.allowedActions.contains('SET_INVENTORY') ||
+        stock < 0 ||
+        stock > 1000000) {
+      throw const FormatException('Inventory quantity is invalid.');
+    }
+    return _run(() async {
+      final updated = await _remote.setInventory(item, stock);
+      _replaceCatalog(updated);
+    });
+  }
+
+  Future<void> setSchedule(VendorCatalogItem item) async {
+    saveScheduleDraft(item);
+    await publishScheduleDraft();
+  }
+
+  void saveScheduleDraft(
+    VendorCatalogItem item, {
+    List<Map<String, Object?>> schedules = const [
       {
         'weekday': 1,
         'starts_minute': 540,
@@ -605,9 +1113,63 @@ final class VendorOperationsController extends ChangeNotifier {
         'capacity': 4,
         'buffer_minutes': 30,
       },
-    ]);
-    _replaceCatalog(updated);
-  });
+    ],
+  }) {
+    if (!item.allowedActions.contains('SET_SCHEDULE')) {
+      throw const FormatException('Schedule changes are not allowed.');
+    }
+    final normalizedSchedules = _normalizeVendorSchedules(schedules);
+    _state = _state.copyWith(
+      scheduleDraft: VendorScheduleDraft(
+        itemId: item.id,
+        baseRevision: item.revision,
+        schedules: normalizedSchedules,
+      ),
+      scheduleDraftStatus: VendorDraftSyncStatus.draft,
+      clearMessage: true,
+    );
+    notifyListeners();
+  }
+
+  Future<void> publishScheduleDraft() async {
+    final draft = _state.scheduleDraft;
+    if (draft == null) throw StateError('A schedule draft is required.');
+    final item = _state.catalog
+        .where((value) => value.id == draft.itemId)
+        .firstOrNull;
+    if (item == null || item.revision != draft.baseRevision) {
+      _state = _state.copyWith(
+        status: OperationsStatus.failure,
+        scheduleDraftStatus: VendorDraftSyncStatus.conflict,
+        message: 'This schedule changed. Refresh and review the saved draft.',
+      );
+      notifyListeners();
+      return;
+    }
+    _state = _state.copyWith(
+      status: OperationsStatus.submitting,
+      scheduleDraftStatus: VendorDraftSyncStatus.syncing,
+      clearMessage: true,
+    );
+    notifyListeners();
+    try {
+      final updated = await _remote.setSchedule(item, draft.schedules);
+      _replaceCatalog(updated);
+      _state = _state.copyWith(
+        status: OperationsStatus.ready,
+        scheduleDraftStatus: VendorDraftSyncStatus.synced,
+        clearScheduleDraft: true,
+        message: 'Availability synced at revision ${updated.revision}.',
+      );
+    } catch (error) {
+      _state = _state.copyWith(
+        status: _draftOperationStatus(error),
+        scheduleDraftStatus: _draftFailureStatus(error),
+        message: _draftFailureMessage(error),
+      );
+    }
+    notifyListeners();
+  }
 
   Future<void> transitionWork(VendorWorkItem item, String status) =>
       _run(() async {
@@ -620,17 +1182,79 @@ final class VendorOperationsController extends ChangeNotifier {
         );
       });
 
-  Future<void> createPromotion() => _run(() async {
+  Future<void> createPromotion({
+    String title = 'Local launch offer',
+    int budgetMinor = 100000,
+    int durationDays = 7,
+  }) async {
+    savePromotionDraft(
+      title: title,
+      budgetMinor: budgetMinor,
+      durationDays: durationDays,
+    );
+    await publishPromotionDraft();
+  }
+
+  void savePromotionDraft({
+    required String title,
+    required int budgetMinor,
+    required int durationDays,
+  }) {
+    final normalizedTitle = title.trim();
+    if (normalizedTitle.isEmpty ||
+        normalizedTitle.length > 120 ||
+        budgetMinor < 1 ||
+        durationDays < 1 ||
+        durationDays > 90) {
+      throw const FormatException('Promotion draft is invalid.');
+    }
+    _state = _state.copyWith(
+      promotionDraft: VendorPromotionDraft(
+        title: normalizedTitle,
+        budgetMinor: budgetMinor,
+        durationDays: durationDays,
+      ),
+      promotionDraftStatus: VendorDraftSyncStatus.draft,
+      clearMessage: true,
+    );
+    notifyListeners();
+  }
+
+  Future<void> publishPromotionDraft() async {
+    final draft = _state.promotionDraft;
+    if (draft == null) throw StateError('A promotion draft is required.');
+    _state = _state.copyWith(
+      status: OperationsStatus.submitting,
+      promotionDraftStatus: VendorDraftSyncStatus.syncing,
+      clearMessage: true,
+    );
+    notifyListeners();
     final now = DateTime.now().toUtc();
-    await _remote.createPromotion({
-      'title': 'Local launch offer',
-      'kind': 'DISCOUNT',
-      'budget': {'amount_minor': 100000, 'currency': 'INR'},
-      'starts_at': now.toIso8601String(),
-      'ends_at': now.add(const Duration(days: 7)).toIso8601String(),
-    });
-    _state = _state.copyWith(message: 'Promotion submitted for review.');
-  });
+    try {
+      await _remote.createPromotion({
+        'title': draft.title,
+        'kind': 'DISCOUNT',
+        'budget': {'amount_minor': draft.budgetMinor, 'currency': 'INR'},
+        'starts_at': now.toIso8601String(),
+        'ends_at': now
+            .add(Duration(days: draft.durationDays))
+            .toIso8601String(),
+      });
+      _state = _state.copyWith(
+        status: OperationsStatus.ready,
+        promotionDraftStatus: VendorDraftSyncStatus.synced,
+        clearPromotionDraft: true,
+        message: 'Promotion submitted for server review.',
+      );
+    } catch (error) {
+      _state = _state.copyWith(
+        status: _draftOperationStatus(error),
+        promotionDraftStatus: _draftFailureStatus(error),
+        message: _draftFailureMessage(error),
+      );
+    }
+    notifyListeners();
+  }
 
   Future<void> loadSettlements() => _run(() async {
     final results = await Future.wait([_remote.ledger(), _remote.payouts()]);
@@ -650,6 +1274,25 @@ final class VendorOperationsController extends ChangeNotifier {
     final payout = await _remote.requestPayout(ids);
     _state = _state.copyWith(payouts: [payout, ..._state.payouts]);
   });
+
+  OperationsStatus _draftOperationStatus(Object error) =>
+      error is ApiTransportFailure
+      ? OperationsStatus.offline
+      : OperationsStatus.failure;
+
+  VendorDraftSyncStatus _draftFailureStatus(Object error) => switch (error) {
+    ApiTransportFailure() => VendorDraftSyncStatus.offline,
+    ApiConflictFailure() => VendorDraftSyncStatus.conflict,
+    _ => VendorDraftSyncStatus.failure,
+  };
+
+  String _draftFailureMessage(Object error) => switch (error) {
+    ApiTransportFailure() =>
+      'Saved as a draft while offline. Reconnect to sync it.',
+    ApiConflictFailure() =>
+      'The server revision changed. Refresh and review the saved draft.',
+    _ => 'The saved draft could not be submitted safely.',
+  };
 
   void _replaceCatalog(VendorCatalogItem updated) {
     _state = _state.copyWith(
@@ -757,6 +1400,14 @@ final class RiderDuty {
 }
 
 final class RiderTask {
+  static const terminalStatuses = {
+    'DELIVERED',
+    'COMPLETED',
+    'CANCELLED',
+    'EXPIRED',
+    'REASSIGNED',
+  };
+
   const RiderTask({
     required this.id,
     required this.revision,
@@ -770,11 +1421,32 @@ final class RiderTask {
     required this.offerExpiresAt,
     required this.allowedActions,
     required this.podAssetId,
+    this.requiredEvidence = const {'OTP', 'PHOTO'},
+    this.pickupLatitude,
+    this.pickupLongitude,
+    this.dropoffLatitude,
+    this.dropoffLongitude,
   });
   factory RiderTask.fromJson(Object? value) {
     final json = _roleObject(value, 'rider task');
     final pickup = _roleObject(json['pickup'], 'pickup');
     final dropoff = _roleObject(json['dropoff'], 'dropoff');
+    final pickupPoint = pickup['point'] == null
+        ? null
+        : _roleObject(pickup['point'], 'pickup point');
+    final dropoffPoint = dropoff['point'] == null
+        ? null
+        : _roleObject(dropoff['point'], 'dropoff point');
+    final rawEvidence = json['required_evidence'];
+    if (rawEvidence != null &&
+        (rawEvidence is! List<Object?> ||
+            rawEvidence.any(
+              (value) =>
+                  value is! String ||
+                  !{'OTP', 'PHOTO', 'SIGNATURE'}.contains(value),
+            ))) {
+      throw const FormatException('Delivery evidence policy is invalid.');
+    }
     return RiderTask(
       id: _roleString(json, 'id'),
       revision: _roleInteger(json, 'revision'),
@@ -792,6 +1464,25 @@ final class RiderTask {
         _roleList(json, 'allowed_actions').cast<String>(),
       ),
       podAssetId: json['pod_blurred_asset_id'] as String? ?? '',
+      requiredEvidence: rawEvidence == null
+          ? const {'OTP', 'PHOTO'}
+          : Set.unmodifiable((rawEvidence as List<Object?>).cast<String>()),
+      pickupLatitude: _roleCoordinate(pickupPoint, 'latitude', latitude: true),
+      pickupLongitude: _roleCoordinate(
+        pickupPoint,
+        'longitude',
+        latitude: false,
+      ),
+      dropoffLatitude: _roleCoordinate(
+        dropoffPoint,
+        'latitude',
+        latitude: true,
+      ),
+      dropoffLongitude: _roleCoordinate(
+        dropoffPoint,
+        'longitude',
+        latitude: false,
+      ),
     );
   }
   final String id;
@@ -806,6 +1497,21 @@ final class RiderTask {
   final DateTime? offerExpiresAt;
   final Set<String> allowedActions;
   final String podAssetId;
+  final Set<String> requiredEvidence;
+  final double? pickupLatitude;
+  final double? pickupLongitude;
+  final double? dropoffLatitude;
+  final double? dropoffLongitude;
+
+  ({double latitude, double longitude})? get navigationDestination {
+    final pickup = allowedActions.contains('NAVIGATE_PICKUP');
+    final latitude = pickup ? pickupLatitude : dropoffLatitude;
+    final longitude = pickup ? pickupLongitude : dropoffLongitude;
+    if (latitude == null || longitude == null) return null;
+    return (latitude: latitude, longitude: longitude);
+  }
+
+  bool get isTerminal => terminalStatuses.contains(status);
 
   Duration offerRemaining(DateTime now) {
     final expiry = offerExpiresAt;
@@ -913,6 +1619,23 @@ final class RiderOfflineCommand {
     'revision': revision,
     if (payload.isNotEmpty) 'payload': payload,
   };
+
+  void validate() {
+    if (deviceSequence < 1 ||
+        deviceSequence > 0x7fffffff ||
+        !RegExp(r'^[a-zA-Z0-9._:-]{8,160}$').hasMatch(commandId) ||
+        !const {'ACCEPT', 'PICKUP', 'COMPLETE'}.contains(kind) ||
+        taskId.trim().isEmpty ||
+        taskId.length > 160 ||
+        revision < 0 ||
+        payload.length > 8) {
+      throw const FormatException('Rider offline command is invalid.');
+    }
+  }
+}
+
+abstract final class RiderCommandQueuePolicy {
+  static const maxCommands = 100;
 }
 
 abstract interface class RiderCommandStore {
@@ -935,6 +1658,33 @@ final class RiderTrackedPosition {
   final DateTime capturedAt;
 }
 
+enum RiderLocationIssue {
+  serviceDisabled,
+  permissionDenied,
+  permissionPermanentlyDenied,
+  unavailable,
+}
+
+final class RiderLocationException implements Exception {
+  const RiderLocationException(this.issue, this.message);
+
+  final RiderLocationIssue issue;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+enum RiderLocationStatus {
+  unknown,
+  ready,
+  tracking,
+  serviceDisabled,
+  permissionDenied,
+  permissionPermanentlyDenied,
+  unavailable,
+}
+
 /// Platform location streams live in the rider application. Keeping the
 /// boundary here lets the controller tie tracking strictly to an active duty
 /// session without making unit tests depend on device plugins.
@@ -943,13 +1693,19 @@ abstract interface class RiderLocationTracker {
     Future<void> Function(RiderTrackedPosition position) onPosition,
   );
   Future<void> stop();
+  Future<void> openAppSettings();
+  Future<void> openServiceSettings();
 }
 
 final class MemoryRiderCommandStore implements RiderCommandStore {
   final List<RiderOfflineCommand> _commands = [];
   @override
   Future<void> enqueue(RiderOfflineCommand command) async {
+    command.validate();
     if (_commands.every((value) => value.commandId != command.commandId)) {
+      if (_commands.length >= RiderCommandQueuePolicy.maxCommands) {
+        throw StateError('Rider offline command queue is full.');
+      }
       _commands.add(command);
       _commands.sort((a, b) => a.deviceSequence.compareTo(b.deviceSequence));
     }
@@ -961,6 +1717,12 @@ final class MemoryRiderCommandStore implements RiderCommandStore {
 
   @override
   Future<void> replace(List<RiderOfflineCommand> commands) async {
+    if (commands.length > RiderCommandQueuePolicy.maxCommands) {
+      throw StateError('Rider offline command queue is full.');
+    }
+    for (final command in commands) {
+      command.validate();
+    }
     _commands
       ..clear()
       ..addAll(commands);
@@ -1179,6 +1941,7 @@ final class RiderOperationsState {
     this.payouts = const [],
     this.conversation,
     this.pendingCommands = 0,
+    this.locationStatus = RiderLocationStatus.unknown,
     this.message,
   });
   final OperationsStatus status;
@@ -1190,6 +1953,7 @@ final class RiderOperationsState {
   final List<PayoutRecord> payouts;
   final OrderConversation? conversation;
   final int pendingCommands;
+  final RiderLocationStatus locationStatus;
   final String? message;
 
   RiderOperationsState copyWith({
@@ -1202,6 +1966,7 @@ final class RiderOperationsState {
     List<PayoutRecord>? payouts,
     OrderConversation? conversation,
     int? pendingCommands,
+    RiderLocationStatus? locationStatus,
     String? message,
     bool clearMessage = false,
   }) => RiderOperationsState(
@@ -1214,8 +1979,86 @@ final class RiderOperationsState {
     payouts: payouts ?? this.payouts,
     conversation: conversation ?? this.conversation,
     pendingCommands: pendingCommands ?? this.pendingCommands,
+    locationStatus: locationStatus ?? this.locationStatus,
     message: clearMessage ? null : message ?? this.message,
   );
+}
+
+final class RiderDocumentDraft {
+  const RiderDocumentDraft({required this.kind, required this.assetId});
+
+  final String kind;
+  final String assetId;
+
+  Map<String, Object?> toJson() => {
+    'kind': kind,
+    'asset_id': assetId,
+    'ocr_status': 'PENDING',
+  };
+}
+
+final class RiderRegistrationDraft {
+  const RiderRegistrationDraft({
+    required this.fullName,
+    required this.vehicleType,
+    required this.vehicleNumber,
+    required this.documents,
+    required this.bankReference,
+    required this.zones,
+  });
+
+  final String fullName;
+  final String vehicleType;
+  final String vehicleNumber;
+  final List<RiderDocumentDraft> documents;
+  final String bankReference;
+  final List<String> zones;
+
+  Map<String, Object?> toJson() {
+    final name = fullName.trim();
+    final vehicle = vehicleNumber.trim().toUpperCase();
+    final documentKinds = documents.map((value) => value.kind).toSet();
+    final requiredDocumentKinds = <String>{'IDENTITY'};
+    if (vehicleType != 'BICYCLE') {
+      requiredDocumentKinds.addAll(const {
+        'DRIVER_LICENSE',
+        'VEHICLE_REGISTRATION',
+        'INSURANCE',
+      });
+    }
+    if (name.length < 2 ||
+        name.length > 120 ||
+        !const {'BICYCLE', 'MOTORBIKE', 'CAR', 'VAN'}.contains(vehicleType) ||
+        !RegExp(r'^[A-Z0-9 -]{4,20}$').hasMatch(vehicle) ||
+        documents.isEmpty ||
+        documents.length > 8 ||
+        documentKinds.length != documents.length ||
+        !documentKinds.containsAll(requiredDocumentKinds) ||
+        documents.any(
+          (document) =>
+              !const {
+                'DRIVER_LICENSE',
+                'IDENTITY',
+                'VEHICLE_REGISTRATION',
+                'INSURANCE',
+              }.contains(document.kind) ||
+              !_validPrivateReference(document.assetId),
+        ) ||
+        !_validPrivateReference(bankReference) ||
+        zones.isEmpty ||
+        zones.length > 20 ||
+        zones.any((zone) => !RegExp(r'^[0-9]{4,10}$').hasMatch(zone))) {
+      throw const FormatException('Rider registration draft is invalid.');
+    }
+    return {
+      'full_name': name,
+      'vehicle_type': vehicleType,
+      'vehicle_number': vehicle,
+      'documents': documents.map((value) => value.toJson()).toList(),
+      'bank_reference': bankReference,
+      'zones': List<String>.unmodifiable(zones),
+    };
+  }
 }
 
 final class RiderOperationsController extends ChangeNotifier {
@@ -1256,44 +2099,51 @@ final class RiderOperationsController extends ChangeNotifier {
         // No active duty is a valid state.
       }
     }
+    final pendingCommands = await _commandStore.pending();
+    for (final command in pendingCommands) {
+      command.validate();
+      if (command.deviceSequence > _deviceSequence) {
+        _deviceSequence = command.deviceSequence;
+      }
+    }
     _state = _state.copyWith(
       profile: profile,
       duty: duty,
-      pendingCommands: (await _commandStore.pending()).length,
+      pendingCommands: pendingCommands.length,
+      locationStatus: _locationTracker == null
+          ? RiderLocationStatus.unavailable
+          : RiderLocationStatus.ready,
     );
-    if (duty?.status == 'ONLINE') {
+    if (_dutyIsActive(duty)) {
       await _locationTracker?.start(_publishTrackedPosition);
+      if (_locationTracker != null) {
+        _state = _state.copyWith(locationStatus: RiderLocationStatus.tracking);
+      }
     }
   });
 
-  Future<void> register() => _run(() async {
-    final profile = await _remote.register(const {
-      'full_name': 'Planext4u Rider',
-      'phone_masked': '******1234',
-      'vehicle_type': 'MOTORBIKE',
-      'vehicle_number': 'TN01AB1234',
-      'documents': [
-        {
-          'kind': 'DRIVER_LICENSE',
-          'asset_id': 'asset-private-rider-license',
-          'ocr_status': 'PENDING',
-        },
-        {
-          'kind': 'IDENTITY',
-          'asset_id': 'asset-private-rider-identity',
-          'ocr_status': 'PENDING',
-        },
-      ],
-      'bank_reference': 'bankref-rider-tokenized',
-      'zones': ['600001'],
-    });
+  Future<void> register(RiderRegistrationDraft draft) => _run(() async {
+    final profile = await _remote.register(draft.toJson());
     _state = _state.copyWith(profile: profile);
   });
 
-  Future<void> startDuty({String zoneId = '600001'}) => _run(() async {
+  Future<void> startDuty({String? zoneId}) => _run(() async {
+    final profile = _state.profile;
+    if (profile == null || profile.status != 'APPROVED') {
+      throw StateError('An approved rider profile is required.');
+    }
+    final selectedZone = zoneId ?? profile.zones.firstOrNull;
+    if (selectedZone == null || !profile.zones.contains(selectedZone)) {
+      throw const FormatException('Select an approved rider service zone.');
+    }
     await _locationTracker?.start(_publishTrackedPosition);
     try {
-      _state = _state.copyWith(duty: await _remote.startDuty(zoneId));
+      _state = _state.copyWith(
+        duty: await _remote.startDuty(selectedZone),
+        locationStatus: _locationTracker == null
+            ? RiderLocationStatus.unavailable
+            : RiderLocationStatus.tracking,
+      );
     } catch (_) {
       await _locationTracker?.stop();
       rethrow;
@@ -1304,7 +2154,12 @@ final class RiderOperationsController extends ChangeNotifier {
   Future<void> endDuty() => _run(() async {
     final duty = _state.duty;
     if (duty == null) return;
-    _state = _state.copyWith(duty: await _remote.endDuty(duty.revision));
+    _state = _state.copyWith(
+      duty: await _remote.endDuty(duty.revision),
+      locationStatus: _locationTracker == null
+          ? RiderLocationStatus.unavailable
+          : RiderLocationStatus.ready,
+    );
     await _locationTracker?.stop();
   });
 
@@ -1322,23 +2177,38 @@ final class RiderOperationsController extends ChangeNotifier {
   Future<void> complete(
     RiderTask task, {
     required String otp,
-    String blurredPhotoAssetId = 'asset-blurred-pod-mobile',
+    String blurredPhotoAssetId = '',
     String signatureAssetId = '',
-  }) => _taskCommand(
-    task,
-    'COMPLETE',
-    () => _remote.complete(
+  }) {
+    if (task.requiredEvidence.contains('OTP') &&
+        !RegExp(r'^\d{4,8}$').hasMatch(otp)) {
+      throw const FormatException('A valid delivery OTP is required.');
+    }
+    if (task.requiredEvidence.contains('PHOTO') &&
+        blurredPhotoAssetId.isEmpty) {
+      throw const FormatException('A private delivery photo is required.');
+    }
+    if (task.requiredEvidence.contains('SIGNATURE') &&
+        signatureAssetId.isEmpty) {
+      throw const FormatException('A recipient signature is required.');
+    }
+    return _taskCommand(
       task,
-      otp: otp,
-      blurredPhotoAssetId: blurredPhotoAssetId,
-      signatureAssetId: signatureAssetId,
-    ),
-    payload: {
-      'otp': otp,
-      'blurred_photo_asset_id': blurredPhotoAssetId,
-      if (signatureAssetId.isNotEmpty) 'signature_asset_id': signatureAssetId,
-    },
-  );
+      'COMPLETE',
+      () => _remote.complete(
+        task,
+        otp: otp,
+        blurredPhotoAssetId: blurredPhotoAssetId,
+        signatureAssetId: signatureAssetId,
+      ),
+      payload: {
+        if (otp.isNotEmpty) 'otp': otp,
+        if (blurredPhotoAssetId.isNotEmpty)
+          'blurred_photo_asset_id': blurredPhotoAssetId,
+        if (signatureAssetId.isNotEmpty) 'signature_asset_id': signatureAssetId,
+      },
+    );
+  }
 
   Future<void> _taskCommand(
     RiderTask task,
@@ -1415,7 +2285,7 @@ final class RiderOperationsController extends ChangeNotifier {
   );
 
   Future<void> _publishTrackedPosition(RiderTrackedPosition position) async {
-    if (_state.duty?.status != 'ONLINE') return;
+    if (!_dutyIsActive(_state.duty)) return;
     if (position.accuracyMeters <= 0 || position.accuracyMeters > 100) {
       throw const FormatException('Location accuracy is unsafe.');
     }
@@ -1428,6 +2298,16 @@ final class RiderOperationsController extends ChangeNotifier {
         capturedAt: position.capturedAt.toUtc(),
       ),
     );
+  }
+
+  Future<void> openLocationSettings() async {
+    final tracker = _locationTracker;
+    if (tracker == null) return;
+    if (_state.locationStatus == RiderLocationStatus.serviceDisabled) {
+      await tracker.openServiceSettings();
+    } else {
+      await tracker.openAppSettings();
+    }
   }
 
   Future<void> openChat(String orderId) => _run(() async {
@@ -1485,6 +2365,20 @@ final class RiderOperationsController extends ChangeNotifier {
         status: OperationsStatus.offline,
         message: 'Offline. Live data will resume when connected.',
       );
+    } on RiderLocationException catch (error) {
+      _state = _state.copyWith(
+        status: OperationsStatus.failure,
+        locationStatus: switch (error.issue) {
+          RiderLocationIssue.serviceDisabled =>
+            RiderLocationStatus.serviceDisabled,
+          RiderLocationIssue.permissionDenied =>
+            RiderLocationStatus.permissionDenied,
+          RiderLocationIssue.permissionPermanentlyDenied =>
+            RiderLocationStatus.permissionPermanentlyDenied,
+          RiderLocationIssue.unavailable => RiderLocationStatus.unavailable,
+        },
+        message: error.message,
+      );
     } catch (_) {
       _state = _state.copyWith(
         status: OperationsStatus.failure,
@@ -1493,6 +2387,9 @@ final class RiderOperationsController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  bool _dutyIsActive(RiderDuty? duty) =>
+      duty != null && {'ACTIVE', 'ONLINE'}.contains(duty.status);
 
   @override
   void dispose() {
@@ -1508,12 +2405,25 @@ Map<String, Object?> _roleObject(Object? value, String label) {
   return value;
 }
 
+final RegExp _vendorSafeId = RegExp(r'^[A-Za-z0-9._:-]{1,128}$');
+
+bool _validPrivateReference(String value) =>
+    RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,159}$').hasMatch(value);
+
 String _roleString(Map<String, Object?> json, String key) {
   final value = json[key];
   if (value is! String || value.isEmpty) {
     throw FormatException('$key is invalid.');
   }
   return value;
+}
+
+String? _optionalRoleString(Map<String, Object?> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
+  if (value is! String) throw FormatException('$key is invalid.');
+  final normalized = value.trim();
+  return normalized.isEmpty ? null : normalized;
 }
 
 int _roleInteger(Map<String, Object?> json, String key) {
@@ -1538,6 +2448,84 @@ DateTime _roleInstant(Map<String, Object?> json, String key) {
   final value = DateTime.tryParse(_roleString(json, key));
   if (value == null) throw FormatException('$key is invalid.');
   return value.toUtc();
+}
+
+DateTime? _optionalRoleInstant(Map<String, Object?> json, String key) {
+  if (json[key] == null) return null;
+  return _roleInstant(json, key);
+}
+
+List<Map<String, Object?>> _normalizeVendorSchedules(
+  List<Map<String, Object?>> schedules,
+) {
+  if (schedules.isEmpty || schedules.length > 28) {
+    throw const FormatException('Schedule draft is invalid.');
+  }
+  final normalized = <Map<String, Object?>>[];
+  for (final schedule in schedules) {
+    final weekday = schedule['weekday'];
+    final startsMinute = schedule['starts_minute'];
+    final endsMinute = schedule['ends_minute'];
+    final timeZone = schedule['time_zone'];
+    final capacity = schedule['capacity'];
+    final bufferMinutes = schedule['buffer_minutes'];
+    if (weekday is! int ||
+        weekday < 1 ||
+        weekday > 7 ||
+        startsMinute is! int ||
+        startsMinute < 0 ||
+        endsMinute is! int ||
+        endsMinute > 1440 ||
+        endsMinute <= startsMinute ||
+        timeZone is! String ||
+        timeZone.trim().isEmpty ||
+        capacity is! int ||
+        capacity < 1 ||
+        bufferMinutes is! int ||
+        bufferMinutes < 0) {
+      throw const FormatException('Schedule draft is invalid.');
+    }
+    normalized.add(
+      Map.unmodifiable({
+        'weekday': weekday,
+        'starts_minute': startsMinute,
+        'ends_minute': endsMinute,
+        'time_zone': timeZone.trim(),
+        'capacity': capacity,
+        'buffer_minutes': bufferMinutes,
+      }),
+    );
+  }
+  for (var index = 0; index < normalized.length; index++) {
+    final value = normalized[index];
+    for (var other = index + 1; other < normalized.length; other++) {
+      final candidate = normalized[other];
+      if (value['weekday'] == candidate['weekday'] &&
+          (value['starts_minute']! as int) <
+              (candidate['ends_minute']! as int) &&
+          (candidate['starts_minute']! as int) <
+              (value['ends_minute']! as int)) {
+        throw const FormatException('Schedule windows cannot overlap.');
+      }
+    }
+  }
+  return List.unmodifiable(normalized);
+}
+
+double? _roleCoordinate(
+  Map<String, Object?>? json,
+  String key, {
+  required bool latitude,
+}) {
+  if (json == null) return null;
+  final value = json[key];
+  if (value is! num) throw FormatException('$key must be a number.');
+  final coordinate = value.toDouble();
+  final limit = latitude ? 90 : 180;
+  if (!coordinate.isFinite || coordinate < -limit || coordinate > limit) {
+    throw FormatException('$key is outside the valid coordinate range.');
+  }
+  return coordinate;
 }
 
 List<T> _roleDecodeWrappedList<T>(

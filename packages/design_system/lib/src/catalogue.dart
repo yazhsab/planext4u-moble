@@ -39,6 +39,33 @@ class Planext4uWidgetCatalogue extends StatelessWidget {
                     runSpacing: Planext4uSpacing.x4,
                     children: [
                       SizedBox(
+                        width: usableWidth,
+                        child: Planext4uCampaignHero(
+                          title: 'Smart shopping, everyday.',
+                          subtitle:
+                              'Everything you need from trusted local sellers.',
+                          actionLabel: 'Start shopping',
+                          onAction: () {},
+                        ),
+                      ),
+                      SizedBox(
+                        width: usableWidth,
+                        child: const Planext4uBenefitStrip(
+                          items: [
+                            Planext4uBenefitItem(
+                              title: 'Secure shopping',
+                              subtitle: 'Protected payments and privacy',
+                              icon: Icons.verified_user_outlined,
+                            ),
+                            Planext4uBenefitItem(
+                              title: 'Fast delivery',
+                              subtitle: 'Live fulfilment updates',
+                              icon: Icons.local_shipping_outlined,
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
                         width: contentWidth,
                         child: const _ActionsSection(),
                       ),
@@ -67,6 +94,8 @@ class Planext4uWidgetCatalogue extends StatelessWidget {
                           price: '₹1,249.00',
                           status: 'In stock',
                           onPressed: () {},
+                          onFavorite: () {},
+                          onAddToCart: () {},
                         ),
                       ),
                       SizedBox(

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "policy_owner": "mobile_release_manager",
+  "stages": ["internal", "cityPilot", "percent5", "percent25", "percent50", "percent100"],
+  "minimum_observation_hours": {
+    "internal": 24,
+    "cityPilot": 72,
+    "percent5": 48,
+    "percent25": 48,
+    "percent50": 48,
+    "percent100": 168
+  },
+  "minimum_sample": {"sessions": 1000, "checkout_attempts": 100},
+  "advance_thresholds": {
+    "crash_free_session_percent": 99.8,
+    "checkout_success_percent": 97.0,
+    "backend_availability_percent": 99.9,
+    "api_p95_ms": 400
+  },
+  "automatic_rollback_thresholds": {
+    "crash_free_session_percent_below": 99.5,
+    "payment_failure_percent_above": 3.0,
+    "order_failure_percent_above": 3.0,
+    "notification_loss_percent_above": 5.0,
+    "backend_availability_percent_below": 99.0
+  },
+  "required_approvals": ["business", "engineering", "security", "finance", "legal", "operations"],
+  "promotion_mode": "manual_approval_after_automated_evaluation",
+  "rollback_mode": "immediate_store_halt_and_previous_version_repromotion"
+}

@@ -15,6 +15,15 @@ void main() {
       expect(config.flag('customer_home'), isTrue);
       expect(config.flag('not_published'), isFalse);
       expect(config.consentPolicies.single.policyVersion, 'privacy-2026-01');
+      expect(config.homeSections.single.displayTitle, 'Local festival offers');
+      expect(config.homeSections.single.actionRoute, '/app/catalog');
+      expect(config.homeSections.single.items.single.icon, 'offers');
+      expect(
+        BootstrapConfig.fromJson(
+          config.toJson(),
+        ).homeSections.single.displaySubtitle,
+        'Offers selected for your serviceable area.',
+      );
     },
   );
 
@@ -37,6 +46,115 @@ void main() {
       expect(controller.state.config.revision, 7);
     },
   );
+
+  test('customer home sections are filtered, ordered and deduplicated', () {
+    const sections = [
+      HomeSectionConfig(
+        id: 'unknown',
+        kind: 'NEW_SERVER_SECTION',
+        titleKey: 'home.new',
+        enabled: true,
+        priority: 0,
+      ),
+      HomeSectionConfig(
+        id: 'disabled-help',
+        kind: 'HELP_SHORTCUTS',
+        titleKey: 'home.help',
+        enabled: false,
+        priority: 1,
+      ),
+      HomeSectionConfig(
+        id: 'category-primary',
+        kind: 'CATEGORY_GRID',
+        titleKey: 'home.categories',
+        enabled: true,
+        priority: 5,
+      ),
+      HomeSectionConfig(
+        id: 'featured',
+        kind: 'FEATURED_ITEMS',
+        titleKey: 'home.featured',
+        enabled: true,
+        priority: 10,
+      ),
+      HomeSectionConfig(
+        id: 'category-duplicate',
+        kind: 'CATEGORY_GRID',
+        titleKey: 'home.categories',
+        enabled: true,
+        priority: 20,
+      ),
+    ];
+
+    final normalized = normalizeCustomerHomeSections(sections);
+
+    expect(normalized.map((section) => section.id), [
+      'category-primary',
+      'featured',
+    ]);
+    expect(() => normalized.add(sections.first), throwsUnsupportedError);
+  });
+
+  test('home aliases deduplicate and service discovery routes remain safe', () {
+    const sections = [
+      HomeSectionConfig(
+        id: 'bestsellers',
+        kind: 'BESTSELLERS',
+        titleKey: 'home.bestsellers',
+        enabled: true,
+        priority: 1,
+      ),
+      HomeSectionConfig(
+        id: 'featured',
+        kind: 'FEATURED_ITEMS',
+        titleKey: 'home.featured',
+        enabled: true,
+        priority: 2,
+      ),
+      HomeSectionConfig(
+        id: 'services',
+        kind: 'SERVICE_DISCOVERY',
+        titleKey: 'home.services',
+        enabled: true,
+        priority: 3,
+        actionRoute: '/app/services',
+        items: [
+          HomeSectionItemConfig(
+            id: 'food',
+            title: 'Food',
+            actionRoute: '/app/food',
+          ),
+        ],
+      ),
+    ];
+
+    final normalized = normalizeCustomerHomeSections(sections);
+
+    expect(normalized.map((section) => section.id), [
+      'bestsellers',
+      'services',
+    ]);
+    expect(
+      supportedCustomerHomeRoutes,
+      containsAll(['/app/services', '/app/food']),
+    );
+  });
+
+  test('customer home content rejects routes outside the app allowlist', () {
+    expect(
+      () => BootstrapConfig.fromJson({
+        ...bootstrapJson(),
+        'home_sections': [
+          {
+            ...((bootstrapJson()['home_sections']! as List<Object?>).single
+                as Map<String, Object?>),
+            'action_route': 'https://untrusted.example/checkout',
+          },
+        ],
+      }),
+      throwsFormatException,
+    );
+  });
 
   test(
     'controller fails closed with safe defaults when no cache exists',
@@ -136,6 +254,9 @@ void main() {
       expect(strings.homeTitle, isNotEmpty);
       expect(strings.secureCheckout, isNotEmpty);
       expect(strings.cashOnDelivery, isNotEmpty);
+      expect(strings.socioTitle, isNotEmpty);
+      expect(strings.accountTitle, isNotEmpty);
+      expect(strings.cartTitle, isNotEmpty);
       expect(strings.availablePoints(25), contains('25'));
     }
   });
@@ -162,8 +283,21 @@ Map<String, Object?> bootstrapJson() => {
       'id': 'hero',
       'kind': 'HERO',
       'title_key': 'home.hero',
+      'display_title': 'Local festival offers',
+      'display_subtitle': 'Offers selected for your serviceable area.',
+      'action_label': 'View offers',
+      'action_route': '/app/catalog',
       'enabled': true,
       'priority': 10,
+      'items': [
+        {
+          'id': 'festival-offers',
+          'title': 'Festival offers',
+          'subtitle': 'Limited-time local savings',
+          'icon': 'offers',
+          'action_route': '/app/catalog',
+        },
+      ],
     },
   ],
 };

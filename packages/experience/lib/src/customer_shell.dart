@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
+import 'package:planext4u_identity/planext4u_identity.dart';
 
-import 'catalog.dart';
+import 'account_privacy.dart';
+import 'account_privacy_screen.dart';
+import 'appearance_preferences.dart';
+import 'appearance_preferences_screen.dart';
 import 'bootstrap.dart';
+import 'catalog.dart';
 import 'commerce.dart';
 import 'food.dart';
 import 'food_screens.dart';
 import 'localization.dart';
 import 'marketplace.dart';
 import 'marketplace_screen.dart';
+import 'notification_preferences.dart';
+import 'notification_preferences_screen.dart';
 import 'phase5.dart';
 import 'phase5_screens.dart';
 import 'service_booking.dart';
 import 'service_booking_screens.dart';
+import 'session_management_screen.dart';
 import 'social.dart';
 import 'social_screens.dart';
 import 'transaction_screens.dart';
@@ -103,6 +111,70 @@ bool _safeIdentifier(String value) =>
     value.length <= 128 &&
     RegExp(r'^[A-Za-z0-9._:-]+$').hasMatch(value);
 
+const _fallbackTrustBenefits = [
+  HomeSectionItemConfig(
+    id: 'best-offers',
+    title: 'Best offers',
+    subtitle: 'On trusted local brands',
+    icon: 'offers',
+  ),
+  HomeSectionItemConfig(
+    id: 'secure-shopping',
+    title: 'Secure shopping',
+    subtitle: 'Protected payments and privacy',
+    icon: 'secure',
+  ),
+  HomeSectionItemConfig(
+    id: 'fast-delivery',
+    title: 'Fast delivery',
+    subtitle: 'Live fulfilment updates',
+    icon: 'delivery',
+  ),
+  HomeSectionItemConfig(
+    id: 'easy-support',
+    title: 'Easy support',
+    subtitle: 'Help throughout your order',
+    icon: 'support',
+  ),
+];
+
+const _fallbackCustomerHomeSections = [
+  HomeSectionConfig(
+    id: 'fallback-hero',
+    kind: 'HERO',
+    titleKey: 'home.hero',
+    displayTitle: 'Smart shopping, everyday.',
+    displaySubtitle:
+        'Shop local products and trusted services from one secure place.',
+    actionLabel: 'Start shopping',
+    actionRoute: '/app/catalog',
+    enabled: true,
+    priority: 0,
+  ),
+  HomeSectionConfig(
+    id: 'fallback-trust',
+    kind: 'TRUST_BENEFITS',
+    titleKey: 'home.trust',
+    enabled: true,
+    priority: 5,
+    items: _fallbackTrustBenefits,
+  ),
+  HomeSectionConfig(
+    id: 'fallback-categories',
+    kind: 'CATEGORY_GRID',
+    titleKey: 'home.categories',
+    enabled: true,
+    priority: 10,
+  ),
+  HomeSectionConfig(
+    id: 'fallback-featured',
+    kind: 'FEATURED_ITEMS',
+    titleKey: 'home.featured',
+    enabled: true,
+    priority: 20,
+  ),
+];
+
 final class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({
     required this.controller,
@@ -115,6 +187,10 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.foodController,
     this.socialController,
     this.phase5Controller,
+    this.accountPrivacyController,
+    this.sessionManagementController,
+    this.notificationPreferencesController,
+    this.appearancePreferencesController,
     this.openCommunityInitially = false,
     this.initialCommunityTab = 0,
     this.openSocialInitially = false,
@@ -137,6 +213,10 @@ final class CustomerHomeScreen extends StatefulWidget {
   final FoodController? foodController;
   final SocialController? socialController;
   final Phase5Controller? phase5Controller;
+  final AccountPrivacyController? accountPrivacyController;
+  final IdentitySessionManagementController? sessionManagementController;
+  final NotificationPreferencesController? notificationPreferencesController;
+  final AppearancePreferencesController? appearancePreferencesController;
   final bool openCommunityInitially;
   final int initialCommunityTab;
   final bool openSocialInitially;
@@ -215,7 +295,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           CustomerDestination.food => 'Food',
           CustomerDestination.explore => strings.exploreTitle,
           CustomerDestination.activity => strings.activityTitle,
-          CustomerDestination.profile => strings.profileTitle,
+          CustomerDestination.profile => strings.accountTitle,
         }),
         actions: [
           if (widget.socialController != null)
@@ -273,9 +353,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         ),
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _destination.index,
-        onDestinationSelected: (index) =>
-            setState(() => _destination = CustomerDestination.values[index]),
+        height: switch (MediaQuery.textScalerOf(context).scale(1)) {
+          >= 1.8 => 112,
+          > 1.15 => 96,
+          _ => null,
+        },
+        selectedIndex: _bottomNavigationIndex,
+        onDestinationSelected: _selectBottomDestination,
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.home_outlined),
@@ -283,24 +367,67 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             label: strings.homeTitle,
           ),
           NavigationDestination(
-            icon: const Icon(Icons.restaurant_outlined),
-            selectedIcon: const Icon(Icons.restaurant),
-            label: 'Food',
+            icon: const Icon(Icons.people_alt_outlined),
+            selectedIcon: const Icon(Icons.people_alt),
+            label: strings.socioTitle,
           ),
           NavigationDestination(
-            icon: const Icon(Icons.search),
-            label: strings.exploreTitle,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.receipt_long_outlined),
-            label: strings.activityTitle,
+            icon: const Icon(Icons.grid_view_outlined),
+            selectedIcon: const Icon(Icons.grid_view_rounded),
+            label: strings.categories,
           ),
           NavigationDestination(
             icon: const Icon(Icons.person_outline),
-            label: strings.profileTitle,
+            selectedIcon: const Icon(Icons.person),
+            label: strings.accountTitle,
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.shopping_cart_outlined),
+            selectedIcon: const Icon(Icons.shopping_cart),
+            label: strings.cartTitle,
           ),
         ],
       ),
+    );
+  }
+
+  int get _bottomNavigationIndex => switch (_destination) {
+    CustomerDestination.home || CustomerDestination.food => 0,
+    CustomerDestination.explore => 2,
+    CustomerDestination.activity || CustomerDestination.profile => 3,
+  };
+
+  void _selectBottomDestination(int index) {
+    switch (index) {
+      case 0:
+        setState(() => _destination = CustomerDestination.home);
+        return;
+      case 1:
+        if (widget.socialController == null) {
+          _showUnavailable('Socio');
+        } else {
+          _openSocial();
+        }
+        return;
+      case 2:
+        setState(() => _destination = CustomerDestination.explore);
+        return;
+      case 3:
+        setState(() => _destination = CustomerDestination.profile);
+        return;
+      case 4:
+        if (widget.cartController == null) {
+          _showUnavailable('Cart');
+        } else {
+          _openCart();
+        }
+        return;
+    }
+  }
+
+  void _showUnavailable(String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature is temporarily unavailable.')),
     );
   }
 
@@ -317,93 +444,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     await controller.recoverPayment();
   }
 
-  Future<void> _exportAccountData() async {
-    final value = await widget.phase5Controller?.exportAccountData();
-    if (!mounted || value == null) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(Planext4uSpacing.x5),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Account export ready',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: Planext4uSpacing.x3),
-              SelectableText('Identity ${value.identityId}'),
-              Text('${value.sessionCount} sessions'),
-              Text('${value.consentCount} consent records'),
-              Text('Generated ${value.generatedAt.toLocal()}'),
-              const SizedBox(height: Planext4uSpacing.x3),
-              const Text(
-                'The authenticated response contains no access tokens, provider credentials or raw device identifiers.',
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _requestAccountDeletion() async {
-    final confirmation = TextEditingController();
-    final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Schedule account deletion?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Your account will enter a 30-day recovery period. Type DELETE MY ACCOUNT to continue.',
-            ),
-            TextField(
-              key: const ValueKey('account-deletion-confirmation'),
-              controller: confirmation,
-              decoration: const InputDecoration(labelText: 'Confirmation'),
-            ),
-            TextField(
-              controller: reason,
-              maxLength: 500,
-              decoration: const InputDecoration(labelText: 'Reason (optional)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const ValueKey('confirm-account-deletion'),
-            onPressed: () => Navigator.pop(
-              context,
-              confirmation.text == 'DELETE MY ACCOUNT',
-            ),
-            child: const Text('Schedule deletion'),
-          ),
-        ],
-      ),
-    );
-    final reasonValue = reason.text;
-    confirmation.dispose();
-    reason.dispose();
-    if (accepted != true) return;
-    final value = await widget.phase5Controller?.requestAccountDeletion(
-      reasonValue,
-    );
-    if (!mounted || value == null) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Deletion scheduled for ${value.effectiveAt.toLocal().toString().split(' ').first}.',
-        ),
+  Future<void> _openAccountPrivacy() async {
+    final controller = widget.accountPrivacyController;
+    if (controller == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AccountPrivacyScreen(controller: controller),
       ),
     );
   }
@@ -463,6 +509,17 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       ),
                     ),
             ),
+            if (widget.transactionController != null)
+              ListTile(
+                key: const ValueKey('open-order-activity'),
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: Text(strings.activityTitle),
+                subtitle: const Text(
+                  'Orders, tracking, returns and payment recovery',
+                ),
+                onTap: () =>
+                    setState(() => _destination = CustomerDestination.activity),
+              ),
             if (widget.serviceBookingController != null)
               ListTile(
                 leading: const Icon(Icons.home_repair_service_outlined),
@@ -497,30 +554,66 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 ),
               ),
             ),
-            if (widget.phase5Controller != null) ...[
+            if (widget.accountPrivacyController != null) ...[
               const Divider(),
               ListTile(
-                key: const ValueKey('export-account-data'),
-                leading: const Icon(Icons.download_outlined),
-                title: const Text('Export my account data'),
+                key: const ValueKey('customer-account-privacy'),
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: const Text('Account privacy'),
                 subtitle: const Text(
-                  'Generate a redacted copy of profile, sessions and consent evidence',
+                  'Export your data or schedule account deletion',
                 ),
-                onTap: _exportAccountData,
-              ),
-              ListTile(
-                key: const ValueKey('request-account-deletion'),
-                leading: Icon(
-                  Icons.delete_forever_outlined,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                title: const Text('Delete my account'),
-                subtitle: const Text(
-                  'Schedule erasure after the 30-day recovery period',
-                ),
-                onTap: _requestAccountDeletion,
+                onTap: _openAccountPrivacy,
               ),
             ],
+            if (widget.sessionManagementController != null)
+              ListTile(
+                key: const ValueKey('customer-signed-in-devices'),
+                leading: const Icon(Icons.devices_outlined),
+                title: const Text('Signed-in devices'),
+                subtitle: const Text(
+                  'Review account sessions and sign out another device',
+                ),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => IdentitySessionManagementScreen(
+                      controller: widget.sessionManagementController!,
+                    ),
+                  ),
+                ),
+              ),
+            if (widget.notificationPreferencesController != null)
+              ListTile(
+                key: const ValueKey('customer-notification-preferences'),
+                leading: const Icon(Icons.notifications_outlined),
+                title: const Text('Notification preferences'),
+                subtitle: const Text(
+                  'Choose channels for orders, security and offers',
+                ),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => NotificationPreferencesScreen(
+                      controller: widget.notificationPreferencesController!,
+                    ),
+                  ),
+                ),
+              ),
+            if (widget.appearancePreferencesController != null)
+              ListTile(
+                key: const ValueKey('customer-appearance-preferences'),
+                leading: const Icon(Icons.contrast_outlined),
+                title: const Text('Appearance and accessibility'),
+                subtitle: const Text(
+                  'Language, theme, text size, motion and data usage',
+                ),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => AppearancePreferencesScreen(
+                      controller: widget.appearancePreferencesController!,
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: Planext4uSpacing.x4),
             OutlinedButton.icon(
               onPressed: widget.onSignOut == null
@@ -598,6 +691,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 ],
               ),
             ),
+          SliverToBoxAdapter(child: _homeModuleLauncher()),
           ..._configuredHomeSlivers(
             home,
             strings,
@@ -617,21 +711,65 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     required bool wideLayout,
     required bool largeText,
   }) {
-    final configured = widget.homeSections
-        .where((value) => value.enabled)
-        .toList(growable: false);
-    final kinds = configured.isEmpty
-        ? const ['CATEGORY_GRID', 'FEATURED_ITEMS']
-        : configured.map((value) => value.kind).toList(growable: false);
+    final configured = normalizeCustomerHomeSections(widget.homeSections);
+    final sections = configured.isEmpty
+        ? _fallbackCustomerHomeSections
+        : configured;
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
     return [
-      for (final kind in kinds)
-        if (kind == 'CATEGORY_GRID')
+      for (final section in sections)
+        if (section.kind == 'HERO')
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              Planext4uSpacing.x4,
+              Planext4uSpacing.x2,
+              Planext4uSpacing.x4,
+              Planext4uSpacing.x3,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Planext4uCampaignHero(
+                key: ValueKey('home-section-${section.id}'),
+                title: _homeSectionTitle(
+                  section,
+                  strings,
+                  fallback: 'Smart shopping, everyday.',
+                ),
+                subtitle: section.displaySubtitle.isEmpty
+                    ? 'Everything you need from trusted local sellers.'
+                    : section.displaySubtitle,
+                actionLabel: section.actionLabel.isEmpty
+                    ? null
+                    : section.actionLabel,
+                onAction: _homeRouteAction(section.actionRoute),
+              ),
+            ),
+          )
+        else if (section.kind == 'TRUST_BENEFITS')
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              Planext4uSpacing.x4,
+              0,
+              Planext4uSpacing.x4,
+              Planext4uSpacing.x4,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Planext4uBenefitStrip(
+                key: ValueKey('home-section-${section.id}'),
+                items: _homeBenefitItems(section),
+              ),
+            ),
+          )
+        else if (section.kind == 'CATEGORY_GRID')
           SliverPadding(
             padding: const EdgeInsets.all(Planext4uSpacing.x4),
             sliver: SliverList.list(
               children: [
                 Text(
-                  strings.categories,
+                  _homeSectionTitle(
+                    section,
+                    strings,
+                    fallback: strings.categories,
+                  ),
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: Planext4uSpacing.x3),
@@ -673,7 +811,36 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ],
             ),
           )
-        else if (kind == 'FEATURED_ITEMS') ...[
+        else if (section.kind == 'SERVICE_DISCOVERY')
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              Planext4uSpacing.x4,
+              0,
+              Planext4uSpacing.x4,
+              Planext4uSpacing.x5,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Planext4uSectionHeader(
+                    title: _homeSectionTitle(
+                      section,
+                      strings,
+                      fallback: 'Popular services',
+                    ),
+                    subtitle: section.displaySubtitle.isEmpty
+                        ? null
+                        : section.displaySubtitle,
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x2),
+                  Planext4uBenefitStrip(items: _homeServiceItems(section)),
+                ],
+              ),
+            ),
+          )
+        else if (section.kind == 'FEATURED_ITEMS' ||
+            section.kind == 'BESTSELLERS') ...[
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(
               Planext4uSpacing.x4,
@@ -683,7 +850,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             ),
             sliver: SliverToBoxAdapter(
               child: Text(
-                strings.featured,
+                _homeSectionTitle(section, strings, fallback: strings.featured),
                 style: Theme.of(context).textTheme.titleLarge,
               ),
             ),
@@ -701,8 +868,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 crossAxisSpacing: Planext4uSpacing.x3,
                 mainAxisSpacing: Planext4uSpacing.x3,
                 childAspectRatio: wideLayout
-                    ? (largeText ? 0.60 : 0.68)
-                    : (largeText ? 0.46 : 0.52),
+                    ? (textScale >= 1.8 ? 0.48 : (largeText ? 0.60 : 0.68))
+                    : (textScale >= 1.8 ? 0.36 : (largeText ? 0.46 : 0.52)),
               ),
               itemCount: home.featuredItems.length,
               itemBuilder: (context, index) {
@@ -712,6 +879,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   vendor: item.summary,
                   price: item.price.display(),
                   status: item.available ? 'Available' : 'Unavailable',
+                  available: item.available,
+                  onAddToCart: _homeCartVariant(item) == null
+                      ? null
+                      : () => _addHomeItemToCart(item),
                   onPressed: item.available
                       ? () {
                           if (widget.onItemSelected != null) {
@@ -725,7 +896,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               },
             ),
           ),
-        ] else if (kind == 'RECOMMENDATIONS' && home.recommendations.isNotEmpty)
+        ] else if (section.kind == 'RECOMMENDATIONS' &&
+            home.recommendations.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -737,29 +909,40 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Recommended for you',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  Planext4uSectionHeader(
+                    title: _homeSectionTitle(
+                      section,
+                      strings,
+                      fallback: 'Recommended for you',
+                    ),
                   ),
                   const SizedBox(height: Planext4uSpacing.x2),
-                  for (final item in home.recommendations)
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.auto_awesome_outlined),
-                        title: Text(item.name),
-                        subtitle: Text(item.sellerName ?? item.summary),
-                        trailing: Text(item.price.display()),
-                        enabled: item.available,
-                        onTap: item.available
-                            ? () => _openProduct(item.id)
-                            : null,
-                      ),
-                    ),
+                  Planext4uHorizontalRail(
+                    semanticLabel: 'Recommended items',
+                    height: textScale >= 1.8 ? 480 : (largeText ? 400 : 344),
+                    itemWidth: textScale >= 1.8 ? 256 : 224,
+                    children: [
+                      for (final item in home.recommendations)
+                        Planext4uProductCard(
+                          name: item.name,
+                          vendor: item.sellerName ?? item.summary,
+                          price: item.price.display(),
+                          status: item.available ? 'Available' : 'Unavailable',
+                          available: item.available,
+                          onAddToCart: _homeCartVariant(item) == null
+                              ? null
+                              : () => _addHomeItemToCart(item),
+                          onPressed: item.available
+                              ? () => _openProduct(item.id)
+                              : null,
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
           )
-        else if (kind == 'LEADERBOARD' && home.leaderboard.isNotEmpty)
+        else if (section.kind == 'LEADERBOARD' && home.leaderboard.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -772,7 +955,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Top local sellers',
+                    _homeSectionTitle(
+                      section,
+                      strings,
+                      fallback: 'Top local sellers',
+                    ),
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: Planext4uSpacing.x2),
@@ -796,7 +983,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ),
             ),
           )
-        else if (kind == 'HELP_SHORTCUTS' && home.helpShortcuts.isNotEmpty)
+        else if (section.kind == 'HELP_SHORTCUTS' &&
+            home.helpShortcuts.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -809,7 +997,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Quick help',
+                    _homeSectionTitle(section, strings, fallback: 'Quick help'),
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: Planext4uSpacing.x2),
@@ -835,6 +1023,259 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             ),
           ),
     ];
+  }
+
+  String _homeSectionTitle(
+    HomeSectionConfig section,
+    Planext4uLocalizations strings, {
+    required String fallback,
+  }) {
+    if (section.displayTitle.isNotEmpty) return section.displayTitle;
+    return strings.homeSectionTitle(section.titleKey, fallback: fallback);
+  }
+
+  List<Planext4uBenefitItem> _homeBenefitItems(HomeSectionConfig section) {
+    final items = section.items.isEmpty
+        ? _fallbackTrustBenefits
+        : section.items;
+    return List.unmodifiable([
+      for (final item in items)
+        Planext4uBenefitItem(
+          title: item.title,
+          subtitle: item.subtitle,
+          icon: _homeBenefitIcon(item.icon),
+          onTap: _homeRouteAction(item.actionRoute),
+        ),
+    ]);
+  }
+
+  List<Planext4uBenefitItem> _homeServiceItems(HomeSectionConfig section) {
+    final items = section.items.isEmpty
+        ? const [
+            HomeSectionItemConfig(
+              id: 'local-services',
+              title: 'Local services',
+              subtitle: 'Book trusted help near you',
+              icon: 'services',
+              actionRoute: '/app/services',
+            ),
+          ]
+        : section.items;
+    return List.unmodifiable([
+      for (final item in items)
+        Planext4uBenefitItem(
+          title: item.title,
+          subtitle: item.subtitle,
+          icon: _homeBenefitIcon(item.icon),
+          onTap: _homeRouteAction(item.actionRoute),
+        ),
+    ]);
+  }
+
+  IconData _homeBenefitIcon(String value) => switch (value) {
+    'offers' => Icons.local_offer_outlined,
+    'secure' => Icons.verified_user_outlined,
+    'delivery' => Icons.local_shipping_outlined,
+    'support' => Icons.support_agent_outlined,
+    'services' => Icons.home_repair_service_outlined,
+    'food' => Icons.restaurant_outlined,
+    _ => Icons.info_outline,
+  };
+
+  VoidCallback? _homeRouteAction(String route) => switch (route) {
+    '/app/catalog' when widget.marketplaceController != null => () => setState(
+      () => _destination = CustomerDestination.explore,
+    ),
+    '/app/orders' when widget.transactionController != null => () => setState(
+      () => _destination = CustomerDestination.activity,
+    ),
+    '/app/services'
+        when widget.serviceBookingController != null &&
+            widget.transactionController != null =>
+      _openServices,
+    '/app/food' when widget.foodController != null => () => setState(
+      () => _destination = CustomerDestination.food,
+    ),
+    '/app/social' when widget.socialController != null => _openSocial,
+    '/app/community' when widget.phase5Controller != null =>
+      () => _openCommunity(0),
+    '/app/homes' when widget.phase5Controller != null => () => _openCommunity(
+      1,
+    ),
+    '/app/classifieds' when widget.phase5Controller != null =>
+      () => _openCommunity(2),
+    '/app/emergency' when widget.phase5Controller != null =>
+      () => _openCommunity(3),
+    _ => null,
+  };
+
+  Widget _homeModuleLauncher() {
+    final modules =
+        <({String key, String label, IconData icon, VoidCallback? onTap})>[
+          (
+            key: 'shop',
+            label: 'Shop',
+            icon: Icons.shopping_bag_outlined,
+            onTap: widget.marketplaceController == null
+                ? null
+                : () => setState(
+                    () => _destination = CustomerDestination.explore,
+                  ),
+          ),
+          (
+            key: 'socio',
+            label: 'Socio',
+            icon: Icons.people_alt_outlined,
+            onTap: widget.socialController == null ? null : _openSocial,
+          ),
+          (
+            key: 'services',
+            label: 'Services',
+            icon: Icons.home_repair_service_outlined,
+            onTap:
+                widget.serviceBookingController == null ||
+                    widget.transactionController == null
+                ? null
+                : () => _openServices(),
+          ),
+          (
+            key: 'food',
+            label: 'Food',
+            icon: Icons.restaurant_outlined,
+            onTap: widget.foodController == null
+                ? null
+                : () => setState(() => _destination = CustomerDestination.food),
+          ),
+          (
+            key: 'homes',
+            label: 'Homes',
+            icon: Icons.home_work_outlined,
+            onTap: widget.phase5Controller == null
+                ? null
+                : () => _openCommunity(1),
+          ),
+          (
+            key: 'classifieds',
+            label: 'Classifieds',
+            icon: Icons.sell_outlined,
+            onTap: widget.phase5Controller == null
+                ? null
+                : () => _openCommunity(2),
+          ),
+          (
+            key: 'emergency',
+            label: 'Emergency',
+            icon: Icons.emergency_outlined,
+            onTap: widget.phase5Controller == null
+                ? null
+                : () => _openCommunity(3),
+          ),
+        ];
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final largeText = textScale > 1.15;
+    return Semantics(
+      container: true,
+      label: 'Planext4u services',
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          Planext4uSpacing.x4,
+          Planext4uSpacing.x4,
+          Planext4uSpacing.x4,
+          Planext4uSpacing.x2,
+        ),
+        child: SizedBox(
+          height: textScale >= 1.8 ? 176 : (largeText ? 140 : 108),
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: modules.length,
+            separatorBuilder: (_, _) =>
+                const SizedBox(width: Planext4uSpacing.x2),
+            itemBuilder: (context, index) {
+              final module = modules[index];
+              final enabled = module.onTap != null;
+              return Semantics(
+                button: true,
+                enabled: enabled,
+                label: module.label,
+                child: Opacity(
+                  opacity: enabled ? 1 : 0.48,
+                  child: Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      key: ValueKey('home-module-${module.key}'),
+                      onTap: module.onTap,
+                      child: SizedBox(
+                        width: textScale >= 1.8 ? 112 : 88,
+                        child: Padding(
+                          padding: const EdgeInsets.all(Planext4uSpacing.x2),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(module.icon, size: 30),
+                              const SizedBox(height: Planext4uSpacing.x2),
+                              Text(
+                                module.label,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  CatalogVariant? _homeCartVariant(CatalogItem item) {
+    if (!item.available || widget.cartController == null) return null;
+    for (final variant in item.variants) {
+      if (variant.available && variant.stockQuantity > 0) return variant;
+    }
+    return null;
+  }
+
+  Future<void> _addHomeItemToCart(CatalogItem item) async {
+    final cart = widget.cartController;
+    final variant = _homeCartVariant(item);
+    if (cart == null || variant == null) return;
+    final currentLine = cart.state.cart?.items
+        .where((line) => line.variantId == variant.id)
+        .firstOrNull;
+    final currentQuantity = currentLine?.quantity ?? 0;
+    final maximum = variant.stockQuantity < variant.maxPerOrder
+        ? variant.stockQuantity
+        : variant.maxPerOrder;
+    if (currentQuantity >= maximum) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Maximum available quantity reached.')),
+        );
+      }
+      return;
+    }
+    final added = await cart.setItem(variant.id, currentQuantity + 1);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added
+              ? '${item.name} added to cart.'
+              : cart.state.message ?? 'Cart could not be updated safely.',
+        ),
+        action: added
+            ? SnackBarAction(label: 'View cart', onPressed: _openCart)
+            : null,
+      ),
+    );
   }
 
   void _openProduct(String itemId) {

@@ -417,7 +417,12 @@ final class AccountDeletionRequest {
   final DateTime requestedAt, effectiveAt;
 }
 
-abstract interface class Phase5Remote {
+abstract interface class AccountPrivacyRemote {
+  Future<AccountDataExport> exportAccountData();
+  Future<AccountDeletionRequest> requestAccountDeletion(String reason);
+}
+
+abstract interface class Phase5Remote implements AccountPrivacyRemote {
   Future<List<SocialEphemeral>> ephemeral();
   Future<SocialMediaJob> createMedia(String assetId, String kind);
   Future<SocialEphemeral> createEphemeral(
@@ -478,8 +483,6 @@ abstract interface class Phase5Remote {
   });
   Future<List<EmergencyMessage>> emergencyMessages(String id);
   Future<EmergencyMessage> sendEmergencyMessage(String id, String body);
-  Future<AccountDataExport> exportAccountData();
-  Future<AccountDeletionRequest> requestAccountDeletion(String reason);
 }
 
 final class Phase5Api implements Phase5Remote {
@@ -962,6 +965,13 @@ final class Phase5Controller extends ChangeNotifier {
     required String caption,
   }) async {
     if (_state.busy) return;
+    if (!RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,159}$').hasMatch(assetId)) {
+      _fail(
+        const FormatException('Media asset reference is invalid.'),
+        'Select media from the private upload provider before publishing.',
+      );
+      return;
+    }
     _set(_state.copyWith(status: Phase5Status.submitting, clearMessage: true));
     try {
       final media = await _remote.createMedia(assetId, kind);

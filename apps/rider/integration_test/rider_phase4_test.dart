@@ -35,7 +35,11 @@ void main() {
       expect(controller.state.pendingCommands, 0);
       final pickedUp = controller.state.tasks.single;
       expect(pickedUp.status, 'PICKED_UP');
-      await controller.complete(pickedUp, otp: '135790');
+      await controller.complete(
+        pickedUp,
+        otp: '135790',
+        blurredPhotoAssetId: 'asset-blurred-pod-e2e-007',
+      );
       expect(controller.state.tasks.single.status, 'DELIVERED');
       await controller.openChat(pickedUp.orderId);
       await controller.sendMessage('Please call +91 98765 43210');

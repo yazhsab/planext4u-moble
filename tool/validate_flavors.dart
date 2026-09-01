@@ -47,6 +47,21 @@ void main() {
       'signingConfigs.getByName("debug")',
       '$appName release signing boundary',
     );
+    for (final token in [
+      'protectedAndroidSigningPresent',
+      'ANDROID_KEYSTORE_PATH',
+      'ANDROID_KEYSTORE_PASSWORD',
+      'ANDROID_KEY_ALIAS',
+      'ANDROID_KEY_PASSWORD',
+      'Production release signing must be supplied by the protected CI environment.',
+    ]) {
+      expectContains(
+        failures,
+        gradle,
+        token,
+        '$appName protected Android signing boundary',
+      );
+    }
 
     final manifest = read(
       'apps/$appName/android/app/src/main/AndroidManifest.xml',
@@ -59,6 +74,9 @@ void main() {
       'android.permission.ACCESS_COARSE_LOCATION',
       'android.permission.ACCESS_FINE_LOCATION',
       'android.permission.POST_NOTIFICATIONS',
+      'android:allowBackup="false"',
+      'android:fullBackupContent="false"',
+      r'android:usesCleartextTraffic="${usesCleartextTraffic}"',
     ]) {
       expectContains(
         failures,
@@ -90,16 +108,59 @@ void main() {
 
     final infoPlist = read('apps/$appName/ios/Runner/Info.plist');
     final entitlements = read('apps/$appName/ios/Runner/Runner.entitlements');
-    final podfile = read('apps/$appName/ios/Podfile');
+    final podfilePath = 'apps/$appName/ios/Podfile';
+    final usesCocoaPods = File(podfilePath).existsSync();
+    final podfile = usesCocoaPods ? read(podfilePath) : '';
     final xcodeProject = read(
       'apps/$appName/ios/Runner.xcodeproj/project.pbxproj',
     );
     expectContains(
       failures,
-      podfile,
-      "platform :ios, '15.0'",
+      xcodeProject,
+      'IPHONEOS_DEPLOYMENT_TARGET = 15.0;',
       '$appName iOS deployment target',
     );
+    if (usesCocoaPods) {
+      expectContains(
+        failures,
+        podfile,
+        "platform :ios, '15.0'",
+        '$appName CocoaPods deployment target',
+      );
+    } else {
+      expectContains(
+        failures,
+        xcodeProject,
+        'FlutterGeneratedPluginSwiftPackage',
+        '$appName Swift Package integration',
+      );
+      for (final legacyReference in ['Pods_', 'Pods-', '[CP]']) {
+        expectAbsent(
+          failures,
+          xcodeProject,
+          legacyReference,
+          '$appName Swift Package project',
+        );
+      }
+      final workspace = read(
+        'apps/$appName/ios/Runner.xcworkspace/contents.xcworkspacedata',
+      );
+      expectAbsent(
+        failures,
+        workspace,
+        'Pods/Pods.xcodeproj',
+        '$appName Swift Package workspace',
+      );
+      for (final mode in ['Debug', 'Release']) {
+        final config = read('apps/$appName/ios/Flutter/$mode.xcconfig');
+        expectAbsent(
+          failures,
+          config,
+          'Pods/Target Support Files',
+          '$appName Swift Package $mode configuration',
+        );
+      }
+    }
     expectContains(
       failures,
       infoPlist,
@@ -145,6 +206,27 @@ void main() {
       r'<key>aps-environment</key>',
       '$appName iOS push entitlement',
     );
+    final privacyManifest = read(
+      'apps/$appName/ios/Runner/PrivacyInfo.xcprivacy',
+    );
+    for (final token in [
+      'NSPrivacyTracking',
+      'NSPrivacyCollectedDataTypes',
+      '<false/>',
+    ]) {
+      expectContains(
+        failures,
+        privacyManifest,
+        token,
+        '$appName iOS privacy manifest',
+      );
+    }
+    expectContains(
+      failures,
+      xcodeProject,
+      'PrivacyInfo.xcprivacy in Resources',
+      '$appName iOS privacy resource phase',
+    );
 
     for (final MapEntry(key: flavorName, value: flavor) in flavors.entries) {
       expectContains(
@@ -188,12 +270,14 @@ void main() {
         'BuildableName = "RunnerTests.xctest"',
         '$appName iOS $flavorName test target',
       );
-      expectContains(
-        failures,
-        podfile,
-        "'Debug-$flavorName' => :debug",
-        '$appName CocoaPods $flavorName mapping',
-      );
+      if (usesCocoaPods) {
+        expectContains(
+          failures,
+          podfile,
+          "'Debug-$flavorName' => :debug",
+          '$appName CocoaPods $flavorName mapping',
+        );
+      }
       expectContains(
         failures,
         xcodeProject,
