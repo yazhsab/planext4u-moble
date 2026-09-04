@@ -3,6 +3,75 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
 void main() {
+  test('network image URLs require HTTPS without embedded credentials', () {
+    expect(
+      planext4uSafeNetworkImageUrl(
+        'https://images.planext4u.net/synthetic.webp',
+      ),
+      isTrue,
+    );
+    expect(
+      planext4uSafeNetworkImageUrl('http://example.test/image.webp'),
+      isFalse,
+    );
+    expect(planext4uSafeNetworkImageUrl('javascript:alert(1)'), isFalse);
+    expect(
+      planext4uSafeNetworkImageUrl(
+        'https://user:secret@example.test/image.webp',
+      ),
+      isFalse,
+    );
+  });
+
+  testWidgets('unsafe and expired images fail closed without a request', (
+    tester,
+  ) async {
+    Future<void> render(String url, DateTime? expiresAt) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Planext4uNetworkImage(
+            url: url,
+            semanticLabel: 'Synthetic product',
+            expiresAt: expiresAt,
+          ),
+        ),
+      ),
+    );
+
+    await render('javascript:alert(1)', null);
+    expect(find.text('Image unavailable'), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
+
+    await render(
+      'https://images.planext4u.net/synthetic.webp',
+      DateTime.utc(2020),
+    );
+    expect(find.text('Image unavailable'), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
+  });
+
+  testWidgets('network images expose backend accessibility text', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 100,
+            height: 100,
+            child: Planext4uNetworkImage(
+              url: 'https://images.planext4u.net/synthetic-product.webp',
+              semanticLabel: 'Synthetic milk bottle',
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.bySemanticsLabel('Synthetic milk bottle'), findsOneWidget);
+    semantics.dispose();
+  });
+
   testWidgets('data saver requires an explicit image request', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

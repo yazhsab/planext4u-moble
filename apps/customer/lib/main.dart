@@ -15,6 +15,7 @@ import 'package:planext4u_identity/planext4u_identity.dart';
 import 'package:planext4u_observability/planext4u_observability.dart';
 import 'package:planext4u_storage/planext4u_storage.dart';
 
+import 'community_capture.dart';
 import 'firebase_identity_providers.dart';
 import 'payment_provider_launcher.dart';
 import 'push_registration.dart';
@@ -58,6 +59,8 @@ class CustomerRuntime extends StatefulWidget {
     this.firebaseAuth,
     this.firebaseMessaging,
     this.firebaseFailure,
+    this.communityMediaUploader,
+    this.socialRtcProviderFactory,
     this.apiDiagnostics = const NoopApiDiagnostics(),
     super.key,
   });
@@ -66,6 +69,8 @@ class CustomerRuntime extends StatefulWidget {
   final FirebaseAuth? firebaseAuth;
   final FirebaseMessaging? firebaseMessaging;
   final Object? firebaseFailure;
+  final CommunityMediaUploader? communityMediaUploader;
+  final SocialRtcOfferProviderFactory? socialRtcProviderFactory;
   final ApiDiagnostics apiDiagnostics;
 
   @override
@@ -84,9 +89,12 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   FoodController? _food;
   SocialController? _social;
   Phase5Controller? _phase5;
+  CommunityMediaCoordinator? _communityMediaCoordinator;
   AccountPrivacyController? _accountPrivacy;
+  IdentityProfileController? _identityProfile;
   IdentitySessionManagementController? _sessionManagement;
   NotificationPreferencesController? _notificationPreferences;
+  SupportController? _support;
   AppearancePreferencesController? _appearancePreferences;
   BootstrapController? _bootstrap;
   ConsentController? _consent;
@@ -152,11 +160,15 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
       authSession: session,
       diagnostics: widget.apiDiagnostics,
     );
+    final catalogApi = CatalogApi(
+      client,
+      postalCodeProvider: () => _location?.state.location?.postalCode,
+    );
     _catalog = CatalogController(
-      remote: CatalogApi(client),
+      remote: catalogApi,
       cache: MemoryCustomerHomeCache(),
     );
-    _marketplace = MarketplaceController(remote: CatalogApi(client));
+    _marketplace = MarketplaceController(remote: catalogApi);
     _cart = CartController(remote: CartApi(client));
     _transactions = TransactionController(
       remote: TransactionApi(client),
@@ -169,12 +181,26 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _social = SocialController(remote: SocialApi(client));
     final phase5Api = Phase5Api(client);
     _phase5 = Phase5Controller(remote: phase5Api);
+    final communityMediaUploader = widget.communityMediaUploader;
+    if (communityMediaUploader != null) {
+      _communityMediaCoordinator = createDeviceCommunityMediaCoordinator(
+        uploader: communityMediaUploader,
+      );
+    }
     _accountPrivacy = AccountPrivacyController(phase5Api);
+    _identityProfile = IdentityProfileController(
+      expectedRole: AppRole.customer,
+      remote: IdentityProfileApi(client),
+    );
     _sessionManagement = IdentitySessionManagementController(
       IdentitySessionManagementApi(client),
     );
     _notificationPreferences = NotificationPreferencesController(
       NotificationPreferencesApi(client),
+    );
+    _support = SupportController(
+      role: AppRole.customer,
+      remote: SupportApi(client),
     );
     final messaging = widget.firebaseMessaging;
     if (messaging != null && _pushRegistration == null) {
@@ -282,9 +308,12 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _food?.dispose();
     _social?.dispose();
     _phase5?.dispose();
+    unawaited(_communityMediaCoordinator?.dispose());
     _accountPrivacy?.dispose();
+    _identityProfile?.dispose();
     _sessionManagement?.dispose();
     _notificationPreferences?.dispose();
+    _support?.dispose();
     _bootstrap?.dispose();
     _consent?.dispose();
     _location?.dispose();
@@ -296,9 +325,12 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _food = null;
     _social = null;
     _phase5 = null;
+    _communityMediaCoordinator = null;
     _accountPrivacy = null;
+    _identityProfile = null;
     _sessionManagement = null;
     _notificationPreferences = null;
+    _support = null;
     _bootstrap = null;
     _consent = null;
     _location = null;
@@ -325,9 +357,13 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         foodController: _food,
         socialController: _social,
         phase5Controller: _phase5,
+        communityMediaCoordinator: _communityMediaCoordinator,
+        socialRtcProviderFactory: widget.socialRtcProviderFactory,
         accountPrivacyController: _accountPrivacy,
+        identityProfileController: _identityProfile,
         sessionManagementController: _sessionManagement,
         notificationPreferencesController: _notificationPreferences,
+        supportController: _support,
         appearancePreferencesController: _appearancePreferences,
         bootstrapController: _bootstrap,
         consentController: _consent,
@@ -684,9 +720,13 @@ class CustomerApp extends StatefulWidget {
     this.foodController,
     this.socialController,
     this.phase5Controller,
+    this.communityMediaCoordinator,
+    this.socialRtcProviderFactory,
     this.accountPrivacyController,
+    this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
+    this.supportController,
     this.appearancePreferencesController,
     this.paymentRecoveryStore,
     this.bootstrapController,
@@ -710,9 +750,13 @@ class CustomerApp extends StatefulWidget {
   final FoodController? foodController;
   final SocialController? socialController;
   final Phase5Controller? phase5Controller;
+  final CommunityMediaCoordinator? communityMediaCoordinator;
+  final SocialRtcOfferProviderFactory? socialRtcProviderFactory;
   final AccountPrivacyController? accountPrivacyController;
+  final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
+  final SupportController? supportController;
   final AppearancePreferencesController? appearancePreferencesController;
   final PaymentRecoveryStore? paymentRecoveryStore;
   final BootstrapController? bootstrapController;
@@ -833,10 +877,14 @@ class _CustomerAppState extends State<CustomerApp> {
               foodController: _food,
               socialController: _social,
               phase5Controller: widget.phase5Controller,
+              communityMediaCoordinator: widget.communityMediaCoordinator,
+              socialRtcProviderFactory: widget.socialRtcProviderFactory,
               accountPrivacyController: widget.accountPrivacyController,
+              identityProfileController: widget.identityProfileController,
               sessionManagementController: widget.sessionManagementController,
               notificationPreferencesController:
                   widget.notificationPreferencesController,
+              supportController: widget.supportController,
               appearancePreferencesController:
                   widget.appearancePreferencesController,
               openCommunityInitially: link is CustomerCommunityLink,
@@ -1496,6 +1544,7 @@ final class _EncryptedLocationStore implements CustomerLocationStore {
           accuracyMetres: (value['accuracy_metres']! as num).toDouble(),
           capturedAt: capturedAt.toUtc(),
           label: value['label']! as String,
+          postalCode: value['postal_code'] as String?,
         );
       })).value;
 
@@ -1510,6 +1559,7 @@ final class _EncryptedLocationStore implements CustomerLocationStore {
         'accuracy_metres': value.accuracyMetres,
         'captured_at': value.capturedAt.toIso8601String(),
         'label': value.label,
+        if (value.postalCode != null) 'postal_code': value.postalCode,
       },
       expiresAt: now.add(const Duration(days: 30)),
       staleUntil: now.add(const Duration(days: 30)),

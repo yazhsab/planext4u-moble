@@ -645,10 +645,29 @@ final class _ProductMedia extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final candidates = {
-      if (item.mediaRef != null) item.mediaRef!,
-      ...item.mediaRefs,
-    }.where(_safeImageUrl).toList(growable: false);
+    final now = DateTime.now().toUtc();
+    final candidates = <_ProductImageCandidate>[
+      for (final presentation in item.media)
+        if (!presentation.isExpiredAt(now) && _safeImageUrl(presentation.url))
+          _ProductImageCandidate(
+            url: presentation.url,
+            label: presentation.altText,
+            expiresAt: presentation.expiresAt,
+            variants: [
+              for (final variant in presentation.variants)
+                Planext4uNetworkImageVariant(
+                  url: variant.url,
+                  width: variant.width,
+                  height: variant.height,
+                ),
+            ],
+          ),
+      for (final url in {
+        if (item.mediaRef != null) item.mediaRef!,
+        ...item.mediaRefs,
+      }.where(_safeImageUrl))
+        _ProductImageCandidate(url: url, label: '${item.name} product image'),
+    ];
     return Container(
       height: 260,
       margin: const EdgeInsets.all(Planext4uSpacing.x4),
@@ -661,20 +680,24 @@ final class _ProductMedia extends StatelessWidget {
           ? const Center(child: Icon(Icons.shopping_bag_outlined, size: 88))
           : PageView(
               children: [
-                for (final url in candidates)
+                for (final candidate in candidates)
                   Semantics(
-                    label: '${item.name} product image',
+                    label: candidate.label,
                     button: true,
                     child: InkWell(
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) =>
-                              _ZoomedProductImage(url: url, label: item.name),
+                          builder: (_) => _ZoomedProductImage(
+                            candidate: candidate,
+                            title: item.name,
+                          ),
                         ),
                       ),
                       child: Planext4uNetworkImage(
-                        url: url,
-                        semanticLabel: '${item.name} product image',
+                        url: candidate.url,
+                        semanticLabel: candidate.label,
+                        variants: candidate.variants,
+                        expiresAt: candidate.expiresAt,
                         fit: BoxFit.contain,
                       ),
                     ),
@@ -686,19 +709,21 @@ final class _ProductMedia extends StatelessWidget {
 }
 
 final class _ZoomedProductImage extends StatelessWidget {
-  const _ZoomedProductImage({required this.url, required this.label});
-  final String url;
-  final String label;
+  const _ZoomedProductImage({required this.candidate, required this.title});
+  final _ProductImageCandidate candidate;
+  final String title;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(label)),
+    appBar: AppBar(title: Text(title)),
     body: InteractiveViewer(
       minScale: 0.8,
       maxScale: 5,
       child: Center(
         child: Planext4uNetworkImage(
-          url: url,
-          semanticLabel: '$label zoomed product image',
+          url: candidate.url,
+          semanticLabel: '${candidate.label}, zoomed',
+          variants: candidate.variants,
+          expiresAt: candidate.expiresAt,
           fit: BoxFit.contain,
         ),
       ),
@@ -706,9 +731,22 @@ final class _ZoomedProductImage extends StatelessWidget {
   );
 }
 
+final class _ProductImageCandidate {
+  const _ProductImageCandidate({
+    required this.url,
+    required this.label,
+    this.variants = const [],
+    this.expiresAt,
+  });
+
+  final String url;
+  final String label;
+  final List<Planext4uNetworkImageVariant> variants;
+  final DateTime? expiresAt;
+}
+
 bool _safeImageUrl(String value) {
-  final uri = Uri.tryParse(value);
-  return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty;
+  return planext4uSafeNetworkImageUrl(value);
 }
 
 final class _TabCopy extends StatelessWidget {

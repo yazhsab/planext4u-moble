@@ -1,4 +1,5 @@
 import 'package:planext4u_api_client/planext4u_api_client.dart';
+import 'package:planext4u_core/planext4u_core.dart';
 
 import 'identity_models.dart';
 
@@ -12,6 +13,64 @@ abstract interface class IdentityRemote {
   Future<IdentityAuthentication> refresh(String refreshToken);
 
   Future<void> revoke(String refreshToken);
+}
+
+abstract interface class IdentityProfileRemote {
+  Future<CurrentIdentityProfile> current();
+
+  Future<IdentityProfile> update({
+    required IdentityProfile current,
+    required String displayName,
+    required String locale,
+    required String timeZone,
+  });
+}
+
+final class IdentityProfileApi implements IdentityProfileRemote {
+  const IdentityProfileApi(this._client);
+
+  final ApiClient _client;
+
+  @override
+  Future<CurrentIdentityProfile> current() async => (await _client.send(
+    ApiRequest.get(operation: 'identity.get_current_profile', path: '/v1/me'),
+    CurrentIdentityProfile.fromJson,
+  )).value;
+
+  @override
+  Future<IdentityProfile> update({
+    required IdentityProfile current,
+    required String displayName,
+    required String locale,
+    required String timeZone,
+  }) async {
+    final normalizedName = displayName.trim();
+    final normalizedLocale = locale.trim();
+    final normalizedTimeZone = timeZone.trim();
+    if (current.version < 1 ||
+        normalizedName.isEmpty ||
+        normalizedName.length > 100 ||
+        !isPlanext4uLocaleCode(normalizedLocale) ||
+        normalizedTimeZone.isEmpty ||
+        normalizedTimeZone.length > 64) {
+      throw const FormatException('Profile update is invalid.');
+    }
+    return (await _client.send(
+      ApiRequest(
+        operation: 'identity.update_current_profile',
+        method: 'PATCH',
+        path: '/v1/me',
+        headers: {'If-Match': '"${current.version}"'},
+        body: {
+          'display_name': normalizedName,
+          'locale': normalizedLocale,
+          'time_zone': normalizedTimeZone,
+        },
+        replayPolicy: ApiReplayPolicy.never,
+      ),
+      IdentityProfile.fromJson,
+    )).value;
+  }
 }
 
 final class IdentityApi implements IdentityRemote {

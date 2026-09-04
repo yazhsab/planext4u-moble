@@ -3,6 +3,206 @@ import 'package:planext4u_api_client/planext4u_api_client.dart';
 
 enum Phase5Status { idle, loading, ready, submitting, failure }
 
+enum CommunityMediaKind { storyImage, reelVideo, classifiedImage, voiceNote }
+
+enum CommunityCaptureIssue {
+  permissionDenied,
+  unavailable,
+  invalidEvidence,
+  recordingConflict,
+}
+
+final class CommunityCaptureException implements Exception {
+  const CommunityCaptureException(this.issue, this.message);
+
+  final CommunityCaptureIssue issue;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+final class CommunityBinaryMedia {
+  const CommunityBinaryMedia({
+    required this.bytes,
+    required this.contentType,
+    this.duration,
+  });
+
+  final Uint8List bytes;
+  final String contentType;
+  final Duration? duration;
+}
+
+/// Device image/video capture boundary. Returning `null` means the customer
+/// cancelled the platform capture flow.
+abstract interface class CommunityVisualCaptureSource {
+  Future<CommunityBinaryMedia?> capture(CommunityMediaKind kind);
+}
+
+/// Stateful microphone boundary used by the conversation recording controls.
+abstract interface class CommunityVoiceCaptureSource {
+  Future<void> start();
+  Future<CommunityBinaryMedia?> stop();
+  Future<void> cancel();
+  Future<void> dispose();
+}
+
+/// Private upload/moderation boundary. Implementations return only an opaque
+/// server-owned asset reference; upload URLs and raw bytes are never persisted
+/// by the experience package.
+abstract interface class CommunityMediaUploader {
+  Future<String> upload({
+    required CommunityMediaKind kind,
+    required CommunityBinaryMedia media,
+  });
+}
+
+final class CommunityMediaCoordinator {
+  CommunityMediaCoordinator({
+    required CommunityVisualCaptureSource visualSource,
+    required CommunityVoiceCaptureSource voiceSource,
+    required CommunityMediaUploader uploader,
+  }) : _visualSource = visualSource,
+       _voiceSource = voiceSource,
+       _uploader = uploader;
+
+  static const int maxImageBytes = 15 * 1024 * 1024;
+  static const int maxVideoBytes = 100 * 1024 * 1024;
+  static const int maxVoiceBytes = 10 * 1024 * 1024;
+  static const Duration maxReelDuration = Duration(seconds: 60);
+  static const Duration maxVoiceDuration = Duration(seconds: 60);
+
+  final CommunityVisualCaptureSource _visualSource;
+  final CommunityVoiceCaptureSource _voiceSource;
+  final CommunityMediaUploader _uploader;
+  bool _voiceActive = false;
+
+  bool get voiceActive => _voiceActive;
+
+  Future<String?> captureAndUpload(CommunityMediaKind kind) async {
+    if (kind == CommunityMediaKind.voiceNote) {
+      throw const CommunityCaptureException(
+        CommunityCaptureIssue.invalidEvidence,
+        'Voice notes require an explicit recording session.',
+      );
+    }
+    final media = await _visualSource.capture(kind);
+    if (media == null) return null;
+    _validate(kind, media);
+    return _upload(kind, media);
+  }
+
+  Future<void> startVoice() async {
+    if (_voiceActive) {
+      throw const CommunityCaptureException(
+        CommunityCaptureIssue.recordingConflict,
+        'A voice recording is already active.',
+      );
+    }
+    try {
+      await _voiceSource.start();
+      _voiceActive = true;
+    } catch (_) {
+      _voiceActive = false;
+      rethrow;
+    }
+  }
+
+  Future<String?> stopVoiceAndUpload() async {
+    if (!_voiceActive) {
+      throw const CommunityCaptureException(
+        CommunityCaptureIssue.recordingConflict,
+        'No voice recording is active.',
+      );
+    }
+    try {
+      final media = await _voiceSource.stop();
+      if (media == null) return null;
+      _validate(CommunityMediaKind.voiceNote, media);
+      return _upload(CommunityMediaKind.voiceNote, media);
+    } finally {
+      _voiceActive = false;
+    }
+  }
+
+  Future<void> cancelVoice() async {
+    if (!_voiceActive) return;
+    try {
+      await _voiceSource.cancel();
+    } finally {
+      _voiceActive = false;
+    }
+  }
+
+  Future<void> dispose() async {
+    await cancelVoice();
+    await _voiceSource.dispose();
+  }
+
+  Future<String> _upload(
+    CommunityMediaKind kind,
+    CommunityBinaryMedia media,
+  ) async {
+    final reference = (await _uploader.upload(kind: kind, media: media)).trim();
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$').hasMatch(reference)) {
+      throw const CommunityCaptureException(
+        CommunityCaptureIssue.invalidEvidence,
+        'The media provider returned an invalid private asset reference.',
+      );
+    }
+    return reference;
+  }
+
+  static void _validate(CommunityMediaKind kind, CommunityBinaryMedia media) {
+    final ({
+      int maxBytes,
+      Set<String> contentTypes,
+      Duration? maxDuration,
+      bool durationRequired,
+    })
+    policy = switch (kind) {
+      CommunityMediaKind.storyImage || CommunityMediaKind.classifiedImage => (
+        maxBytes: maxImageBytes,
+        contentTypes: const {'image/jpeg', 'image/png', 'image/webp'},
+        maxDuration: null,
+        durationRequired: false,
+      ),
+      CommunityMediaKind.reelVideo => (
+        maxBytes: maxVideoBytes,
+        contentTypes: const {'video/mp4', 'video/quicktime'},
+        maxDuration: maxReelDuration,
+        durationRequired: false,
+      ),
+      CommunityMediaKind.voiceNote => (
+        maxBytes: maxVoiceBytes,
+        contentTypes: const {
+          'audio/mp4',
+          'audio/aac',
+          'audio/m4a',
+          'audio/x-m4a',
+        },
+        maxDuration: maxVoiceDuration,
+        durationRequired: true,
+      ),
+    };
+    final duration = media.duration;
+    if (media.bytes.isEmpty ||
+        media.bytes.length > policy.maxBytes ||
+        !policy.contentTypes.contains(media.contentType) ||
+        (policy.durationRequired &&
+            (duration == null || duration <= Duration.zero)) ||
+        (duration != null &&
+            policy.maxDuration != null &&
+            duration > policy.maxDuration!)) {
+      throw const CommunityCaptureException(
+        CommunityCaptureIssue.invalidEvidence,
+        'Captured media does not satisfy the size, type or duration policy.',
+      );
+    }
+  }
+}
+
 final class Phase5Money {
   const Phase5Money({required this.amountMinor, required this.currency});
   factory Phase5Money.fromJson(Object? value) {
@@ -932,6 +1132,35 @@ final class Phase5Controller extends ChangeNotifier {
         () => _remote.sendMessage(id, body, voiceMediaId: voiceMediaId),
         'Message delivered.',
       );
+  Future<String?> prepareVoiceMessage(String assetId) async {
+    if (_state.busy) return null;
+    if (!_validCommunityMediaReference(assetId)) {
+      _fail(
+        const FormatException('Voice asset reference is invalid.'),
+        'Record a voice note with the private media provider first.',
+      );
+      return null;
+    }
+    _set(_state.copyWith(status: Phase5Status.submitting, clearMessage: true));
+    try {
+      final media = await _remote.createMedia(assetId, 'VOICE');
+      if (media.state == 'READY') {
+        _set(_state.copyWith(status: Phase5Status.ready));
+        return media.id;
+      }
+      _set(
+        _state.copyWith(
+          status: Phase5Status.ready,
+          message:
+              'Voice note uploaded for safety processing. It was not sent yet.',
+        ),
+      );
+    } catch (error) {
+      _fail(error, 'Voice note could not be prepared.');
+    }
+    return null;
+  }
+
   Future<void> acceptConversation(String id) => _mutate(
     () => _remote.acceptConversation(id),
     'Message request accepted.',
@@ -965,22 +1194,33 @@ final class Phase5Controller extends ChangeNotifier {
     required String caption,
   }) async {
     if (_state.busy) return;
-    if (!RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,159}$').hasMatch(assetId)) {
+    final normalizedKind = kind.trim().toUpperCase();
+    final normalizedCaption = caption.trim();
+    if (!_validCommunityMediaReference(assetId) ||
+        !const {'STORY', 'REEL'}.contains(normalizedKind) ||
+        normalizedCaption.length > 1000) {
       _fail(
         const FormatException('Media asset reference is invalid.'),
-        'Select media from the private upload provider before publishing.',
+        'Select valid media and caption from the private provider before publishing.',
       );
       return;
     }
     _set(_state.copyWith(status: Phase5Status.submitting, clearMessage: true));
     try {
-      final media = await _remote.createMedia(assetId, kind);
+      final media = await _remote.createMedia(
+        assetId,
+        normalizedKind == 'STORY' ? 'IMAGE' : 'VIDEO',
+      );
       if (media.state == 'READY') {
-        await _remote.createEphemeral(kind, media.id, caption);
+        await _remote.createEphemeral(
+          normalizedKind,
+          media.id,
+          normalizedCaption,
+        );
         _set(
           _state.copyWith(
             status: Phase5Status.ready,
-            message: '$kind published.',
+            message: '$normalizedKind published.',
           ),
         );
         await load();
@@ -1146,6 +1386,9 @@ final class Phase5Controller extends ChangeNotifier {
     notifyListeners();
   }
 }
+
+bool _validCommunityMediaReference(String value) =>
+    RegExp(r'^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$').hasMatch(value);
 
 Map<String, Object?> _object(Object? value, String label) {
   if (value is! Map<String, Object?>) {

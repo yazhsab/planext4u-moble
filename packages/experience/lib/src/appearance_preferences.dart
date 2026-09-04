@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_storage/planext4u_storage.dart';
-
-import 'localization.dart';
 
 enum AppearanceThemePreference {
   system('SYSTEM', 'Use device setting'),
@@ -83,9 +82,9 @@ final class AppearancePreferences {
     );
   }
 
-  static final Set<String> supportedLocaleCodes = Set.unmodifiable(
-    Planext4uLocalizations.supportedLocales.map((value) => value.languageCode),
-  );
+  static const Set<String> supportedLocaleCodes = {
+    ...planext4uSupportedLocaleCodes,
+  };
 
   final AppearanceThemePreference theme;
   final String? localeCode;

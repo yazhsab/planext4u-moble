@@ -14,6 +14,7 @@ final class ServiceLocation {
     required this.accuracyMetres,
     required this.capturedAt,
     required this.label,
+    this.postalCode,
   }) {
     if (latitude < -90 ||
         latitude > 90 ||
@@ -21,7 +22,11 @@ final class ServiceLocation {
         longitude > 180 ||
         accuracyMetres < 0 ||
         !capturedAt.isUtc ||
-        label.trim().isEmpty) {
+        label.trim().isEmpty ||
+        (postalCode != null &&
+            (postalCode!.trim().length < 3 ||
+                postalCode!.trim().length > 12 ||
+                RegExp(r'[\s\r\n]').hasMatch(postalCode!.trim())))) {
       throw const FormatException('Location is invalid.');
     }
   }
@@ -31,6 +36,7 @@ final class ServiceLocation {
   final double accuracyMetres;
   final DateTime capturedAt;
   final String label;
+  final String? postalCode;
 }
 
 final class ServiceabilityDecision {
@@ -163,6 +169,7 @@ final class GeocodeCandidate {
     accuracyMetres: 1000,
     capturedAt: now.toUtc(),
     label: label,
+    postalCode: postalCode,
   );
 }
 

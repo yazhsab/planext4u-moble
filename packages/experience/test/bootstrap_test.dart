@@ -27,6 +27,32 @@ void main() {
     },
   );
 
+  test('bootstrap accepts exactly the nine platform locale codes', () {
+    const approved = ['en', 'ta', 'hi', 'te', 'kn', 'ml', 'mr', 'bn', 'gu'];
+    for (final locale in approved) {
+      final config = BootstrapConfig.fromJson({
+        ...bootstrapJson(),
+        'locale': locale,
+      });
+      expect(config.locale, locale);
+      expect(config.supportedLocales, approved);
+    }
+    expect(
+      () => BootstrapConfig.fromJson({
+        ...bootstrapJson(),
+        'supported_locales': [...approved, 'fr'],
+      }),
+      throwsFormatException,
+    );
+    expect(
+      () => BootstrapConfig.fromJson({
+        ...bootstrapJson(),
+        'supported_locales': [...approved, 'en'],
+      }),
+      throwsFormatException,
+    );
+  });
+
   test(
     'controller uses cached configuration only as an explicit offline state',
     () async {
@@ -137,6 +163,51 @@ void main() {
     expect(
       supportedCustomerHomeRoutes,
       containsAll(['/app/services', '/app/food']),
+    );
+  });
+
+  test('bootstrap derives a typed service rail from the customer CMS page', () {
+    final config = BootstrapConfig.fromJson({
+      ...bootstrapJson(),
+      'pages': [
+        {
+          'id': 'customer-home',
+          'enabled': true,
+          'blocks': [
+            {
+              'id': 'services',
+              'kind': 'SERVICE_RAIL',
+              'title_key': 'home.services',
+              'enabled': true,
+              'priority': 25,
+              'content': {
+                'collection_id': 'popular-services',
+                'maximum_items': 6,
+              },
+            },
+            {
+              'id': 'future-block',
+              'kind': 'FUTURE_BLOCK',
+              'enabled': true,
+              'priority': 30,
+              'content': <String, Object?>{},
+            },
+          ],
+        },
+      ],
+    });
+
+    final service = config.homeSections.singleWhere(
+      (section) => section.kind == 'SERVICE_RAIL',
+    );
+    expect(service.collectionId, 'popular-services');
+    expect(service.maximumItems, 6);
+    expect(service.actionRoute, '/app/services');
+    expect(
+      BootstrapConfig.fromJson(config.toJson()).homeSections
+          .singleWhere((section) => section.kind == 'SERVICE_RAIL')
+          .collectionId,
+      'popular-services',
     );
   });
 
@@ -269,7 +340,7 @@ Map<String, Object?> bootstrapJson() => {
   'latest_version': '1.2.0',
   'maintenance': false,
   'locale': 'ta',
-  'supported_locales': ['en', 'ta'],
+  'supported_locales': ['en', 'ta', 'hi', 'te', 'kn', 'ml', 'mr', 'bn', 'gu'],
   'consent_policies': [
     {
       'purpose': 'LOCATION_SERVICEABILITY',

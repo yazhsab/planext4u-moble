@@ -36,10 +36,14 @@ dart run packages/api_client/tool/generate_contracts.dart \
   --sync-from=/absolute/path/to/planext4u-backend/api/openapi/common.openapi.json \
   --fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/problem.json \
   --catalog-from=/absolute/path/to/planext4u-backend/api/openapi/catalog.openapi.json \
+  --media-from=/absolute/path/to/planext4u-backend/api/openapi/media.openapi.json \
   --commerce-from=/absolute/path/to/planext4u-backend/api/openapi/commerce.openapi.json \
   --commerce-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/commerce_cart.json \
   --transaction-from=/absolute/path/to/planext4u-backend/api/openapi/transaction.openapi.json \
   --notification-from=/absolute/path/to/planext4u-backend/api/openapi/notification.openapi.json \
+  --support-from=/absolute/path/to/planext4u-backend/api/openapi/support.openapi.json \
+  --identity-from=/absolute/path/to/planext4u-backend/api/openapi/identity.openapi.json \
+  --configuration-from=/absolute/path/to/planext4u-backend/api/openapi/configuration.openapi.json \
   --checkout-quote-from=/absolute/path/to/planext4u-backend/api/fixtures/checkout_quote.json \
   --payment-from=/absolute/path/to/planext4u-backend/api/fixtures/payment.json \
   --order-from=/absolute/path/to/planext4u-backend/api/fixtures/order.json \
@@ -53,7 +57,14 @@ dart run packages/api_client/tool/generate_contracts.dart \
   --food-order-from=/absolute/path/to/planext4u-backend/api/fixtures/food_order.json \
   --rider-assignment-from=/absolute/path/to/planext4u-backend/api/fixtures/rider_assignment.json \
   --social-from=/absolute/path/to/planext4u-backend/api/openapi/social.openapi.json \
-  --social-feed-from=/absolute/path/to/planext4u-backend/api/fixtures/social_feed.json
+  --social-feed-from=/absolute/path/to/planext4u-backend/api/fixtures/social_feed.json \
+  --local-verticals-from=/absolute/path/to/planext4u-backend/api/openapi/local_verticals.openapi.json \
+  --emergency-from=/absolute/path/to/planext4u-backend/api/openapi/emergency.openapi.json \
+  --governance-from=/absolute/path/to/planext4u-backend/api/openapi/governance.openapi.json \
+  --home-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/home_listing.json \
+  --classified-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/classified_listing.json \
+  --emergency-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/emergency_request.json \
+  --governance-fixture-from=/absolute/path/to/planext4u-backend/api/fixtures/governance_dashboard.json
 ```
 
 Do not hand-edit `lib/src/generated/*.g.dart`. CI and the root verification gate

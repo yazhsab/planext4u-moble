@@ -11,6 +11,8 @@ import 'catalog.dart';
 import 'commerce.dart';
 import 'food.dart';
 import 'food_screens.dart';
+import 'identity_profile.dart';
+import 'identity_profile_screen.dart';
 import 'localization.dart';
 import 'marketplace.dart';
 import 'marketplace_screen.dart';
@@ -23,6 +25,8 @@ import 'service_booking_screens.dart';
 import 'session_management_screen.dart';
 import 'social.dart';
 import 'social_screens.dart';
+import 'support.dart';
+import 'support_screen.dart';
 import 'transaction_screens.dart';
 import 'transactions.dart';
 
@@ -187,9 +191,13 @@ final class CustomerHomeScreen extends StatefulWidget {
     this.foodController,
     this.socialController,
     this.phase5Controller,
+    this.communityMediaCoordinator,
+    this.socialRtcProviderFactory,
     this.accountPrivacyController,
+    this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
+    this.supportController,
     this.appearancePreferencesController,
     this.openCommunityInitially = false,
     this.initialCommunityTab = 0,
@@ -213,9 +221,13 @@ final class CustomerHomeScreen extends StatefulWidget {
   final FoodController? foodController;
   final SocialController? socialController;
   final Phase5Controller? phase5Controller;
+  final CommunityMediaCoordinator? communityMediaCoordinator;
+  final SocialRtcOfferProviderFactory? socialRtcProviderFactory;
   final AccountPrivacyController? accountPrivacyController;
+  final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
+  final SupportController? supportController;
   final AppearancePreferencesController? appearancePreferencesController;
   final bool openCommunityInitially;
   final int initialCommunityTab;
@@ -239,6 +251,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     super.initState();
     widget.controller.addListener(_changed);
     widget.transactionController?.addListener(_changed);
+    widget.identityProfileController?.addListener(_changed);
     widget.transactionController?.recoverPayment();
     if (widget.controller.state.home == null) widget.controller.loadHome();
     if (widget.initialItemId != null &&
@@ -272,12 +285,18 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       widget.transactionController?.addListener(_changed);
       widget.transactionController?.recoverPayment();
     }
+    if (oldWidget.identityProfileController !=
+        widget.identityProfileController) {
+      oldWidget.identityProfileController?.removeListener(_changed);
+      widget.identityProfileController?.addListener(_changed);
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_changed);
     widget.transactionController?.removeListener(_changed);
+    widget.identityProfileController?.removeListener(_changed);
     super.dispose();
   }
 
@@ -454,6 +473,40 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
+  Future<void> _openIdentityProfile() async {
+    final controller = widget.identityProfileController;
+    if (controller == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => IdentityProfileScreen(controller: controller),
+      ),
+    );
+  }
+
+  Future<void> _openSupport() async {
+    final controller = widget.supportController;
+    if (controller != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SupportScreen(controller: controller),
+        ),
+      );
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => const SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(Planext4uSpacing.x5),
+          child: Text(
+            'Open an order from Activity for order-specific cancellation or return help.',
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _body(Planext4uLocalizations strings) {
     if (_destination == CustomerDestination.food &&
         widget.foodController != null) {
@@ -475,26 +528,44 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     }
     if (_destination != CustomerDestination.home) {
       if (_destination == CustomerDestination.profile) {
+        final displayName =
+            widget
+                .identityProfileController
+                ?.state
+                .current
+                ?.profile
+                .displayName ??
+            widget.profileDisplayName;
         return ListView(
           padding: const EdgeInsets.all(Planext4uSpacing.x4),
           children: [
             CircleAvatar(
               radius: 36,
               child: Text(
-                (widget.profileDisplayName?.trim().isNotEmpty ?? false)
-                    ? widget.profileDisplayName!.trim()[0].toUpperCase()
+                (displayName?.trim().isNotEmpty ?? false)
+                    ? displayName!.trim()[0].toUpperCase()
                     : 'P',
               ),
             ),
             const SizedBox(height: Planext4uSpacing.x3),
             Text(
-              widget.profileDisplayName?.trim().isNotEmpty ?? false
-                  ? widget.profileDisplayName!.trim()
+              displayName?.trim().isNotEmpty ?? false
+                  ? displayName!.trim()
                   : 'Planext4u customer',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: Planext4uSpacing.x5),
+            if (widget.identityProfileController != null)
+              ListTile(
+                key: const ValueKey('customer-edit-identity-profile'),
+                leading: const Icon(Icons.manage_accounts_outlined),
+                title: const Text('Personal profile'),
+                subtitle: const Text(
+                  'Edit your display name, language and time zone',
+                ),
+                onTap: _openIdentityProfile,
+              ),
             ListTile(
               leading: const Icon(Icons.location_on_outlined),
               title: const Text('Saved addresses'),
@@ -530,29 +601,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 onTap: _openServices,
               ),
             ListTile(
+              key: const ValueKey('customer-support'),
               leading: const Icon(Icons.help_outline),
               title: const Text('Help and support'),
               subtitle: const Text('Orders, payments, returns and safety'),
-              onTap: () => showModalBottomSheet<void>(
-                context: context,
-                showDragHandle: true,
-                builder: (context) => const SafeArea(
-                  child: Padding(
-                    padding: EdgeInsets.all(Planext4uSpacing.x5),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Planext4u support'),
-                        SizedBox(height: Planext4uSpacing.x2),
-                        Text(
-                          'Open an order from Activity for order-specific help, cancellation or return actions.',
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+              onTap: _openSupport,
             ),
             if (widget.accountPrivacyController != null) ...[
               const Divider(),
@@ -809,6 +862,26 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                 ),
               ],
+            ),
+          )
+        else if (section.kind == 'SERVICE_RAIL' &&
+            section.collectionId.isNotEmpty &&
+            home.serviceCollections.containsKey(section.collectionId))
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              Planext4uSpacing.x4,
+              0,
+              Planext4uSpacing.x4,
+              Planext4uSpacing.x5,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: _serviceCollectionRail(
+                section,
+                home.serviceCollections[section.collectionId]!,
+                strings,
+                textScale: textScale,
+                largeText: largeText,
+              ),
             ),
           )
         else if (section.kind == 'SERVICE_DISCOVERY')
@@ -1070,6 +1143,50 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           onTap: _homeRouteAction(item.actionRoute),
         ),
     ]);
+  }
+
+  Widget _serviceCollectionRail(
+    HomeSectionConfig section,
+    CatalogServiceCollection collection,
+    Planext4uLocalizations strings, {
+    required double textScale,
+    required bool largeText,
+  }) {
+    final items = collection.items.take(section.maximumItems).toList();
+    final canOpen =
+        widget.serviceBookingController != null &&
+        widget.transactionController != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Planext4uSectionHeader(
+          title: _homeSectionTitle(
+            section,
+            strings,
+            fallback: collection.title,
+          ),
+          subtitle: section.displaySubtitle.isEmpty
+              ? null
+              : section.displaySubtitle,
+          actionLabel: canOpen ? 'View all' : null,
+          onAction: canOpen ? _openServices : null,
+        ),
+        const SizedBox(height: Planext4uSpacing.x2),
+        Planext4uHorizontalRail(
+          semanticLabel: '${collection.title} service collection',
+          height: textScale >= 1.8 ? 420 : (largeText ? 360 : 314),
+          itemWidth: textScale >= 1.8 ? 288 : 248,
+          children: [
+            for (final item in items)
+              _CatalogServiceCollectionCard(
+                key: ValueKey('service-collection-${item.serviceId}'),
+                item: item,
+                onPressed: item.serviceable && canOpen ? _openServices : null,
+              ),
+          ],
+        ),
+      ],
+    );
   }
 
   IconData _homeBenefitIcon(String value) => switch (value) {
@@ -1382,8 +1499,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     if (controller == null) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            CustomerCommunityHubScreen(controller: controller, initialTab: tab),
+        builder: (_) => CustomerCommunityHubScreen(
+          controller: controller,
+          initialTab: tab,
+          mediaCoordinator: widget.communityMediaCoordinator,
+          rtcProviderFactory: widget.socialRtcProviderFactory,
+        ),
       ),
     );
   }
@@ -1417,6 +1538,122 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           controller: bookings,
           postalCode: address.postalCode,
           paymentLauncher: widget.paymentLauncher,
+        ),
+      ),
+    );
+  }
+}
+
+final class _CatalogServiceCollectionCard extends StatelessWidget {
+  const _CatalogServiceCollectionCard({
+    required this.item,
+    this.onPressed,
+    super.key,
+  });
+
+  final CatalogServiceCollectionItem item;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = item.media;
+    final activeMedia =
+        media != null &&
+        planext4uSafeNetworkImageUrl(media.url) &&
+        !media.isExpiredAt(DateTime.now().toUtc());
+    return Semantics(
+      button: onPressed != null,
+      enabled: onPressed != null,
+      label:
+          '${item.title}. ${item.priceDisplay}. ${item.trust.ratingAverage.toStringAsFixed(1)} stars. '
+          '${item.serviceable ? 'Available in your area.' : 'Unavailable in your area.'}',
+      excludeSemantics: true,
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 112,
+                child: activeMedia
+                    ? Planext4uNetworkImage(
+                        url: media.url,
+                        semanticLabel: media.altText,
+                        variants: [
+                          for (final variant in media.variants)
+                            Planext4uNetworkImageVariant(
+                              url: variant.url,
+                              width: variant.width,
+                              height: variant.height,
+                            ),
+                        ],
+                        expiresAt: media.expiresAt,
+                      )
+                    : Planext4uMediaPlaceholder(
+                        label: 'Service image unavailable for ${item.title}',
+                        icon: Icons.home_repair_service_outlined,
+                      ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(Planext4uSpacing.x3),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          if (item.trust.verifiedProvider)
+                            const Icon(
+                              Icons.verified_outlined,
+                              size: 20,
+                              semanticLabel: 'Verified provider',
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: Planext4uSpacing.x1),
+                      Text(
+                        item.summary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const Spacer(),
+                      Text(
+                        item.priceDisplay,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: Planext4uSpacing.x1),
+                      Text(
+                        '${item.trust.ratingAverage.toStringAsFixed(1)} ★ • '
+                        '${item.trust.completedBookings} completed',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      if (!item.serviceable)
+                        const Padding(
+                          padding: EdgeInsets.only(top: Planext4uSpacing.x1),
+                          child: Text(
+                            'Unavailable here',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -7,4 +7,21 @@ void main() {
     expect(AppRole.vendor.description, contains('catalog'));
     expect(AppRole.rider.description, contains('assignments'));
   });
+
+  test('platform locale codes expose the approved deterministic order', () {
+    expect(planext4uDefaultLocaleCode, 'en');
+    expect(planext4uSupportedLocaleCodes, [
+      'en',
+      'ta',
+      'hi',
+      'te',
+      'kn',
+      'ml',
+      'mr',
+      'bn',
+      'gu',
+    ]);
+    expect(isPlanext4uLocaleCode('bn'), isTrue);
+    expect(isPlanext4uLocaleCode('fr'), isFalse);
+  });
 }

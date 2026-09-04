@@ -8,9 +8,11 @@ import 'package:planext4u_identity/planext4u_identity.dart';
 
 import 'account_privacy.dart';
 import 'appearance_preferences.dart';
+import 'identity_profile.dart';
 import 'localization.dart';
 import 'notification_preferences.dart';
 import 'phase5.dart';
+import 'support.dart';
 
 typedef AuthenticatedRoleBuilder<T extends ChangeNotifier> =
     Widget Function(
@@ -18,8 +20,10 @@ typedef AuthenticatedRoleBuilder<T extends ChangeNotifier> =
       T controller,
       Set<AppRole> roles,
       Future<void> Function() signOut,
+      IdentityProfileController identityProfile,
       IdentitySessionManagementController sessionManagement,
       NotificationPreferencesController notificationPreferences,
+      SupportController support,
       AppearancePreferencesController appearancePreferences,
       AccountPrivacyController accountPrivacy,
     );
@@ -68,8 +72,10 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
   IdentitySessionController? _session;
   StreamSubscription<IdentitySessionState>? _subscription;
   T? _controller;
+  IdentityProfileController? _identityProfile;
   IdentitySessionManagementController? _sessionManagement;
   NotificationPreferencesController? _notificationPreferences;
+  SupportController? _support;
   AppearancePreferencesController? _appearancePreferences;
   AccountPrivacyController? _accountPrivacy;
   Object? _failure;
@@ -133,11 +139,19 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
       diagnostics: widget.apiDiagnostics,
     );
     _controller = widget.controllerFactory(client);
+    _identityProfile = IdentityProfileController(
+      expectedRole: widget.applicationRole,
+      remote: IdentityProfileApi(client),
+    );
     _sessionManagement = IdentitySessionManagementController(
       IdentitySessionManagementApi(client),
     );
     _notificationPreferences = NotificationPreferencesController(
       NotificationPreferencesApi(client),
+    );
+    _support = SupportController(
+      role: widget.applicationRole,
+      remote: SupportApi(client),
     );
     _accountPrivacy = AccountPrivacyController(Phase5Api(client));
     final hook = widget.onAuthenticatedSession;
@@ -156,12 +170,16 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
     await widget.onSessionEnded?.call(true);
     await _session?.signOut();
     _controller?.dispose();
+    _identityProfile?.dispose();
     _sessionManagement?.dispose();
     _notificationPreferences?.dispose();
+    _support?.dispose();
     _accountPrivacy?.dispose();
     _controller = null;
+    _identityProfile = null;
     _sessionManagement = null;
     _notificationPreferences = null;
+    _support = null;
     _accountPrivacy = null;
     if (mounted) setState(() {});
   }
@@ -173,8 +191,10 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
     unawaited(_subscription?.cancel());
     unawaited(_session?.dispose());
     _controller?.dispose();
+    _identityProfile?.dispose();
     _sessionManagement?.dispose();
     _notificationPreferences?.dispose();
+    _support?.dispose();
     _accountPrivacy?.dispose();
     _appearancePreferences?.dispose();
     _transport.close(force: true);
@@ -195,8 +215,10 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
         _controller!,
         authentication.roles,
         _signOut,
+        _identityProfile!,
         _sessionManagement!,
         _notificationPreferences!,
+        _support!,
         _appearancePreferences!,
         _accountPrivacy!,
       );

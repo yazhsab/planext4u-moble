@@ -14,6 +14,7 @@ dependencies:
   flutter:
     sdk: flutter
   geolocator: ^14.0.3
+  image_picker: ^1.2.3
   planext4u_api_client: ^0.1.0
   planext4u_config: ^0.1.0
   planext4u_core: ^0.1.0

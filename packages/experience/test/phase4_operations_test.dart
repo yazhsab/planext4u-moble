@@ -407,10 +407,29 @@ void main() {
       ],
       bankReference: 'bank-reference-rider-token-001',
       zones: ['600001'],
+      dutyLocationConsent: true,
     ).toJson();
     expect(payload['phone_masked'], isNull);
     expect(payload['bank_reference'], 'bank-reference-rider-token-001');
     expect(payload['documents'], hasLength(4));
+
+    expect(
+      () => const RiderRegistrationDraft(
+        fullName: 'Synthetic Rider',
+        vehicleType: 'BICYCLE',
+        vehicleNumber: 'BIKE-001',
+        documents: [
+          RiderDocumentDraft(
+            kind: 'IDENTITY',
+            assetId: 'asset-rider-identity-001',
+          ),
+        ],
+        bankReference: 'bank-reference-rider-token-001',
+        zones: ['600001'],
+        dutyLocationConsent: false,
+      ).toJson(),
+      throwsFormatException,
+    );
 
     expect(
       () => const RiderRegistrationDraft(
@@ -425,6 +444,7 @@ void main() {
         ],
         bankReference: 'bank-reference-rider-token-001',
         zones: ['600001'],
+        dutyLocationConsent: true,
       ).toJson(),
       throwsFormatException,
     );
@@ -666,6 +686,246 @@ void main() {
     rider.dispose();
   });
 
+  testWidgets(
+    'vendor onboarding UI completes private documents visit zones and bank',
+    (tester) async {
+      final remote = _VendorRemote();
+      final controller = VendorOperationsController(remote);
+      final provider = _VendorOnboardingProvider();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: VendorOperationsView(
+              controller: controller,
+              onboardingProvider: provider,
+              destination: const RoleDestination(
+                id: 'profile',
+                label: 'Profile',
+                icon: Icons.person_outline,
+                capability: RoleCapability.profile,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('vendor-register')));
+      await tester.pumpAndSettle();
+      final verify = find.widgetWithText(TextButton, 'Verify');
+      await tester.ensureVisible(verify);
+      await tester.tap(verify);
+      await tester.pumpAndSettle();
+
+      final schedule = find.widgetWithText(TextButton, 'Schedule');
+      await tester.ensureVisible(schedule);
+      await tester.tap(schedule);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-visit-latitude')),
+        '13.0827',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-visit-longitude')),
+        '80.2707',
+      );
+      await tester.tap(find.byKey(const ValueKey('vendor-schedule-visit')));
+      await tester.pumpAndSettle();
+
+      final addZone = find.widgetWithText(TextButton, 'Add zone');
+      await tester.ensureVisible(addZone);
+      await tester.tap(addZone);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-zone-id')),
+        'chennai-core',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-zone-postal-codes')),
+        '600001, 600002',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-zone-latitude')),
+        '13.0827',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-zone-longitude')),
+        '80.2707',
+      );
+      await tester.tap(find.byKey(const ValueKey('vendor-save-zone')));
+      await tester.pumpAndSettle();
+
+      final addBank = find.widgetWithText(TextButton, 'Add bank');
+      await tester.ensureVisible(addBank);
+      await tester.tap(addBank);
+      await tester.pumpAndSettle();
+
+      expect(provider.documentCalls, 1);
+      expect(provider.bankCalls, 1);
+      expect(remote.lastVisit?.latitude, 13.0827);
+      expect(controller.state.application?.documents, isNotEmpty);
+      expect(controller.state.application?.zoneCount, 1);
+      expect(controller.state.application?.bankStatus, 'PENDING_VERIFICATION');
+    },
+  );
+
+  testWidgets('vendor onboarding supports document resubmission', (
+    tester,
+  ) async {
+    final remote = _VendorRemote()
+      ..value = const VendorApplication(
+        id: 'vendor-resubmit-001',
+        revision: 4,
+        status: 'REJECTED',
+        businessName: 'Resubmit Services',
+        documents: [
+          {'kind': 'OWNER_IDENTITY', 'ocr_status': 'REJECTED'},
+        ],
+        zoneCount: 0,
+        bankStatus: 'NOT_CONFIGURED',
+        verified: false,
+        allowedActions: {'SUBMIT_DOCUMENTS'},
+      );
+    final controller = VendorOperationsController(remote);
+    final provider = _VendorOnboardingProvider();
+    await controller.loadAll();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: VendorOperationsView(
+            controller: controller,
+            onboardingProvider: provider,
+            destination: const RoleDestination(
+              id: 'profile',
+              label: 'Profile',
+              icon: Icons.person_outline,
+              capability: RoleCapability.profile,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final resubmit = find.widgetWithText(TextButton, 'Resubmit');
+    await tester.ensureVisible(resubmit);
+    await tester.tap(resubmit);
+    await tester.pumpAndSettle();
+    expect(provider.documentCalls, 1);
+    expect(controller.state.application?.status, 'DOCUMENTS_SUBMITTED');
+  });
+
+  testWidgets('onboarding provider absence is explicit and fail closed', (
+    tester,
+  ) async {
+    final vendorRemote = _VendorRemote()
+      ..value = const VendorApplication(
+        id: 'vendor-provider-missing',
+        revision: 1,
+        status: 'REGISTERED',
+        businessName: 'Provider Pending',
+        documents: [],
+        zoneCount: 0,
+        bankStatus: 'NOT_CONFIGURED',
+        verified: false,
+        allowedActions: {'SUBMIT_DOCUMENTS'},
+      );
+    final vendor = VendorOperationsController(vendorRemote);
+    await vendor.loadAll();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: VendorOperationsView(
+            controller: vendor,
+            destination: const RoleDestination(
+              id: 'profile',
+              label: 'Profile',
+              icon: Icons.person_outline,
+              capability: RoleCapability.profile,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('vendor-document-provider-unavailable')),
+      findsOneWidget,
+    );
+
+    final riderRemote = _RiderRemote()..firstTime = true;
+    final rider = RiderOperationsController(riderRemote);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RiderOperationsView(
+            controller: rider,
+            destination: const RoleDestination(
+              id: 'duty',
+              label: 'Duty',
+              icon: Icons.toggle_on_outlined,
+              capability: RoleCapability.riderDuty,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('rider-register-provider-unavailable')),
+      findsOneWidget,
+    );
+    final submit = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('rider-submit-registration')),
+    );
+    expect(submit.onPressed, isNull);
+  });
+
+  testWidgets('rider onboarding submits provider references and duty consent', (
+    tester,
+  ) async {
+    final remote = _RiderRemote()..firstTime = true;
+    final controller = RiderOperationsController(remote);
+    final provider = _RiderOnboardingProvider();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RiderOperationsView(
+            controller: controller,
+            onboardingProvider: provider,
+            destination: const RoleDestination(
+              id: 'duty',
+              label: 'Duty',
+              icon: Icons.toggle_on_outlined,
+              capability: RoleCapability.riderDuty,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('rider-registration-name')),
+      'Verified Rider',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('rider-registration-vehicle-number')),
+      'TN01AB1234',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('rider-registration-zones')),
+      '600001,600002',
+    );
+    await tester.tap(find.byKey(const ValueKey('rider-duty-location-consent')));
+    await tester.tap(find.byKey(const ValueKey('rider-submit-registration')));
+    await tester.pumpAndSettle();
+
+    expect(provider.calls, 1);
+    expect(remote.registrationPayload?['full_name'], 'Verified Rider');
+    expect(remote.registrationPayload?['bank_reference'], startsWith('bank-'));
+    expect(remote.registrationPayload, isNot(contains('account_number')));
+    expect(find.text('Verification in progress'), findsOneWidget);
+  });
+
   testWidgets('rider assignments separate active work from history', (
     tester,
   ) async {
@@ -742,7 +1002,7 @@ void main() {
     expect(find.text('Privacy-safe route map placeholder'), findsNothing);
   });
 
-  testWidgets('rider emergency surface does not expose a fake mutation', (
+  testWidgets('rider emergency surface requires an active duty session', (
     tester,
   ) async {
     final controller = RiderOperationsController(_RiderRemote());
@@ -764,8 +1024,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Emergency dispatch is not enabled'), findsOneWidget);
-    expect(find.text('Contact support'), findsNothing);
+    expect(find.text('Use local emergency services first'), findsOneWidget);
+    expect(find.text('Start duty to use rider SOS'), findsOneWidget);
+    expect(find.byKey(const ValueKey('create-rider-emergency')), findsNothing);
     controller.dispose();
   });
 
@@ -915,8 +1176,72 @@ final class _FoodRemote implements FoodRemote {
   Future<List<FoodOrder>> orders() async => [orderValue];
 }
 
+final class _VendorOnboardingProvider implements VendorOnboardingProvider {
+  int documentCalls = 0;
+  int bankCalls = 0;
+
+  @override
+  Future<List<VendorOnboardingDocument>> collectDocuments() async {
+    documentCalls += 1;
+    return const [
+      VendorOnboardingDocument(
+        kind: 'BUSINESS_REGISTRATION',
+        assetId: 'asset-vendor-business-provider-001',
+      ),
+      VendorOnboardingDocument(
+        kind: 'OWNER_IDENTITY',
+        assetId: 'asset-vendor-owner-provider-001',
+      ),
+    ];
+  }
+
+  @override
+  Future<VendorOnboardingBankAccount> tokenizeBankAccount() async {
+    bankCalls += 1;
+    return const VendorOnboardingBankAccount(
+      reference: 'bank-vendor-provider-token-001',
+      holderName: 'Verified Vendor',
+      last4: '1234',
+      ifsc: 'HDFC0001234',
+    );
+  }
+}
+
+final class _RiderOnboardingProvider implements RiderOnboardingProvider {
+  int calls = 0;
+
+  @override
+  Future<RiderOnboardingEvidence> collectEvidence({
+    required String vehicleType,
+  }) async {
+    calls += 1;
+    return const RiderOnboardingEvidence(
+      documents: [
+        RiderDocumentDraft(
+          kind: 'IDENTITY',
+          assetId: 'asset-rider-identity-provider-001',
+        ),
+        RiderDocumentDraft(
+          kind: 'DRIVER_LICENSE',
+          assetId: 'asset-rider-license-provider-001',
+        ),
+        RiderDocumentDraft(
+          kind: 'VEHICLE_REGISTRATION',
+          assetId: 'asset-rider-vehicle-provider-001',
+        ),
+        RiderDocumentDraft(
+          kind: 'INSURANCE',
+          assetId: 'asset-rider-insurance-provider-001',
+        ),
+      ],
+      bankReference: 'bank-rider-provider-token-001',
+    );
+  }
+}
+
 final class _VendorRemote implements VendorOperationsRemote {
   VendorApplication? value;
+  VendorFieldVisitDraft? lastVisit;
   final List<int> revisions = [];
   bool scheduleConflict = false;
   VendorCatalogItem? catalogItem;
@@ -938,7 +1263,13 @@ final class _VendorRemote implements VendorOperationsRemote {
     zoneCount: zones,
     bankStatus: bank,
     verified: status == 'APPROVED',
-    allowedActions: const {'SUBMIT_DOCUMENTS', 'SCHEDULE_FIELD_VISIT'},
+    allowedActions: switch (status) {
+      'REGISTERED' => const {'SUBMIT_DOCUMENTS'},
+      'DOCUMENTS_SUBMITTED' => const {'SCHEDULE_FIELD_VISIT'},
+      'FIELD_VISIT_PASSED' ||
+      'BANK_REVIEW' => const {'SET_ZONES', 'SUBMIT_BANK'},
+      _ => const <String>{},
+    },
   );
 
   @override
@@ -957,6 +1288,21 @@ final class _VendorRemote implements VendorOperationsRemote {
   ) async {
     revisions.add(revision);
     return value = _next(status: 'DOCUMENTS_SUBMITTED', documents: documents);
+  }
+
+  @override
+  Future<VendorApplication> scheduleVisit(
+    int revision,
+    VendorFieldVisitDraft visit,
+  ) async {
+    revisions.add(revision);
+    lastVisit = visit;
+    return value = _next(
+      status: 'FIELD_VISIT_PASSED',
+      documents: value!.documents,
+      zones: value!.zoneCount,
+      bank: value!.bankStatus,
+    );
   }
 
   @override
@@ -1092,6 +1438,8 @@ final class _VendorRemote implements VendorOperationsRemote {
 
 final class _RiderRemote implements RiderOperationsRemote {
   bool failAccept = true;
+  bool firstTime = false;
+  Map<String, Object?>? registrationPayload;
   final List<int> recoveredSequences = [];
   final List<RiderLocationCommand> locations = [];
   RiderDuty? activeDuty;
@@ -1123,7 +1471,29 @@ final class _RiderRemote implements RiderOperationsRemote {
   List<RiderTask> taskValues = const [];
 
   @override
-  Future<RiderProfile> profile() async => profileValue;
+  Future<RiderProfile> profile() async {
+    if (firstTime && registrationPayload == null) {
+      throw StateError('not registered');
+    }
+    return profileValue;
+  }
+
+  @override
+  Future<RiderProfile> register(Map<String, Object?> value) async {
+    registrationPayload = value;
+    return RiderProfile(
+      id: 'rider-registration-001',
+      revision: 1,
+      status: 'KYC_REVIEW',
+      fullName: value['full_name']! as String,
+      vehicleNumber: value['vehicle_number']! as String,
+      bankStatus: 'PENDING_VERIFICATION',
+      zones: (value['zones']! as List<Object?>).cast<String>(),
+      maxConcurrent: 1,
+      allowedActions: const {},
+    );
+  }
+
   @override
   Future<RiderDuty> duty() async => throw StateError('off duty');
   @override

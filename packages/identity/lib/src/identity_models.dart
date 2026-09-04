@@ -66,17 +66,31 @@ final class IdentityProfile {
     required this.timeZone,
     required this.version,
     required this.updatedAt,
+    this.email,
+    this.phone,
   });
 
   factory IdentityProfile.fromJson(Object? value) {
     final json = _object(value, 'profile');
+    final displayName = json['display_name'];
     final locale = _string(json, 'locale');
     final version = _integer(json, 'version');
-    if (!{'en', 'ta'}.contains(locale) || version < 1) {
+    final email = _optionalString(json, 'email');
+    final phone = _optionalString(json, 'phone');
+    if (displayName is! String ||
+        displayName.length > 100 ||
+        !isPlanext4uLocaleCode(locale) ||
+        version < 1 ||
+        (email != null &&
+            (email.length > 254 ||
+                !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email))) ||
+        (phone != null && !RegExp(r'^\+[1-9][0-9]{7,15}$').hasMatch(phone))) {
       throw const FormatException('Profile contract is invalid.');
     }
     return IdentityProfile(
-      displayName: _string(json, 'display_name'),
+      displayName: displayName,
+      email: email,
+      phone: phone,
       locale: locale,
       timeZone: _string(json, 'time_zone'),
       version: version,
@@ -85,6 +99,8 @@ final class IdentityProfile {
   }
 
   final String displayName;
+  final String? email;
+  final String? phone;
   final String locale;
   final String timeZone;
   final int version;
@@ -92,11 +108,48 @@ final class IdentityProfile {
 
   Map<String, Object> toJson() => {
     'display_name': displayName,
+    'email': ?email,
+    'phone': ?phone,
     'locale': locale,
     'time_zone': timeZone,
     'version': version,
     'updated_at': updatedAt.toUtc().toIso8601String(),
   };
+}
+
+final class CurrentIdentityProfile {
+  const CurrentIdentityProfile({
+    required this.identityId,
+    required this.tenantId,
+    required this.country,
+    required this.roles,
+    required this.profile,
+  });
+
+  factory CurrentIdentityProfile.fromJson(Object? value) {
+    final json = _object(value, 'current profile');
+    final rolesValue = json['roles'];
+    if (rolesValue is! List<Object?> || rolesValue.isEmpty) {
+      throw const FormatException('Current profile roles are invalid.');
+    }
+    final roles = rolesValue.map(_roleFromWire).toSet();
+    if (roles.length != rolesValue.length) {
+      throw const FormatException('Current profile roles are invalid.');
+    }
+    return CurrentIdentityProfile(
+      identityId: _string(json, 'id'),
+      tenantId: _string(json, 'tenant_id'),
+      country: _country(json, 'country'),
+      roles: Set.unmodifiable(roles),
+      profile: IdentityProfile.fromJson(json['profile']),
+    );
+  }
+
+  final String identityId;
+  final String tenantId;
+  final String country;
+  final Set<AppRole> roles;
+  final IdentityProfile profile;
 }
 
 final class IdentityDeviceSession {
@@ -223,6 +276,15 @@ String _string(Map<String, Object?> json, String key) {
   final value = json[key];
   if (value is! String || value.isEmpty) {
     throw FormatException('$key must be a non-empty string.');
+  }
+  return value;
+}
+
+String? _optionalString(Map<String, Object?> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
+  if (value is! String || value.isEmpty) {
+    throw FormatException('$key must be a non-empty string when supplied.');
   }
   return value;
 }

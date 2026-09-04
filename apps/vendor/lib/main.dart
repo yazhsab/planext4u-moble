@@ -55,16 +55,20 @@ Future<void> main() async {
             controller,
             roles,
             signOut,
+            identityProfile,
             sessionManagement,
             notificationPreferences,
+            support,
             appearancePreferences,
             accountPrivacy,
           ) => VendorApp(
             config: config,
             controller: controller,
             grantedRoles: roles,
+            identityProfileController: identityProfile,
             sessionManagementController: sessionManagement,
             notificationPreferencesController: notificationPreferences,
+            supportController: support,
             appearancePreferencesController: appearancePreferences,
             accountPrivacyController: accountPrivacy,
             onSignOut: signOut,
@@ -124,8 +128,11 @@ class VendorApp extends StatelessWidget {
       'vendor_earnings': true,
     },
     this.locale,
+    this.onboardingProvider,
+    this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
+    this.supportController,
     this.appearancePreferencesController,
     this.accountPrivacyController,
     this.onSignOut,
@@ -138,8 +145,11 @@ class VendorApp extends StatelessWidget {
   final Set<RoleCapability> capabilities;
   final Map<String, bool> featureFlags;
   final Locale? locale;
+  final VendorOnboardingProvider? onboardingProvider;
+  final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
+  final SupportController? supportController;
   final AppearancePreferencesController? appearancePreferencesController;
   final AccountPrivacyController? accountPrivacyController;
   final Future<void> Function()? onSignOut;
@@ -176,9 +186,12 @@ class VendorApp extends StatelessWidget {
             : (context, destination) => VendorOperationsView(
                 controller: controller!,
                 destination: destination,
+                onboardingProvider: onboardingProvider,
+                identityProfileController: identityProfileController,
                 sessionManagementController: sessionManagementController,
                 notificationPreferencesController:
                     notificationPreferencesController,
+                supportController: supportController,
                 appearancePreferencesController:
                     appearancePreferencesController,
                 accountPrivacyController: accountPrivacyController,

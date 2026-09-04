@@ -13,14 +13,20 @@ abstract interface class SocialRtcOfferProvider {
   Future<void> close();
 }
 
+typedef SocialRtcOfferProviderFactory = SocialRtcOfferProvider Function();
+
 final class CustomerCommunityHubScreen extends StatefulWidget {
   const CustomerCommunityHubScreen({
     required this.controller,
     this.initialTab = 0,
+    this.mediaCoordinator,
+    this.rtcProviderFactory,
     super.key,
   });
   final Phase5Controller controller;
   final int initialTab;
+  final CommunityMediaCoordinator? mediaCoordinator;
+  final SocialRtcOfferProviderFactory? rtcProviderFactory;
   @override
   State<CustomerCommunityHubScreen> createState() =>
       _CustomerCommunityHubScreenState();
@@ -129,9 +135,18 @@ class _CustomerCommunityHubScreenState
     }
     return TabBarView(
       children: [
-        _SocioPlusTab(controller: widget.controller, state: state),
+        _SocioPlusTab(
+          controller: widget.controller,
+          state: state,
+          mediaCoordinator: widget.mediaCoordinator,
+          rtcProviderFactory: widget.rtcProviderFactory,
+        ),
         _HomesTab(controller: widget.controller, state: state),
-        _ClassifiedsTab(controller: widget.controller, state: state),
+        _ClassifiedsTab(
+          controller: widget.controller,
+          state: state,
+          mediaCoordinator: widget.mediaCoordinator,
+        ),
         _EmergencyTab(controller: widget.controller, state: state),
       ],
     );
@@ -139,9 +154,16 @@ class _CustomerCommunityHubScreenState
 }
 
 final class _SocioPlusTab extends StatelessWidget {
-  const _SocioPlusTab({required this.controller, required this.state});
+  const _SocioPlusTab({
+    required this.controller,
+    required this.state,
+    this.mediaCoordinator,
+    this.rtcProviderFactory,
+  });
   final Phase5Controller controller;
   final Phase5State state;
+  final CommunityMediaCoordinator? mediaCoordinator;
+  final SocialRtcOfferProviderFactory? rtcProviderFactory;
   @override
   Widget build(BuildContext context) => RefreshIndicator(
     onRefresh: controller.load,
@@ -290,6 +312,8 @@ final class _SocioPlusTab extends StatelessWidget {
                     builder: (_) => CustomerConversationScreen(
                       controller: controller,
                       conversation: conversation,
+                      mediaCoordinator: mediaCoordinator,
+                      rtcProviderFactory: rtcProviderFactory,
                     ),
                   ),
                 ),
@@ -308,12 +332,6 @@ final class _SocioPlusTab extends StatelessWidget {
   }
 
   Future<void> _createStory(BuildContext context) async {
-    final asset = await _textDialog(
-      context,
-      title: 'Create story or reel',
-      label: 'Uploaded media asset identifier',
-    );
-    if (asset == null || !context.mounted) return;
     final kind = await showDialog<String>(
       context: context,
       builder: (context) => SimpleDialog(
@@ -341,6 +359,38 @@ final class _SocioPlusTab extends StatelessWidget {
       ),
     );
     if (kind == null || !context.mounted) return;
+    final coordinator = mediaCoordinator;
+    if (coordinator == null) {
+      await _captureFeedback(
+        context,
+        'Media capture is unavailable until the private upload and moderation provider is configured.',
+      );
+      return;
+    }
+    String? asset;
+    try {
+      asset = await coordinator.captureAndUpload(
+        kind == 'STORY'
+            ? CommunityMediaKind.storyImage
+            : CommunityMediaKind.reelVideo,
+      );
+    } on CommunityCaptureException catch (error) {
+      if (context.mounted) await _captureFeedback(context, error.message);
+      return;
+    } catch (_) {
+      if (context.mounted) {
+        await _captureFeedback(
+          context,
+          'The private media provider is unavailable.',
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    if (asset == null) {
+      await _captureFeedback(context, 'Media capture cancelled.');
+      return;
+    }
     final caption = await _textDialog(
       context,
       title: 'Add a caption',
@@ -365,6 +415,8 @@ final class _SocioPlusTab extends StatelessWidget {
           builder: (_) => CustomerConversationScreen(
             controller: controller,
             conversation: value,
+            mediaCoordinator: mediaCoordinator,
+            rtcProviderFactory: rtcProviderFactory,
           ),
         ),
       );
@@ -376,10 +428,14 @@ final class CustomerConversationScreen extends StatefulWidget {
   const CustomerConversationScreen({
     required this.controller,
     required this.conversation,
+    this.mediaCoordinator,
+    this.rtcProviderFactory,
     super.key,
   });
   final Phase5Controller controller;
   final SocialConversation conversation;
+  final CommunityMediaCoordinator? mediaCoordinator;
+  final SocialRtcOfferProviderFactory? rtcProviderFactory;
   @override
   State<CustomerConversationScreen> createState() =>
       _CustomerConversationScreenState();
@@ -390,6 +446,12 @@ class _CustomerConversationScreenState
   final _body = TextEditingController();
   List<SocialMessage>? _messages;
   Object? _failure;
+  Timer? _voiceTimer;
+  bool _voiceRecording = false;
+  bool _voiceBusy = false;
+  int _voiceSeconds = 0;
+  String? _voiceMessage;
+  String? _callMessage;
 
   @override
   void initState() {
@@ -399,6 +461,10 @@ class _CustomerConversationScreenState
 
   @override
   void dispose() {
+    _voiceTimer?.cancel();
+    if (_voiceRecording) {
+      unawaited(widget.mediaCoordinator?.cancelVoice());
+    }
     _body.dispose();
     super.dispose();
   }
@@ -421,22 +487,170 @@ class _CustomerConversationScreenState
     await _load();
   }
 
+  Future<void> _toggleVoice() =>
+      _voiceRecording ? _finishVoice() : _startVoice();
+
+  Future<void> _startVoice() async {
+    final coordinator = widget.mediaCoordinator;
+    if (_voiceBusy) return;
+    if (coordinator == null) {
+      setState(
+        () => _voiceMessage =
+            'Voice recording requires the configured private media provider.',
+      );
+      return;
+    }
+    setState(() {
+      _voiceBusy = true;
+      _voiceMessage = null;
+    });
+    try {
+      await coordinator.startVoice();
+      if (!mounted) {
+        await coordinator.cancelVoice();
+        return;
+      }
+      setState(() {
+        _voiceRecording = true;
+        _voiceSeconds = 0;
+      });
+      _voiceTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) return;
+        setState(() => _voiceSeconds++);
+        if (_voiceSeconds >=
+            CommunityMediaCoordinator.maxVoiceDuration.inSeconds) {
+          timer.cancel();
+          unawaited(_finishVoice());
+        }
+      });
+    } on CommunityCaptureException catch (error) {
+      if (mounted) setState(() => _voiceMessage = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _voiceMessage = 'The microphone provider is unavailable.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _voiceBusy = false);
+    }
+  }
+
+  Future<void> _finishVoice() async {
+    final coordinator = widget.mediaCoordinator;
+    if (!_voiceRecording || _voiceBusy || coordinator == null) return;
+    _voiceTimer?.cancel();
+    setState(() {
+      _voiceBusy = true;
+      _voiceRecording = false;
+      _voiceMessage = 'Uploading voice note securely…';
+    });
+    try {
+      final assetId = await coordinator.stopVoiceAndUpload();
+      if (assetId == null) {
+        if (mounted) setState(() => _voiceMessage = 'Voice note cancelled.');
+        return;
+      }
+      final mediaJobId = await widget.controller.prepareVoiceMessage(assetId);
+      if (mediaJobId == null) {
+        if (mounted) {
+          setState(() => _voiceMessage = widget.controller.state.message);
+        }
+        return;
+      }
+      await widget.controller.sendMessage(
+        widget.conversation.id,
+        '',
+        voiceMediaId: mediaJobId,
+      );
+      await _load();
+      if (mounted) setState(() => _voiceMessage = 'Voice note sent.');
+    } on CommunityCaptureException catch (error) {
+      if (mounted) setState(() => _voiceMessage = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _voiceMessage = 'Voice note could not be sent.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _voiceBusy = false;
+          _voiceSeconds = 0;
+        });
+      }
+    }
+  }
+
+  Future<void> _cancelVoice() async {
+    final coordinator = widget.mediaCoordinator;
+    if (!_voiceRecording || _voiceBusy || coordinator == null) return;
+    _voiceTimer?.cancel();
+    setState(() {
+      _voiceBusy = true;
+      _voiceRecording = false;
+    });
+    try {
+      await coordinator.cancelVoice();
+      if (mounted) setState(() => _voiceMessage = 'Voice note discarded.');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _voiceMessage = 'Voice recording could not be closed.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _voiceBusy = false;
+          _voiceSeconds = 0;
+        });
+      }
+    }
+  }
+
   Future<void> _call(String kind) async {
+    final requiredAction = kind == 'VIDEO' ? 'VIDEO_CALL' : 'AUDIO_CALL';
+    final providerFactory = widget.rtcProviderFactory;
+    if (widget.conversation.status != 'ACCEPTED' ||
+        !widget.conversation.allowedActions.contains(requiredAction) ||
+        providerFactory == null) {
+      setState(
+        () => _callMessage = providerFactory == null
+            ? 'Secure calling is unavailable until the WebRTC provider is configured.'
+            : 'This conversation does not permit a ${kind.toLowerCase()} call.',
+      );
+      return;
+    }
     final value = await widget.controller.createCall(
       widget.conversation.id,
       kind,
     );
     if (mounted && value != null) {
+      SocialRtcOfferProvider provider;
+      try {
+        provider = providerFactory();
+      } catch (_) {
+        setState(
+          () => _callMessage = 'The secure calling provider is unavailable.',
+        );
+        return;
+      }
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SocialCallScreen(
             controller: widget.controller,
             initialCall: value,
+            rtcProvider: provider,
           ),
         ),
       );
     }
   }
+
+  bool _canCall(String kind) =>
+      widget.rtcProviderFactory != null &&
+      widget.conversation.status == 'ACCEPTED' &&
+      widget.conversation.allowedActions.contains(
+        kind == 'VIDEO' ? 'VIDEO_CALL' : 'AUDIO_CALL',
+      );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -445,16 +659,12 @@ class _CustomerConversationScreenState
       actions: [
         IconButton(
           tooltip: 'Start audio call',
-          onPressed: widget.conversation.status == 'ACCEPTED'
-              ? () => _call('AUDIO')
-              : null,
+          onPressed: _canCall('AUDIO') ? () => _call('AUDIO') : null,
           icon: const Icon(Icons.call_outlined),
         ),
         IconButton(
           tooltip: 'Start video call',
-          onPressed: widget.conversation.status == 'ACCEPTED'
-              ? () => _call('VIDEO')
-              : null,
+          onPressed: _canCall('VIDEO') ? () => _call('VIDEO') : null,
           icon: const Icon(Icons.videocam_outlined),
         ),
       ],
@@ -480,6 +690,20 @@ class _CustomerConversationScreenState
                     child: const Text('Accept'),
                   ),
               ],
+            ),
+          if (_callMessage != null ||
+              (widget.conversation.status == 'ACCEPTED' &&
+                  widget.rtcProviderFactory == null))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Semantics(
+                liveRegion: _callMessage != null,
+                child: Text(
+                  _callMessage ??
+                      'Secure calling is unavailable until the WebRTC provider is configured.',
+                  key: const ValueKey('social-call-availability'),
+                ),
+              ),
             ),
           Expanded(
             child: _messages == null
@@ -538,11 +762,23 @@ class _CustomerConversationScreenState
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Send voice note',
+                  key: const ValueKey('phase5-voice-note'),
+                  tooltip: _voiceRecording
+                      ? 'Stop and send voice note'
+                      : 'Record voice note',
                   onPressed: widget.conversation.status == 'ACCEPTED'
-                      ? () => _voiceInfo(context)
+                      ? _toggleVoice
                       : null,
-                  icon: const Icon(Icons.mic_outlined),
+                  icon: _voiceBusy
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _voiceRecording
+                              ? Icons.stop_circle_outlined
+                              : Icons.mic_outlined,
+                        ),
                 ),
                 IconButton(
                   key: const ValueKey('phase5-send-message'),
@@ -555,6 +791,30 @@ class _CustomerConversationScreenState
               ],
             ),
           ),
+          if (_voiceRecording || _voiceMessage != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Semantics(
+                liveRegion: true,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _voiceRecording
+                            ? 'Recording ${_voiceSeconds}s of ${CommunityMediaCoordinator.maxVoiceDuration.inSeconds}s'
+                            : _voiceMessage!,
+                      ),
+                    ),
+                    if (_voiceRecording)
+                      TextButton(
+                        key: const ValueKey('phase5-cancel-voice-note'),
+                        onPressed: _voiceBusy ? null : _cancelVoice,
+                        child: const Text('Discard'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     ),
@@ -578,46 +838,96 @@ final class SocialCallScreen extends StatefulWidget {
 class _SocialCallScreenState extends State<SocialCallScreen> {
   late SocialCall _call = widget.initialCall;
   bool _busy = false;
+  bool _ending = false;
+  bool _providerClosed = false;
+  bool _offerSent = false;
+  bool _allowPop = false;
   String? _providerFailure;
+  Completer<void>? _connectCompletion;
 
-  Future<void> _signal(String type) async {
+  @override
+  void dispose() {
+    unawaited(_closeProvider());
+    super.dispose();
+  }
+
+  Future<void> _connect() async {
+    if (_busy || _ending || _providerClosed || _offerSent) return;
+    final completion = Completer<void>();
+    _connectCompletion = completion;
     setState(() => _busy = true);
     try {
-      var payload = '';
-      if (type == 'OFFER') {
-        final provider = widget.rtcProvider;
-        if (provider == null) {
-          throw StateError('Secure calling is unavailable on this build.');
-        }
-        payload = await provider.createOffer(_call);
-        if (payload.length < 16 || payload.length > 65536) {
-          throw const FormatException('WebRTC offer is invalid.');
-        }
+      final provider = widget.rtcProvider;
+      if (provider == null) {
+        throw StateError('Secure calling is unavailable on this build.');
+      }
+      final payload = await provider.createOffer(_call);
+      if (_ending) return;
+      if (payload.length < 16 ||
+          payload.length > 16 * 1024 ||
+          payload.contains('\r') ||
+          payload.contains('\n')) {
+        throw const FormatException('WebRTC offer is invalid.');
       }
       final next = await widget.controller.signalCall(
         _call.id,
-        type,
+        'OFFER',
         payload: payload,
       );
-      if (!mounted) return;
-      if (next != null) _call = next;
-      _providerFailure = null;
-      if (type == 'END') {
-        await widget.rtcProvider?.close();
-        if (mounted) Navigator.pop(context);
+      if (next == null) {
+        throw StateError('The offer was not accepted.');
       }
+      if (!mounted) return;
+      _call = next;
+      _offerSent = true;
+      _providerFailure = null;
     } catch (_) {
+      await _closeProvider();
+      if (!mounted) return;
       _providerFailure = 'Secure calling could not connect. Try again later.';
     } finally {
       if (mounted) setState(() => _busy = false);
+      if (!completion.isCompleted) completion.complete();
+      if (identical(_connectCompletion, completion)) {
+        _connectCompletion = null;
+      }
+    }
+  }
+
+  Future<void> _endCall() async {
+    if (_ending || _call.status == 'ENDED') return;
+    setState(() => _ending = true);
+    // Stop camera and microphone first. Network failure must never keep local
+    // capture alive while an END audit signal is retried or rejected.
+    await _closeProvider();
+    await _connectCompletion?.future;
+    final next = await widget.controller.signalCall(_call.id, 'END');
+    if (!mounted) return;
+    _call = next?.status == 'ENDED' ? next! : _ended(_call);
+    setState(() {
+      _ending = false;
+      _allowPop = true;
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  Future<void> _closeProvider() async {
+    if (_providerClosed) return;
+    _providerClosed = true;
+    try {
+      await widget.rtcProvider?.close();
+    } catch (_) {
+      // Capture has been invalidated locally; END signalling must still run.
     }
   }
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: _call.status == 'ENDED',
+    canPop: _allowPop || _call.status == 'ENDED',
     onPopInvokedWithResult: (didPop, _) {
-      if (!didPop && !_busy) unawaited(_signal('END'));
+      if (!didPop) unawaited(_endCall());
     },
     child: Scaffold(
       backgroundColor: Theme.of(context).colorScheme.inverseSurface,
@@ -665,13 +975,29 @@ class _SocialCallScreenState extends State<SocialCallScreen> {
                       ),
                     ),
                   ),
+                if (_offerSent && _providerFailure == null)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'Secure offer sent. Waiting for the other participant.',
+                      key: const ValueKey('social-call-offer-sent'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onInverseSurface,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 32),
-                if (_call.status == 'RINGING')
+                if (_call.status == 'RINGING' && !_offerSent)
                   FilledButton.tonalIcon(
                     key: const ValueKey('start-call-signalling'),
-                    onPressed: _busy || widget.rtcProvider == null
+                    onPressed:
+                        _busy ||
+                            _ending ||
+                            _providerClosed ||
+                            widget.rtcProvider == null
                         ? null
-                        : () => _signal('OFFER'),
+                        : _connect,
                     icon: const Icon(Icons.wifi_calling_3),
                     label: const Text('Connect securely'),
                   ),
@@ -679,8 +1005,13 @@ class _SocialCallScreenState extends State<SocialCallScreen> {
                 FloatingActionButton(
                   key: const ValueKey('end-social-call'),
                   backgroundColor: Theme.of(context).colorScheme.error,
-                  onPressed: _busy ? null : () => _signal('END'),
-                  child: const Icon(Icons.call_end),
+                  onPressed: _ending ? null : _endCall,
+                  child: _ending
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.call_end),
                 ),
               ],
             ),
@@ -690,6 +1021,15 @@ class _SocialCallScreenState extends State<SocialCallScreen> {
     ),
   );
 }
+
+SocialCall _ended(SocialCall value) => SocialCall(
+  id: value.id,
+  conversationId: value.conversationId,
+  kind: value.kind,
+  status: 'ENDED',
+  signalCount: value.signalCount,
+  expiresAt: value.expiresAt,
+);
 
 final class _HomesTab extends StatefulWidget {
   const _HomesTab({required this.controller, required this.state});
@@ -1026,9 +1366,14 @@ class _HomeListingFormState extends State<HomeListingForm> {
 }
 
 final class _ClassifiedsTab extends StatefulWidget {
-  const _ClassifiedsTab({required this.controller, required this.state});
+  const _ClassifiedsTab({
+    required this.controller,
+    required this.state,
+    this.mediaCoordinator,
+  });
   final Phase5Controller controller;
   final Phase5State state;
+  final CommunityMediaCoordinator? mediaCoordinator;
   @override
   State<_ClassifiedsTab> createState() => _ClassifiedsTabState();
 }
@@ -1068,8 +1413,10 @@ class _ClassifiedsTabState extends State<_ClassifiedsTab> {
               key: const ValueKey('post-classified'),
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) =>
-                      ClassifiedPostingWizard(controller: widget.controller),
+                  builder: (_) => ClassifiedPostingWizard(
+                    controller: widget.controller,
+                    mediaCoordinator: widget.mediaCoordinator,
+                  ),
                 ),
               ),
               icon: const Icon(Icons.add),
@@ -1217,8 +1564,13 @@ class _ClassifiedsTabState extends State<_ClassifiedsTab> {
 }
 
 final class ClassifiedPostingWizard extends StatefulWidget {
-  const ClassifiedPostingWizard({required this.controller, super.key});
+  const ClassifiedPostingWizard({
+    required this.controller,
+    this.mediaCoordinator,
+    super.key,
+  });
   final Phase5Controller controller;
+  final CommunityMediaCoordinator? mediaCoordinator;
   @override
   State<ClassifiedPostingWizard> createState() =>
       _ClassifiedPostingWizardState();
@@ -1230,8 +1582,11 @@ class _ClassifiedPostingWizardState extends State<ClassifiedPostingWizard> {
   final _description = TextEditingController();
   final _price = TextEditingController();
   final _contact = TextEditingController();
+  final _mediaAssetIds = <String>[];
   String _category = 'ELECTRONICS';
   bool _whatsApp = false;
+  bool _mediaBusy = false;
+  String? _mediaMessage;
 
   @override
   void dispose() {
@@ -1256,11 +1611,51 @@ class _ClassifiedPostingWizardState extends State<ClassifiedPostingWizard> {
       'description': _description.text.trim(),
       'price': {'amount_minor': (amount * 100).round(), 'currency': 'INR'},
       'locality': 'Chennai',
-      'media_asset_ids': <String>[],
+      'media_asset_ids': List<String>.unmodifiable(_mediaAssetIds),
       'contact': _contact.text.trim(),
       'whatsapp_enabled': _whatsApp,
     });
     if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _capturePhoto() async {
+    final coordinator = widget.mediaCoordinator;
+    if (_mediaBusy || _mediaAssetIds.length >= 5) return;
+    if (coordinator == null) {
+      setState(
+        () => _mediaMessage =
+            'Classified photos require the configured private media provider.',
+      );
+      return;
+    }
+    setState(() {
+      _mediaBusy = true;
+      _mediaMessage = null;
+    });
+    try {
+      final assetId = await coordinator.captureAndUpload(
+        CommunityMediaKind.classifiedImage,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (assetId == null) {
+          _mediaMessage = 'Photo capture cancelled.';
+        } else if (!_mediaAssetIds.contains(assetId)) {
+          _mediaAssetIds.add(assetId);
+          _mediaMessage = 'Private photo uploaded.';
+        }
+      });
+    } on CommunityCaptureException catch (error) {
+      if (mounted) setState(() => _mediaMessage = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _mediaMessage = 'The private media provider is unavailable.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mediaBusy = false);
+    }
   }
 
   @override
@@ -1283,7 +1678,9 @@ class _ClassifiedPostingWizardState extends State<ClassifiedPostingWizard> {
             children: [
               FilledButton(
                 key: ValueKey(
-                  _step == 3 ? 'submit-classified' : 'classified-next',
+                  details.stepIndex == 3
+                      ? 'submit-classified'
+                      : 'classified-next-${details.stepIndex}',
                 ),
                 onPressed: details.onStepContinue,
                 child: Text(_step == 3 ? 'Submit for review' : 'Continue'),
@@ -1328,6 +1725,7 @@ class _ClassifiedPostingWizardState extends State<ClassifiedPostingWizard> {
                   decoration: const InputDecoration(labelText: 'Title'),
                 ),
                 TextField(
+                  key: const ValueKey('classified-description'),
                   controller: _description,
                   maxLength: 5000,
                   maxLines: 3,
@@ -1341,15 +1739,56 @@ class _ClassifiedPostingWizardState extends State<ClassifiedPostingWizard> {
             content: Column(
               children: [
                 TextField(
+                  key: const ValueKey('classified-price'),
                   controller: _price,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(labelText: 'Price (INR)'),
                 ),
-                const ListTile(
-                  leading: Icon(Icons.add_photo_alternate_outlined),
-                  title: Text('Up to 5 safety-scanned photos'),
-                  subtitle: Text('Media enters quarantine before publication.'),
+                ListTile(
+                  leading: const Icon(Icons.add_photo_alternate_outlined),
+                  title: Text(
+                    '${_mediaAssetIds.length} of 5 safety-scanned photos',
+                  ),
+                  subtitle: const Text(
+                    'Media enters quarantine before publication.',
+                  ),
+                  trailing: IconButton(
+                    key: const ValueKey('capture-classified-photo'),
+                    tooltip: 'Capture classified photo',
+                    onPressed: _mediaBusy || _mediaAssetIds.length >= 5
+                        ? null
+                        : _capturePhoto,
+                    icon: _mediaBusy
+                        ? const SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.add_a_photo_outlined),
+                  ),
                 ),
+                for (var index = 0; index < _mediaAssetIds.length; index++)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.lock_outline),
+                    title: Text('Private photo ${index + 1}'),
+                    trailing: IconButton(
+                      key: ValueKey('remove-classified-photo-$index'),
+                      tooltip: 'Remove photo ${index + 1}',
+                      onPressed: _mediaBusy
+                          ? null
+                          : () =>
+                                setState(() => _mediaAssetIds.removeAt(index)),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                if (_mediaMessage != null)
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _mediaMessage!,
+                      key: const ValueKey('classified-media-message'),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1358,6 +1797,7 @@ class _ClassifiedPostingWizardState extends State<ClassifiedPostingWizard> {
             content: Column(
               children: [
                 TextField(
+                  key: const ValueKey('classified-contact'),
                   controller: _contact,
                   keyboardType: TextInputType.phone,
                   decoration: const InputDecoration(
@@ -1745,12 +2185,17 @@ String _remaining(DateTime expiry) {
   return '${duration.inMinutes}m left';
 }
 
-void _voiceInfo(BuildContext context) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text(
-        'Hold to record. Voice notes upload to the encrypted media pipeline before delivery.',
+Future<void> _captureFeedback(BuildContext context, String message) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Community media'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Done'),
+          ),
+        ],
       ),
-    ),
-  );
-}
+    );

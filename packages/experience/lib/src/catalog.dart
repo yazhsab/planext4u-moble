@@ -28,12 +28,110 @@ final class CatalogMoney {
   }
 }
 
+final class CatalogResponsiveMediaVariant {
+  const CatalogResponsiveMediaVariant({
+    required this.url,
+    required this.width,
+    required this.height,
+  });
+
+  factory CatalogResponsiveMediaVariant.fromJson(Object? value) {
+    final json = _object(value, 'responsive media variant');
+    final url = _string(json, 'url');
+    final width = _integer(json, 'width');
+    final height = _integer(json, 'height');
+    if (!_safePresentationUrl(url) ||
+        width < 1 ||
+        width > 16384 ||
+        height < 1 ||
+        height > 16384) {
+      throw const FormatException('Responsive media variant is invalid.');
+    }
+    return CatalogResponsiveMediaVariant(
+      url: url,
+      width: width,
+      height: height,
+    );
+  }
+
+  final String url;
+  final int width;
+  final int height;
+}
+
+final class CatalogMediaPresentation {
+  const CatalogMediaPresentation({
+    required this.assetId,
+    required this.url,
+    required this.contentType,
+    required this.width,
+    required this.height,
+    required this.altText,
+    this.variants = const [],
+    this.expiresAt,
+  });
+
+  factory CatalogMediaPresentation.fromJson(Object? value) {
+    final json = _object(value, 'media presentation');
+    final assetId = _string(json, 'asset_id');
+    final url = _string(json, 'url');
+    final contentType = _string(json, 'content_type');
+    final width = _integer(json, 'width');
+    final height = _integer(json, 'height');
+    final altText = _string(json, 'alt_text').trim();
+    final variants = _list(json, 'variants');
+    final expiresAt = json['expires_at'] == null
+        ? null
+        : _instant(json, 'expires_at');
+    if (assetId.length > 128 ||
+        !_safePresentationUrl(url) ||
+        !const {
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+        }.contains(contentType) ||
+        width < 1 ||
+        width > 16384 ||
+        height < 1 ||
+        height > 16384 ||
+        altText.length > 240 ||
+        variants.length > 10) {
+      throw const FormatException('Media presentation is invalid.');
+    }
+    return CatalogMediaPresentation(
+      assetId: assetId,
+      url: url,
+      contentType: contentType,
+      width: width,
+      height: height,
+      altText: altText,
+      variants: List<CatalogResponsiveMediaVariant>.unmodifiable(
+        variants.map(CatalogResponsiveMediaVariant.fromJson),
+      ),
+      expiresAt: expiresAt,
+    );
+  }
+
+  final String assetId;
+  final String url;
+  final String contentType;
+  final int width;
+  final int height;
+  final String altText;
+  final List<CatalogResponsiveMediaVariant> variants;
+  final DateTime? expiresAt;
+
+  bool isExpiredAt(DateTime instant) =>
+      expiresAt != null && !expiresAt!.isAfter(instant.toUtc());
+}
+
 final class CatalogCategory {
   const CatalogCategory({
     required this.id,
     required this.name,
     required this.priority,
     this.iconRef,
+    this.icon,
   });
 
   factory CatalogCategory.fromJson(Object? value) {
@@ -43,6 +141,9 @@ final class CatalogCategory {
       name: _string(json, 'name'),
       priority: _integer(json, 'priority'),
       iconRef: json['icon_ref'] as String?,
+      icon: json['icon'] == null
+          ? null
+          : CatalogMediaPresentation.fromJson(json['icon']),
     );
   }
 
@@ -50,6 +151,7 @@ final class CatalogCategory {
   final String name;
   final int priority;
   final String? iconRef;
+  final CatalogMediaPresentation? icon;
 }
 
 final class CatalogVariant {
@@ -102,6 +204,7 @@ final class CatalogItem {
     required this.available,
     this.mediaRef,
     this.mediaRefs = const [],
+    this.media = const [],
     this.sellerName,
     this.verifiedLocalSeller = false,
     this.description,
@@ -125,6 +228,11 @@ final class CatalogItem {
       mediaRef: json['media_ref'] as String?,
       mediaRefs: List<String>.unmodifiable(
         (json['media_refs'] as List<Object?>? ?? const []).cast<String>(),
+      ),
+      media: List<CatalogMediaPresentation>.unmodifiable(
+        (json['media'] as List<Object?>? ?? const []).map(
+          CatalogMediaPresentation.fromJson,
+        ),
       ),
       price: CatalogMoney.fromJson(json['price']),
       available: _boolean(json, 'available'),
@@ -162,6 +270,7 @@ final class CatalogItem {
   final String summary;
   final String? mediaRef;
   final List<String> mediaRefs;
+  final List<CatalogMediaPresentation> media;
   final CatalogMoney price;
   final bool available;
   final String? sellerName;
@@ -262,6 +371,126 @@ final class CatalogPage<T> {
   final DateTime generatedAt;
 }
 
+final class CatalogServiceTrustSummary {
+  const CatalogServiceTrustSummary({
+    required this.verifiedProvider,
+    required this.ratingAverage,
+    required this.completedBookings,
+  });
+
+  factory CatalogServiceTrustSummary.fromJson(Object? value) {
+    final json = _object(value, 'service trust summary');
+    final rating = json['rating_average'];
+    final completed = _integer(json, 'completed_bookings');
+    if (rating is! num || rating < 0 || rating > 5 || completed < 0) {
+      throw const FormatException('Service trust summary is invalid.');
+    }
+    return CatalogServiceTrustSummary(
+      verifiedProvider: _boolean(json, 'verified_provider'),
+      ratingAverage: rating.toDouble(),
+      completedBookings: completed,
+    );
+  }
+
+  final bool verifiedProvider;
+  final double ratingAverage;
+  final int completedBookings;
+}
+
+final class CatalogServiceCollectionItem {
+  const CatalogServiceCollectionItem({
+    required this.serviceId,
+    required this.providerId,
+    required this.title,
+    required this.summary,
+    required this.price,
+    required this.priceDisplay,
+    required this.serviceable,
+    required this.trust,
+    required this.navigationTarget,
+    this.media,
+  });
+
+  factory CatalogServiceCollectionItem.fromJson(Object? value) {
+    final json = _object(value, 'service collection item');
+    final serviceId = _string(json, 'service_id');
+    final providerId = _string(json, 'provider_id');
+    final title = _string(json, 'title').trim();
+    final summary = _string(json, 'summary').trim();
+    final priceDisplay = _string(json, 'price_display').trim();
+    final navigationTarget = _string(json, 'navigation_target');
+    if (!_safeCatalogIdentifier(serviceId) ||
+        !_safeCatalogIdentifier(providerId) ||
+        title.length > 120 ||
+        summary.length > 500 ||
+        priceDisplay.length > 80 ||
+        navigationTarget != '/app/services/$serviceId') {
+      throw const FormatException('Service collection item is invalid.');
+    }
+    return CatalogServiceCollectionItem(
+      serviceId: serviceId,
+      providerId: providerId,
+      title: title,
+      summary: summary,
+      media: json['media'] == null
+          ? null
+          : CatalogMediaPresentation.fromJson(json['media']),
+      price: CatalogMoney.fromJson(json['price']),
+      priceDisplay: priceDisplay,
+      serviceable: _boolean(json, 'serviceable'),
+      trust: CatalogServiceTrustSummary.fromJson(json['trust']),
+      navigationTarget: navigationTarget,
+    );
+  }
+
+  final String serviceId;
+  final String providerId;
+  final String title;
+  final String summary;
+  final CatalogMediaPresentation? media;
+  final CatalogMoney price;
+  final String priceDisplay;
+  final bool serviceable;
+  final CatalogServiceTrustSummary trust;
+  final String navigationTarget;
+}
+
+final class CatalogServiceCollection {
+  const CatalogServiceCollection({
+    required this.collectionId,
+    required this.title,
+    required this.items,
+  });
+
+  factory CatalogServiceCollection.fromJson(Object? value) {
+    final json = _object(value, 'service collection');
+    final collectionId = _string(json, 'collection_id');
+    final title = _string(json, 'title').trim();
+    final rawItems = _list(json, 'items');
+    if (!_safeCatalogIdentifier(collectionId) ||
+        title.length > 120 ||
+        rawItems.isEmpty ||
+        rawItems.length > 24) {
+      throw const FormatException('Service collection is invalid.');
+    }
+    final items = rawItems
+        .map(CatalogServiceCollectionItem.fromJson)
+        .toList(growable: false);
+    if (items.map((item) => item.serviceId).toSet().length != items.length) {
+      throw const FormatException('Service collection IDs are duplicated.');
+    }
+    return CatalogServiceCollection(
+      collectionId: collectionId,
+      title: title,
+      items: List.unmodifiable(items),
+    );
+  }
+
+  final String collectionId;
+  final String title;
+  final List<CatalogServiceCollectionItem> items;
+}
+
 final class CustomerHomeProjection {
   const CustomerHomeProjection({
     required this.categories,
@@ -269,6 +498,7 @@ final class CustomerHomeProjection {
     this.recommendations = const [],
     this.leaderboard = const [],
     this.helpShortcuts = const [],
+    this.serviceCollections = const {},
     required this.projectionStatus,
     required this.generatedAt,
   });
@@ -297,6 +527,7 @@ final class CustomerHomeProjection {
           CustomerHelpShortcut.fromJson,
         ),
       ),
+      serviceCollections: _serviceCollections(json['service_collections']),
       projectionStatus: _projection(json['projection_status']),
       generatedAt: _instant(json, 'generated_at'),
     );
@@ -307,6 +538,7 @@ final class CustomerHomeProjection {
   final List<CatalogItem> recommendations;
   final List<CatalogSellerLeader> leaderboard;
   final List<CustomerHelpShortcut> helpShortcuts;
+  final Map<String, CatalogServiceCollection> serviceCollections;
   final ProjectionStatus projectionStatus;
   final DateTime generatedAt;
 }
@@ -425,14 +657,32 @@ abstract interface class CatalogQuestionRemote {
 
 final class CatalogApi
     implements CatalogRemote, DiscoverySuggestionRemote, CatalogQuestionRemote {
-  const CatalogApi(this._client);
+  const CatalogApi(this._client, {String? Function()? postalCodeProvider})
+    : _postalCodeProvider = postalCodeProvider;
   final ApiClient _client;
+  final String? Function()? _postalCodeProvider;
 
   @override
-  Future<CustomerHomeProjection> home() async => (await _client.send(
-    ApiRequest.get(operation: 'catalog.get_customer_home', path: '/v1/home'),
-    CustomerHomeProjection.fromJson,
-  )).value;
+  Future<CustomerHomeProjection> home() async {
+    final postalCode = _postalCodeProvider?.call()?.trim();
+    final safePostalCode =
+        postalCode != null &&
+            postalCode.length >= 3 &&
+            postalCode.length <= 12 &&
+            !RegExp(r'[\s\r\n]').hasMatch(postalCode)
+        ? postalCode
+        : null;
+    return (await _client.send(
+      ApiRequest.get(
+        operation: 'catalog.get_customer_home',
+        path: '/v1/home',
+        query: {
+          if (safePostalCode != null) 'postal_code': [safePostalCode],
+        },
+      ),
+      CustomerHomeProjection.fromJson,
+    )).value;
+  }
 
   @override
   Future<CatalogPage<CatalogCategory>> categories() async =>
@@ -578,7 +828,10 @@ final class CatalogController extends ChangeNotifier {
       }
       _set(
         CatalogState(
-          status: home.categories.isEmpty && home.featuredItems.isEmpty
+          status:
+              home.categories.isEmpty &&
+                  home.featuredItems.isEmpty &&
+                  home.serviceCollections.isEmpty
               ? CatalogStatus.empty
               : CatalogStatus.ready,
           home: home,
@@ -674,4 +927,37 @@ double? _optionalNumber(Object? value) {
     throw const FormatException('Rating must be between zero and five.');
   }
   return value.toDouble();
+}
+
+bool _safePresentationUrl(String value) {
+  final candidate = value.trim();
+  if (candidate.startsWith('/') &&
+      !candidate.startsWith('//') &&
+      !candidate.contains('\\') &&
+      !candidate.contains(RegExp(r'[\r\n]'))) {
+    return true;
+  }
+  final uri = Uri.tryParse(candidate);
+  return uri != null &&
+      uri.scheme == 'https' &&
+      uri.host.isNotEmpty &&
+      uri.userInfo.isEmpty;
+}
+
+bool _safeCatalogIdentifier(String value) {
+  if (value.isEmpty || value.length > 128) return false;
+  return value.codeUnits.every((value) => value >= 0x21 && value <= 0x7e);
+}
+
+Map<String, CatalogServiceCollection> _serviceCollections(Object? value) {
+  final json = _object(value, 'service collections');
+  final result = <String, CatalogServiceCollection>{};
+  for (final entry in json.entries) {
+    final collection = CatalogServiceCollection.fromJson(entry.value);
+    if (entry.key != collection.collectionId || result.containsKey(entry.key)) {
+      throw const FormatException('Service collection map key is invalid.');
+    }
+    result[entry.key] = collection;
+  }
+  return Map.unmodifiable(result);
 }

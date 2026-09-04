@@ -26,7 +26,14 @@ void main() {
         },
         {'kind': 'OWNER_IDENTITY', 'asset_id': 'asset-owner-identity-e2e-006'},
       ]);
-      await controller.scheduleFieldVisit();
+      await controller.scheduleFieldVisit(
+        VendorFieldVisitDraft(
+          scheduledAt: DateTime.now().toUtc().add(const Duration(days: 1)),
+          latitude: 13.0827,
+          longitude: 80.2707,
+          allowedRadiusMeters: 200,
+        ),
+      );
       remote.fieldVisitPassed();
       await controller.configureZones(const [
         {
@@ -160,7 +167,7 @@ final class _VendorJourneyRemote implements VendorOperationsRemote {
   @override
   Future<VendorApplication> scheduleVisit(
     int revision,
-    DateTime scheduledAt,
+    VendorFieldVisitDraft visit,
   ) async {
     evidence.add('field_visit_scheduled');
     return _application = _applicationValue(status: 'FIELD_VISIT_SCHEDULED');

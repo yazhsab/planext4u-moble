@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:planext4u_api_client/planext4u_api_client.dart';
+import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
 import 'localization.dart';
@@ -46,6 +47,8 @@ final class HomeSectionConfig {
     this.displaySubtitle = '',
     this.actionLabel = '',
     this.actionRoute = '',
+    this.collectionId = '',
+    this.maximumItems = 8,
     this.items = const [],
   });
 
@@ -70,6 +73,10 @@ final class HomeSectionConfig {
     if (items.length > 8) {
       throw const FormatException('Home section has too many items.');
     }
+    final maximumItems = json['maximum_items'] as int? ?? 8;
+    if (maximumItems < 1 || maximumItems > 24) {
+      throw const FormatException('Home section item limit is invalid.');
+    }
     return HomeSectionConfig(
       id: id,
       kind: kind,
@@ -80,6 +87,8 @@ final class HomeSectionConfig {
       displaySubtitle: _optionalText(json, 'display_subtitle', maxLength: 240),
       actionLabel: _optionalText(json, 'action_label', maxLength: 40),
       actionRoute: actionRoute,
+      collectionId: _optionalText(json, 'collection_id', maxLength: 128),
+      maximumItems: maximumItems,
       items: List.unmodifiable(items.map(HomeSectionItemConfig.fromJson)),
     );
   }
@@ -93,6 +102,8 @@ final class HomeSectionConfig {
   final String displaySubtitle;
   final String actionLabel;
   final String actionRoute;
+  final String collectionId;
+  final int maximumItems;
   final List<HomeSectionItemConfig> items;
 }
 
@@ -153,6 +164,7 @@ const supportedCustomerHomeSectionKinds = <String>{
   'BESTSELLERS',
   'RECOMMENDATIONS',
   'SERVICE_DISCOVERY',
+  'SERVICE_RAIL',
   'LEADERBOARD',
   'HELP_SHORTCUTS',
 };
@@ -187,6 +199,7 @@ List<HomeSectionConfig> normalizeCustomerHomeSections(
 
 String _canonicalCustomerHomeSectionKind(String kind) => switch (kind) {
   'BESTSELLERS' => 'FEATURED_ITEMS',
+  'SERVICE_DISCOVERY' => 'SERVICE_RAIL',
   _ => kind,
 };
 
@@ -212,8 +225,8 @@ final class BootstrapConfig {
     updateGate: UpdateGate.none,
     latestVersion: '0.0.0',
     maintenance: false,
-    locale: 'en',
-    supportedLocales: const ['en', 'ta'],
+    locale: planext4uDefaultLocaleCode,
+    supportedLocales: planext4uSupportedLocaleCodes,
     consentPolicies: const [],
     flags: const {},
     homeSections: const [],
@@ -227,19 +240,8 @@ final class BootstrapConfig {
     ).map((item) => item as String).toList(growable: false);
     final locale = _string(json, 'locale');
     if (!supported.contains(locale) ||
-        supported.any(
-          (value) => !{
-            'en',
-            'ta',
-            'hi',
-            'te',
-            'kn',
-            'ml',
-            'mr',
-            'bn',
-            'gu',
-          }.contains(value),
-        )) {
+        supported.toSet().length != supported.length ||
+        supported.any((value) => !isPlanext4uLocaleCode(value))) {
       throw const FormatException('Bootstrap locale contract is invalid.');
     }
     final rawFlags = _object(json['flags'], 'flags');
@@ -273,9 +275,7 @@ final class BootstrapConfig {
         _list(json, 'consent_policies').map(ConsentPolicy.fromJson),
       ),
       flags: Map.unmodifiable(flags),
-      homeSections: List.unmodifiable(
-        _list(json, 'home_sections').map(HomeSectionConfig.fromJson),
-      ),
+      homeSections: _homeSections(json),
     );
     if (result.revision < 1) {
       throw const FormatException('Bootstrap revision is invalid.');
@@ -336,6 +336,9 @@ final class BootstrapConfig {
             'display_subtitle': value.displaySubtitle,
           if (value.actionLabel.isNotEmpty) 'action_label': value.actionLabel,
           if (value.actionRoute.isNotEmpty) 'action_route': value.actionRoute,
+          if (value.collectionId.isNotEmpty)
+            'collection_id': value.collectionId,
+          'maximum_items': value.maximumItems,
           if (value.items.isNotEmpty)
             'items': [
               for (final item in value.items)
@@ -351,6 +354,63 @@ final class BootstrapConfig {
         },
     ],
   };
+}
+
+List<HomeSectionConfig> _homeSections(Map<String, Object?> json) {
+  final sections = _list(
+    json,
+    'home_sections',
+  ).map(HomeSectionConfig.fromJson).toList(growable: true);
+  final rawPages = json['pages'];
+  if (rawPages == null) return List.unmodifiable(sections);
+  if (rawPages is! List<Object?>) {
+    throw const FormatException('Bootstrap pages must be a list.');
+  }
+  for (final rawPage in rawPages) {
+    final page = _object(rawPage, 'bootstrap page');
+    if (page['id'] != 'customer-home' || page['enabled'] != true) continue;
+    final rawBlocks = page['blocks'];
+    if (rawBlocks is! List<Object?>) {
+      throw const FormatException('Customer home blocks must be a list.');
+    }
+    for (final rawBlock in rawBlocks) {
+      final block = _object(rawBlock, 'customer home block');
+      if (block['kind'] != 'SERVICE_RAIL') continue;
+      final content = _object(block['content'], 'service rail content');
+      final collectionId = _string(content, 'collection_id');
+      final maximumItems = content['maximum_items'] as int? ?? 8;
+      if (collectionId.length > 128 || maximumItems < 1 || maximumItems > 24) {
+        throw const FormatException('CMS service rail is invalid.');
+      }
+      final id = _string(block, 'id');
+      if (sections.any(
+        (section) =>
+            section.kind == 'SERVICE_RAIL' &&
+            section.collectionId == collectionId,
+      )) {
+        continue;
+      }
+      sections.add(
+        HomeSectionConfig(
+          id: id,
+          kind: 'SERVICE_RAIL',
+          titleKey: block['title_key'] is String
+              ? block['title_key']! as String
+              : 'home.services',
+          displayTitle: content['title'] is String
+              ? content['title']! as String
+              : '',
+          actionLabel: 'View all',
+          actionRoute: '/app/services',
+          collectionId: collectionId,
+          maximumItems: maximumItems,
+          enabled: block['enabled'] == true,
+          priority: _integer(block, 'priority'),
+        ),
+      );
+    }
+  }
+  return List.unmodifiable(sections);
 }
 
 abstract interface class BootstrapRemote {

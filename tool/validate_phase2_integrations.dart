@@ -117,7 +117,13 @@ void main(List<String> arguments) {
     ],
     'packages/api_client/contracts/fulfillment.openapi.json': [
       '/v1/rider/offline-recovery',
+      '/v1/rider/offers/{offer_id}/decline',
       '/v1/rider/tasks/{task_id}/completion',
+    ],
+    'packages/api_client/contracts/emergency.openapi.json': [
+      '/v1/rider/emergency-incidents',
+      '/v1/rider/emergency-incidents/{incident_id}',
+      '/v1/rider/emergency-incidents/{incident_id}/location',
     ],
     'packages/api_client/contracts/social.openapi.json': [
       '/v1/social/media',

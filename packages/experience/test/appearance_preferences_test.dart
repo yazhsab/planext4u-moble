@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 import 'package:planext4u_storage/planext4u_storage.dart';
 
@@ -10,6 +11,12 @@ void main() {
     'appearance preferences accept exactly the nine supported languages',
     () {
       expect(AppearancePreferences.supportedLocaleCodes, hasLength(9));
+      expect(
+        Planext4uLocalizations.supportedLocales.map(
+          (locale) => locale.languageCode,
+        ),
+        planext4uSupportedLocaleCodes,
+      );
       for (final locale in Planext4uLocalizations.supportedLocales) {
         expect(
           () => AppearancePreferences.defaults().copyWith(

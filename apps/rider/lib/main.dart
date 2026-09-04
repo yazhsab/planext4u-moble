@@ -15,6 +15,8 @@ import 'package:planext4u_observability/planext4u_observability.dart';
 import 'package:planext4u_storage/planext4u_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'pod_capture.dart';
+
 Future<void> main() async {
   final startup = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,19 +65,24 @@ Future<void> main() async {
             controller,
             roles,
             signOut,
+            identityProfile,
             sessionManagement,
             notificationPreferences,
+            support,
             appearancePreferences,
             accountPrivacy,
           ) => RiderApp(
             config: config,
             controller: controller,
             grantedRoles: roles,
+            identityProfileController: identityProfile,
             sessionManagementController: sessionManagement,
             notificationPreferencesController: notificationPreferences,
+            supportController: support,
             appearancePreferencesController: appearancePreferences,
             accountPrivacyController: accountPrivacy,
             onNavigate: RiderMapsLauncher.open,
+            podPhotoSource: ImagePickerRiderPodPhotoSource(),
             onSignOut: signOut,
           ),
     ),
@@ -237,9 +244,14 @@ class RiderApp extends StatelessWidget {
     this.onNavigate,
     this.onCapturePhoto,
     this.onCaptureSignature,
+    this.podPhotoSource,
+    this.podEvidenceUploader,
     this.locale,
+    this.onboardingProvider,
+    this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
+    this.supportController,
     this.appearancePreferencesController,
     this.accountPrivacyController,
     this.onSignOut,
@@ -253,16 +265,27 @@ class RiderApp extends StatelessWidget {
   final Map<String, bool> featureFlags;
   final RiderNavigationAction? onNavigate;
   final RiderEvidenceCapture? onCapturePhoto;
-  final RiderEvidenceCapture? onCaptureSignature;
+  final RiderSignatureEvidenceUpload? onCaptureSignature;
+  final RiderPodPhotoSource? podPhotoSource;
+  final RiderPodEvidenceUploader? podEvidenceUploader;
   final Locale? locale;
+  final RiderOnboardingProvider? onboardingProvider;
+  final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
+  final SupportController? supportController;
   final AppearancePreferencesController? appearancePreferencesController;
   final AccountPrivacyController? accountPrivacyController;
   final Future<void> Function()? onSignOut;
 
   @override
   Widget build(BuildContext context) {
+    final podCapture = podEvidenceUploader == null
+        ? null
+        : RiderPodCaptureCoordinator(
+            photoSource: podPhotoSource ?? ImagePickerRiderPodPhotoSource(),
+            uploader: podEvidenceUploader!,
+          );
     final appearance =
         appearancePreferencesController?.state.preferences ??
         AppearancePreferences.defaults();
@@ -293,12 +316,16 @@ class RiderApp extends StatelessWidget {
             : (context, destination) => RiderOperationsView(
                 controller: controller!,
                 destination: destination,
+                onboardingProvider: onboardingProvider,
                 onNavigate: onNavigate,
-                onCapturePhoto: onCapturePhoto,
-                onCaptureSignature: onCaptureSignature,
+                onCapturePhoto: onCapturePhoto ?? podCapture?.capturePhoto,
+                onCaptureSignature:
+                    onCaptureSignature ?? podCapture?.uploadSignature,
+                identityProfileController: identityProfileController,
                 sessionManagementController: sessionManagementController,
                 notificationPreferencesController:
                     notificationPreferencesController,
+                supportController: supportController,
                 appearancePreferencesController:
                     appearancePreferencesController,
                 accountPrivacyController: accountPrivacyController,

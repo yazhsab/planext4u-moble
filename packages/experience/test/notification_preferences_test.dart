@@ -76,6 +76,28 @@ void main() {
     },
   );
 
+  test(
+    'failed preference update preserves the server-confirmed value',
+    () async {
+      final remote = _PreferenceRemote();
+      final controller = NotificationPreferencesController(remote);
+      await controller.load();
+      const key = NotificationPreferenceKey(
+        purpose: NotificationPreferencePurpose.transactional,
+        channel: NotificationPreferenceChannel.push,
+      );
+      remote.offline = true;
+
+      await controller.setEnabled(key, false);
+
+      expect(controller.state.status, NotificationPreferencesStatus.offline);
+      expect(controller.state.preferences[key]?.enabled, isTrue);
+      expect(controller.state.preferences[key]?.version, 1);
+      expect(controller.state.message, contains('Reconnect'));
+      controller.dispose();
+    },
+  );
+
   testWidgets(
     'preference screen confirms disabling and keeps security mandatory',
     (tester) async {
@@ -120,6 +142,7 @@ void main() {
 final class _PreferenceRemote implements NotificationPreferencesRemote {
   final Map<NotificationPreferenceKey, NotificationPreference> values = {};
   final List<NotificationPreferenceKey> updates = [];
+  bool offline = false;
 
   @override
   Future<NotificationPreference> preference(
@@ -141,6 +164,9 @@ final class _PreferenceRemote implements NotificationPreferencesRemote {
     required NotificationPreference current,
     required bool enabled,
   }) async {
+    if (offline) {
+      throw const ApiTransportFailure(correlationId: 'offline-preference');
+    }
     updates.add(current.key);
     final updated = NotificationPreference(
       subjectId: current.subjectId,

@@ -8,10 +8,14 @@ const _sourceCommit = 'cdfc28dbaecad124500f93bd63a50a1865bf781e';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
+const _mediaContractPath = 'api/openapi/media.openapi.json';
 const _commerceContractPath = 'api/openapi/commerce.openapi.json';
 const _commerceFixturePath = 'api/fixtures/commerce_cart.json';
 const _transactionContractPath = 'api/openapi/transaction.openapi.json';
 const _notificationContractPath = 'api/openapi/notification.openapi.json';
+const _supportContractPath = 'api/openapi/support.openapi.json';
+const _identityContractPath = 'api/openapi/identity.openapi.json';
+const _configurationContractPath = 'api/openapi/configuration.openapi.json';
 const _checkoutQuoteFixturePath = 'api/fixtures/checkout_quote.json';
 const _paymentFixturePath = 'api/fixtures/payment.json';
 const _orderFixturePath = 'api/fixtures/order.json';
@@ -39,6 +43,7 @@ void main(List<String> arguments) {
   final syncFrom = _argumentValue(arguments, '--sync-from=');
   final fixtureFrom = _argumentValue(arguments, '--fixture-from=');
   final catalogFrom = _argumentValue(arguments, '--catalog-from=');
+  final mediaFrom = _argumentValue(arguments, '--media-from=');
   final commerceFrom = _argumentValue(arguments, '--commerce-from=');
   final commerceFixtureFrom = _argumentValue(
     arguments,
@@ -46,6 +51,9 @@ void main(List<String> arguments) {
   );
   final transactionFrom = _argumentValue(arguments, '--transaction-from=');
   final notificationFrom = _argumentValue(arguments, '--notification-from=');
+  final supportFrom = _argumentValue(arguments, '--support-from=');
+  final identityFrom = _argumentValue(arguments, '--identity-from=');
+  final configurationFrom = _argumentValue(arguments, '--configuration-from=');
   final checkoutQuoteFrom = _argumentValue(arguments, '--checkout-quote-from=');
   final paymentFrom = _argumentValue(arguments, '--payment-from=');
   final orderFrom = _argumentValue(arguments, '--order-from=');
@@ -89,10 +97,14 @@ void main(List<String> arguments) {
     syncFrom,
     fixtureFrom,
     catalogFrom,
+    mediaFrom,
     commerceFrom,
     commerceFixtureFrom,
     transactionFrom,
     notificationFrom,
+    supportFrom,
+    identityFrom,
+    configurationFrom,
     checkoutQuoteFrom,
     paymentFrom,
     orderFrom,
@@ -139,6 +151,7 @@ void main(List<String> arguments) {
   final catalogFile = File(
     '${packageRoot.path}/contracts/catalog.openapi.json',
   );
+  final mediaFile = File('${packageRoot.path}/contracts/media.openapi.json');
   final commerceFile = File(
     '${packageRoot.path}/contracts/commerce.openapi.json',
   );
@@ -151,6 +164,15 @@ void main(List<String> arguments) {
   );
   final notificationFile = File(
     '${packageRoot.path}/contracts/notification.openapi.json',
+  );
+  final supportFile = File(
+    '${packageRoot.path}/contracts/support.openapi.json',
+  );
+  final identityFile = File(
+    '${packageRoot.path}/contracts/identity.openapi.json',
+  );
+  final configurationFile = File(
+    '${packageRoot.path}/contracts/configuration.openapi.json',
   );
   final checkoutQuoteFile = File(
     '${packageRoot.path}/contracts/checkout_quote.fixture.json',
@@ -211,6 +233,7 @@ void main(List<String> arguments) {
     contractFile.writeAsBytesSync(File(syncFrom!).readAsBytesSync());
     fixtureFile.writeAsBytesSync(File(fixtureFrom!).readAsBytesSync());
     catalogFile.writeAsBytesSync(File(catalogFrom!).readAsBytesSync());
+    mediaFile.writeAsBytesSync(File(mediaFrom!).readAsBytesSync());
     commerceFile.writeAsBytesSync(File(commerceFrom!).readAsBytesSync());
     commerceFixtureFile.writeAsBytesSync(
       File(commerceFixtureFrom!).readAsBytesSync(),
@@ -218,6 +241,11 @@ void main(List<String> arguments) {
     transactionFile.writeAsBytesSync(File(transactionFrom!).readAsBytesSync());
     notificationFile.writeAsBytesSync(
       File(notificationFrom!).readAsBytesSync(),
+    );
+    supportFile.writeAsBytesSync(File(supportFrom!).readAsBytesSync());
+    identityFile.writeAsBytesSync(File(identityFrom!).readAsBytesSync());
+    configurationFile.writeAsBytesSync(
+      File(configurationFrom!).readAsBytesSync(),
     );
     checkoutQuoteFile.writeAsBytesSync(
       File(checkoutQuoteFrom!).readAsBytesSync(),
@@ -260,10 +288,14 @@ void main(List<String> arguments) {
   if (!contractFile.existsSync() ||
       !fixtureFile.existsSync() ||
       !catalogFile.existsSync() ||
+      !mediaFile.existsSync() ||
       !commerceFile.existsSync() ||
       !commerceFixtureFile.existsSync() ||
       !transactionFile.existsSync() ||
       !notificationFile.existsSync() ||
+      !supportFile.existsSync() ||
+      !identityFile.existsSync() ||
+      !configurationFile.existsSync() ||
       !checkoutQuoteFile.existsSync() ||
       !paymentFile.existsSync() ||
       !orderFile.existsSync() ||
@@ -293,10 +325,14 @@ void main(List<String> arguments) {
   final contractBytes = contractFile.readAsBytesSync();
   final fixtureBytes = fixtureFile.readAsBytesSync();
   final catalogBytes = catalogFile.readAsBytesSync();
+  final mediaBytes = mediaFile.readAsBytesSync();
   final commerceBytes = commerceFile.readAsBytesSync();
   final commerceFixtureBytes = commerceFixtureFile.readAsBytesSync();
   final transactionBytes = transactionFile.readAsBytesSync();
   final notificationBytes = notificationFile.readAsBytesSync();
+  final supportBytes = supportFile.readAsBytesSync();
+  final identityBytes = identityFile.readAsBytesSync();
+  final configurationBytes = configurationFile.readAsBytesSync();
   final checkoutQuoteBytes = checkoutQuoteFile.readAsBytesSync();
   final paymentBytes = paymentFile.readAsBytesSync();
   final orderBytes = orderFile.readAsBytesSync();
@@ -321,6 +357,7 @@ void main(List<String> arguments) {
   final contract = _decodeObject(contractBytes, 'common OpenAPI contract');
   final fixture = _decodeObject(fixtureBytes, 'problem fixture');
   final catalog = _decodeObject(catalogBytes, 'catalog OpenAPI contract');
+  final media = _decodeObject(mediaBytes, 'media OpenAPI contract');
   final commerce = _decodeObject(commerceBytes, 'commerce OpenAPI contract');
   final commerceFixture = _decodeObject(
     commerceFixtureBytes,
@@ -333,6 +370,12 @@ void main(List<String> arguments) {
   final notification = _decodeObject(
     notificationBytes,
     'notification OpenAPI contract',
+  );
+  final support = _decodeObject(supportBytes, 'support OpenAPI contract');
+  final identity = _decodeObject(identityBytes, 'identity OpenAPI contract');
+  final configuration = _decodeObject(
+    configurationBytes,
+    'configuration OpenAPI contract',
   );
   final checkoutQuote = _decodeObject(
     checkoutQuoteBytes,
@@ -388,6 +431,7 @@ void main(List<String> arguments) {
   _validateContract(contract);
   _validateFixture(fixture);
   _validateMarketplaceContracts(catalog, commerce, commerceFixture);
+  _validateMediaContract(media);
   _validateTransactionContracts(
     transaction,
     checkoutQuote,
@@ -396,6 +440,9 @@ void main(List<String> arguments) {
     wallet,
   );
   _validateNotificationContract(notification);
+  _validateSupportContract(support);
+  _validateIdentityContract(identity);
+  _validateConfigurationContract(configuration);
   _validateBookingContract(booking, serviceBooking);
   _validatePhase4Contracts(
     supply,
@@ -420,10 +467,14 @@ void main(List<String> arguments) {
   final contractHash = sha256.convert(contractBytes).toString();
   final fixtureHash = sha256.convert(fixtureBytes).toString();
   final catalogHash = sha256.convert(catalogBytes).toString();
+  final mediaHash = sha256.convert(mediaBytes).toString();
   final commerceHash = sha256.convert(commerceBytes).toString();
   final commerceFixtureHash = sha256.convert(commerceFixtureBytes).toString();
   final transactionHash = sha256.convert(transactionBytes).toString();
   final notificationHash = sha256.convert(notificationBytes).toString();
+  final supportHash = sha256.convert(supportBytes).toString();
+  final identityHash = sha256.convert(identityBytes).toString();
+  final configurationHash = sha256.convert(configurationBytes).toString();
   final checkoutQuoteHash = sha256.convert(checkoutQuoteBytes).toString();
   final paymentHash = sha256.convert(paymentBytes).toString();
   final orderHash = sha256.convert(orderBytes).toString();
@@ -458,6 +509,8 @@ void main(List<String> arguments) {
     'fixture_sha256': fixtureHash,
     'catalog_contract_path': _catalogContractPath,
     'catalog_contract_sha256': catalogHash,
+    'media_contract_path': _mediaContractPath,
+    'media_contract_sha256': mediaHash,
     'commerce_contract_path': _commerceContractPath,
     'commerce_contract_sha256': commerceHash,
     'commerce_fixture_path': _commerceFixturePath,
@@ -466,6 +519,12 @@ void main(List<String> arguments) {
     'transaction_contract_sha256': transactionHash,
     'notification_contract_path': _notificationContractPath,
     'notification_contract_sha256': notificationHash,
+    'support_contract_path': _supportContractPath,
+    'support_contract_sha256': supportHash,
+    'identity_contract_path': _identityContractPath,
+    'identity_contract_sha256': identityHash,
+    'configuration_contract_path': _configurationContractPath,
+    'configuration_contract_sha256': configurationHash,
     'checkout_quote_fixture_path': _checkoutQuoteFixturePath,
     'checkout_quote_fixture_sha256': checkoutQuoteHash,
     'payment_fixture_path': _paymentFixturePath,
@@ -558,6 +617,35 @@ void main(List<String> arguments) {
   stdout.writeln('Generated API contracts from $contractHash.');
 }
 
+void _validateMediaContract(Map<String, Object?> contract) {
+  final paths = contract['paths'] as Map<String, Object?>?;
+  final components = contract['components'] as Map<String, Object?>?;
+  final schemas = components?['schemas'] as Map<String, Object?>?;
+  final presentation = schemas?['MediaPresentation'];
+  final properties = presentation is Map<String, Object?>
+      ? presentation['properties'] as Map<String, Object?>?
+      : null;
+  final url = properties?['url'];
+  if (contract['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.containsKey('/v1/media/presentations:resolve') ||
+      properties == null ||
+      !properties.keys.toSet().containsAll({
+        'asset_id',
+        'url',
+        'content_type',
+        'width',
+        'height',
+        'alt_text',
+        'variants',
+        'expires_at',
+      }) ||
+      url is! Map<String, Object?> ||
+      url['x-planext4u-url-policy'] != 'HTTPS or same-origin path') {
+    throw const FormatException('Media presentation contract is incomplete.');
+  }
+}
+
 void _validateTransactionContracts(
   Map<String, Object?> contract,
   Map<String, Object?> quote,
@@ -595,6 +683,75 @@ void _validateNotificationContract(Map<String, Object?> contract) {
       paths == null ||
       !paths.containsKey('/v1/notifications/devices/current')) {
     throw const FormatException('Notification contract is incomplete.');
+  }
+}
+
+void _validateSupportContract(Map<String, Object?> contract) {
+  final paths = contract['paths'] as Map<String, Object?>?;
+  final components = contract['components'] as Map<String, Object?>?;
+  final schemas = components?['schemas'] as Map<String, Object?>?;
+  final roles = schemas?['Role'];
+  final roleValues = roles is Map<String, Object?> ? roles['enum'] : null;
+  const requiredPaths = {
+    '/v1/support/tickets',
+    '/v1/support/tickets/{ticket_id}',
+    '/v1/support/tickets/{ticket_id}/messages',
+  };
+  if (contract['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.keys.toSet().containsAll(requiredPaths) ||
+      roleValues is! List<Object?> ||
+      !roleValues.toSet().containsAll({'CUSTOMER', 'VENDOR', 'RIDER'})) {
+    throw const FormatException('Support contract is incomplete.');
+  }
+}
+
+void _validateIdentityContract(Map<String, Object?> contract) {
+  final paths = contract['paths'] as Map<String, Object?>?;
+  final components = contract['components'] as Map<String, Object?>?;
+  final schemas = components?['schemas'] as Map<String, Object?>?;
+  final profileUpdate = schemas?['ProfileUpdate'];
+  final properties = profileUpdate is Map<String, Object?>
+      ? profileUpdate['properties'] as Map<String, Object?>?
+      : null;
+  if (contract['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.containsKey('/v1/me') ||
+      properties == null ||
+      !properties.containsKey('email') ||
+      !properties.containsKey('phone')) {
+    throw const FormatException('Identity profile contract is incomplete.');
+  }
+}
+
+void _validateConfigurationContract(Map<String, Object?> contract) {
+  const approvedLocales = [
+    'en',
+    'ta',
+    'hi',
+    'te',
+    'kn',
+    'ml',
+    'mr',
+    'bn',
+    'gu',
+  ];
+  final paths = contract['paths'] as Map<String, Object?>?;
+  final components = contract['components'] as Map<String, Object?>?;
+  final schemas = components?['schemas'] as Map<String, Object?>?;
+  final locale = schemas?['Locale'];
+  final values = locale is Map<String, Object?> ? locale['enum'] : null;
+  if (contract['openapi'] != '3.1.0' ||
+      paths == null ||
+      !paths.containsKey('/v1/bootstrap') ||
+      values is! List<Object?> ||
+      values.length != approvedLocales.length ||
+      !Iterable<int>.generate(
+        approvedLocales.length,
+      ).every((index) => values[index] == approvedLocales[index])) {
+    throw const FormatException(
+      'Configuration contract does not expose the approved locale catalogue.',
+    );
   }
 }
 
@@ -689,6 +846,7 @@ void _validatePhase4Contracts(
     '/v1/rider/applications',
     '/v1/rider/duty/start',
     '/v1/rider/offers',
+    '/v1/rider/offers/{offer_id}/decline',
     '/v1/rider/tasks/{task_id}/accept',
     '/v1/rider/tasks/{task_id}/completion',
     '/v1/rider/location',
@@ -806,6 +964,9 @@ void _validatePhase5Contracts(
   };
   final emergencyPaths = emergency['paths'] as Map<String, Object?>?;
   const requiredEmergencyPaths = {
+    '/v1/rider/emergency-incidents',
+    '/v1/rider/emergency-incidents/{incident_id}',
+    '/v1/rider/emergency-incidents/{incident_id}/location',
     '/v1/emergency/requests',
     '/v1/emergency/requests/{request_id}/accept',
     '/v1/emergency/requests/{request_id}/location',
@@ -934,13 +1095,59 @@ void _validateMarketplaceContracts(
       searchParameters.whereType<Map<String, Object?>>().any(
         (parameter) => parameter['name'] == 'category_id',
       );
+  final homePath = catalogPaths?['/v1/home'];
+  final homeOperation = homePath is Map<String, Object?>
+      ? homePath['get']
+      : null;
+  final homeParameters = homeOperation is Map<String, Object?>
+      ? homeOperation['parameters']
+      : null;
+  final hasPostalCode =
+      homeParameters is List<Object?> &&
+      homeParameters.whereType<Map<String, Object?>>().any(
+        (parameter) =>
+            parameter['name'] == 'postal_code' && parameter['in'] == 'query',
+      );
+  final catalogComponents = catalog['components'] as Map<String, Object?>?;
+  final catalogSchemas = catalogComponents?['schemas'] as Map<String, Object?>?;
+  final homeSchema = catalogSchemas?['Home'];
+  final homeProperties = homeSchema is Map<String, Object?>
+      ? homeSchema['properties'] as Map<String, Object?>?
+      : null;
+  final serviceItem = catalogSchemas?['ServiceCollectionItem'];
+  final serviceItemProperties = serviceItem is Map<String, Object?>
+      ? serviceItem['properties'] as Map<String, Object?>?
+      : null;
+  final priceDisplay = serviceItemProperties?['price_display'];
   if (catalogPaths == null ||
       !catalogPaths.containsKey('/v1/catalog/search') ||
       !catalogPaths.containsKey('/v1/catalog/items/{item_id}') ||
       !catalogPaths.containsKey('/v1/catalog/items/{item_id}/questions') ||
-      !hasCategoryFilter) {
+      !hasCategoryFilter ||
+      !hasPostalCode ||
+      catalogSchemas == null ||
+      !catalogSchemas.keys.toSet().containsAll({
+        'ServiceTrustSummary',
+        'ServiceCollectionItem',
+        'ServiceCollection',
+      }) ||
+      homeProperties == null ||
+      !homeProperties.containsKey('service_collections') ||
+      serviceItemProperties == null ||
+      !serviceItemProperties.keys.toSet().containsAll({
+        'service_id',
+        'provider_id',
+        'media',
+        'price',
+        'price_display',
+        'serviceable',
+        'trust',
+        'navigation_target',
+      }) ||
+      priceDisplay is! Map<String, Object?> ||
+      priceDisplay['description'] != 'Server-owned localized price display') {
     throw const FormatException(
-      'Catalog contract is missing filtered search or PDP.',
+      'Catalog contract is missing filtered search, PDP or CMS service collections.',
     );
   }
   final commercePaths = commerce['paths'] as Map<String, Object?>?;

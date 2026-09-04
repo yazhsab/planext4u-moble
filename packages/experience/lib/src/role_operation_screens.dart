@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
@@ -9,13 +11,19 @@ import 'account_privacy_screen.dart';
 import 'appearance_preferences.dart';
 import 'appearance_preferences_screen.dart';
 import 'catalog.dart';
+import 'identity_profile.dart';
+import 'identity_profile_screen.dart';
 import 'notification_preferences.dart';
 import 'notification_preferences_screen.dart';
 import 'role_operations.dart';
 import 'role_shell.dart';
 import 'session_management_screen.dart';
+import 'support.dart';
+import 'support_screen.dart';
 
 typedef RiderEvidenceCapture = Future<String?> Function(RiderTask task);
+typedef RiderSignatureEvidenceUpload =
+    Future<String?> Function(RiderTask task, Uint8List pngBytes);
 typedef RiderNavigationAction = Future<void> Function(RiderTask task);
 
 enum _RiderTaskView { offers, active, history }
@@ -24,16 +32,24 @@ final class VendorOperationsView extends StatefulWidget {
   const VendorOperationsView({
     required this.controller,
     required this.destination,
+    this.onboardingProvider,
+    this.zonePolicyVersion = 'zone-policy-v1',
+    this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
+    this.supportController,
     this.appearancePreferencesController,
     this.accountPrivacyController,
     super.key,
   });
   final VendorOperationsController controller;
   final RoleDestination destination;
+  final VendorOnboardingProvider? onboardingProvider;
+  final String zonePolicyVersion;
+  final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
+  final SupportController? supportController;
   final AppearancePreferencesController? appearancePreferencesController;
   final AccountPrivacyController? accountPrivacyController;
 
@@ -52,6 +68,8 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
   final _promotionBudget = TextEditingController(text: '100000');
   final _promotionDays = TextEditingController(text: '7');
   String _catalogKind = 'SERVICE';
+  bool _onboardingBusy = false;
+  String? _onboardingMessage;
 
   @override
   void initState() {
@@ -1020,6 +1038,24 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
         Text(
           '$completedSteps of 4 revisioned steps saved. You can resume after sign-in.',
         ),
+        if (_onboardingBusy) ...[
+          const SizedBox(height: Planext4uSpacing.x3),
+          const LinearProgressIndicator(
+            key: ValueKey('vendor-onboarding-progress'),
+          ),
+        ],
+        if (_onboardingMessage != null) ...[
+          const SizedBox(height: Planext4uSpacing.x3),
+          Semantics(
+            liveRegion: true,
+            child: Card(
+              child: ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: Text(_onboardingMessage!),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: Planext4uSpacing.x4),
         Planext4uSectionCard(
           title: 'Business identity',
@@ -1060,10 +1096,25 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
         _step(
           '1. Private documents and OCR review',
           application.documents.isEmpty
-              ? 'Private upload provider required'
+              ? widget.onboardingProvider == null
+                    ? 'Private document provider is not configured.'
+                    : 'Ready for secure document collection.'
               : '${application.documents.length} uploaded',
           completed: application.documents.isNotEmpty,
+          action:
+              application.allowedActions.contains('SUBMIT_DOCUMENTS') &&
+                  widget.onboardingProvider != null &&
+                  !_onboardingBusy
+              ? _collectVendorDocuments
+              : null,
+          actionLabel: application.documents.isEmpty ? 'Verify' : 'Resubmit',
         ),
+        if (application.allowedActions.contains('SUBMIT_DOCUMENTS') &&
+            widget.onboardingProvider == null)
+          const _OnboardingProviderUnavailable(
+            key: ValueKey('vendor-document-provider-unavailable'),
+            capability: 'Document and KYC verification',
+          ),
         if (application.documentSummaries.isNotEmpty)
           for (final document in application.documentSummaries)
             Card(
@@ -1090,15 +1141,24 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
               application.status.contains('FIELD_VISIT_PASSED') ||
               application.verified,
           action: application.allowedActions.contains('SCHEDULE_FIELD_VISIT')
-              ? widget.controller.scheduleFieldVisit
+              ? _scheduleVendorFieldVisit
               : null,
+          actionLabel: application.fieldVisit == null
+              ? 'Schedule'
+              : 'Reschedule',
         ),
         _step(
           '3. Service zones',
           application.zoneCount == 0
-              ? 'Verified zone provider required'
+              ? 'Add an operating area covered by the current zone policy.'
               : '${application.zoneCount} configured',
           completed: application.zoneCount > 0,
+          action:
+              application.allowedActions.contains('SET_ZONES') &&
+                  !_onboardingBusy
+              ? _configureVendorZones
+              : null,
+          actionLabel: application.zoneCount == 0 ? 'Add zone' : 'Update',
         ),
         if (application.serviceZones.isNotEmpty)
           for (final zone in application.serviceZones)
@@ -1115,9 +1175,27 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
             ),
         _step(
           '4. Tokenized bank account',
-          application.bankStatus.replaceAll('_', ' '),
+          application.bankStatus == 'NOT_CONFIGURED' &&
+                  widget.onboardingProvider == null
+              ? 'Bank-tokenization provider is not configured.'
+              : application.bankStatus.replaceAll('_', ' '),
           completed: application.bankStatus != 'NOT_CONFIGURED',
+          action:
+              application.allowedActions.contains('SUBMIT_BANK') &&
+                  widget.onboardingProvider != null &&
+                  !_onboardingBusy
+              ? _tokenizeVendorBank
+              : null,
+          actionLabel: application.bankStatus == 'NOT_CONFIGURED'
+              ? 'Add bank'
+              : 'Resubmit',
         ),
+        if (application.allowedActions.contains('SUBMIT_BANK') &&
+            widget.onboardingProvider == null)
+          const _OnboardingProviderUnavailable(
+            key: ValueKey('vendor-bank-provider-unavailable'),
+            capability: 'Bank account tokenization',
+          ),
         if (application.bank != null)
           Card(
             child: ListTile(
@@ -1153,12 +1231,27 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
             ),
           ),
         ],
-        const ListTile(
-          leading: Icon(Icons.support_agent),
-          title: Text('Vendor support'),
-          subtitle: Text(
-            'Support-case integration is not configured in this build.',
+        if (widget.identityProfileController != null)
+          ListTile(
+            key: const ValueKey('vendor-edit-identity-profile'),
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: const Text('Personal profile'),
+            subtitle: const Text(
+              'Edit your display name, language and time zone',
+            ),
+            onTap: () => _openIdentityProfile(
+              context,
+              widget.identityProfileController!,
+            ),
           ),
+        ListTile(
+          key: const ValueKey('vendor-support'),
+          leading: const Icon(Icons.support_agent),
+          title: const Text('Vendor support'),
+          subtitle: const Text('Catalogue, order, payment and payout help'),
+          onTap: widget.supportController == null
+              ? null
+              : () => _openSupport(context, widget.supportController!),
         ),
         if (widget.notificationPreferencesController != null)
           ListTile(
@@ -1214,6 +1307,72 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
     );
   }
 
+  Future<void> _collectVendorDocuments() async {
+    final provider = widget.onboardingProvider;
+    if (provider == null) return;
+    await _runOnboarding(() async {
+      final documents = await provider.collectDocuments();
+      await widget.controller.submitOnboardingDocuments(documents);
+    }, 'Documents submitted for private OCR and KYC review.');
+  }
+
+  Future<void> _tokenizeVendorBank() async {
+    final provider = widget.onboardingProvider;
+    if (provider == null) return;
+    await _runOnboarding(() async {
+      final bank = await provider.tokenizeBankAccount();
+      await widget.controller.configureOnboardingBank(bank);
+    }, 'Tokenized bank details submitted for verification.');
+  }
+
+  Future<void> _configureVendorZones() async {
+    final zone = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (_) =>
+          _VendorZoneDialog(policyVersion: widget.zonePolicyVersion),
+    );
+    if (zone == null || !mounted) return;
+    await _runOnboarding(
+      () => widget.controller.configureZones([zone]),
+      'Service zone saved.',
+    );
+  }
+
+  Future<void> _scheduleVendorFieldVisit() async {
+    final visit = await showDialog<VendorFieldVisitDraft>(
+      context: context,
+      builder: (_) => const _VendorFieldVisitDialog(),
+    );
+    if (visit == null || !mounted) return;
+    await _runOnboarding(
+      () => widget.controller.scheduleFieldVisit(visit),
+      'Field visit scheduled.',
+    );
+  }
+
+  Future<void> _runOnboarding(
+    Future<void> Function() action,
+    String successMessage,
+  ) async {
+    setState(() {
+      _onboardingBusy = true;
+      _onboardingMessage = null;
+    });
+    try {
+      await action();
+      if (!mounted) return;
+      if (widget.controller.state.status == OperationsStatus.ready) {
+        _onboardingMessage = successMessage;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _onboardingMessage =
+          'The onboarding provider did not return a safe, complete result.';
+    } finally {
+      if (mounted) setState(() => _onboardingBusy = false);
+    }
+  }
+
   Widget _statusHeader(String title, String status, bool verified) => Card(
     child: ListTile(
       leading: Icon(verified ? Icons.verified : Icons.hourglass_top),
@@ -1249,6 +1408,7 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
     String subtitle, {
     required bool completed,
     Future<void> Function()? action,
+    String actionLabel = 'Continue',
   }) => Card(
     child: ListTile(
       leading: Icon(
@@ -1258,9 +1418,294 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
       subtitle: Text(subtitle),
       trailing: action == null
           ? null
-          : TextButton(onPressed: action, child: const Text('Continue')),
+          : TextButton(onPressed: action, child: Text(actionLabel)),
     ),
   );
+}
+
+final class _OnboardingProviderUnavailable extends StatelessWidget {
+  const _OnboardingProviderUnavailable({required this.capability, super.key});
+
+  final String capability;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: Card(
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: ListTile(
+        leading: const Icon(Icons.lock_outline),
+        title: Text('$capability unavailable'),
+        subtitle: const Text(
+          'An approved private provider must be configured before this step can continue.',
+        ),
+      ),
+    ),
+  );
+}
+
+final class _VendorZoneDialog extends StatefulWidget {
+  const _VendorZoneDialog({required this.policyVersion});
+
+  final String policyVersion;
+
+  @override
+  State<_VendorZoneDialog> createState() => _VendorZoneDialogState();
+}
+
+class _VendorZoneDialogState extends State<_VendorZoneDialog> {
+  final _form = GlobalKey<FormState>();
+  final _id = TextEditingController();
+  final _postalCodes = TextEditingController();
+  final _latitude = TextEditingController();
+  final _longitude = TextEditingController();
+  final _radius = TextEditingController(text: '10');
+
+  @override
+  void dispose() {
+    _id.dispose();
+    _postalCodes.dispose();
+    _latitude.dispose();
+    _longitude.dispose();
+    _radius.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Add service zone'),
+    content: Form(
+      key: _form,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              key: const ValueKey('vendor-zone-id'),
+              controller: _id,
+              decoration: const InputDecoration(labelText: 'Zone name'),
+              validator: _required,
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-zone-postal-codes'),
+              controller: _postalCodes,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Postal codes',
+                helperText: 'Comma-separated, 4–10 digits each.',
+              ),
+              validator: (value) {
+                final codes = _codes(value);
+                return codes.isEmpty ||
+                        codes.any(
+                          (code) => !RegExp(r'^[0-9]{4,10}$').hasMatch(code),
+                        )
+                    ? 'Enter valid postal codes.'
+                    : null;
+              },
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-zone-latitude'),
+              controller: _latitude,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              decoration: const InputDecoration(labelText: 'Latitude'),
+              validator: (value) => _coordinate(value, 90),
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-zone-longitude'),
+              controller: _longitude,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              decoration: const InputDecoration(labelText: 'Longitude'),
+              validator: (value) => _coordinate(value, 180),
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-zone-radius'),
+              controller: _radius,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Radius (km)'),
+              validator: (value) {
+                final radius = double.tryParse(value?.trim() ?? '');
+                return radius == null || radius <= 0 || radius > 250
+                    ? 'Enter a radius from 0 to 250 km.'
+                    : null;
+              },
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const ValueKey('vendor-save-zone'),
+        onPressed: _save,
+        child: const Text('Save zone'),
+      ),
+    ],
+  );
+
+  void _save() {
+    if (!(_form.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(<String, Object?>{
+      'id': _id.text.trim(),
+      'postal_codes': _codes(_postalCodes.text),
+      'latitude': double.parse(_latitude.text.trim()),
+      'longitude': double.parse(_longitude.text.trim()),
+      'radius_km': double.parse(_radius.text.trim()),
+      'policy_version': widget.policyVersion,
+    });
+  }
+
+  static String? _required(String? value) =>
+      value == null || value.trim().isEmpty ? 'This field is required.' : null;
+
+  static List<String> _codes(String? value) => (value ?? '')
+      .split(',')
+      .map((code) => code.trim())
+      .where((code) => code.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+
+  static String? _coordinate(String? value, double limit) {
+    final coordinate = double.tryParse(value?.trim() ?? '');
+    return coordinate == null ||
+            !coordinate.isFinite ||
+            coordinate.abs() > limit
+        ? 'Enter a valid coordinate.'
+        : null;
+  }
+}
+
+final class _VendorFieldVisitDialog extends StatefulWidget {
+  const _VendorFieldVisitDialog();
+
+  @override
+  State<_VendorFieldVisitDialog> createState() =>
+      _VendorFieldVisitDialogState();
+}
+
+class _VendorFieldVisitDialogState extends State<_VendorFieldVisitDialog> {
+  final _form = GlobalKey<FormState>();
+  late final TextEditingController _scheduledAt;
+  final _latitude = TextEditingController();
+  final _longitude = TextEditingController();
+  final _radius = TextEditingController(text: '200');
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduledAt = TextEditingController(
+      text: DateTime.now()
+          .toUtc()
+          .add(const Duration(days: 1))
+          .toIso8601String(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scheduledAt.dispose();
+    _latitude.dispose();
+    _longitude.dispose();
+    _radius.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Schedule field visit'),
+    content: Form(
+      key: _form,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              key: const ValueKey('vendor-visit-time'),
+              controller: _scheduledAt,
+              decoration: const InputDecoration(
+                labelText: 'Scheduled time (ISO 8601)',
+              ),
+              validator: (value) =>
+                  DateTime.tryParse(value?.trim() ?? '') == null
+                  ? 'Enter a valid date and time.'
+                  : null,
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-visit-latitude'),
+              controller: _latitude,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              decoration: const InputDecoration(labelText: 'Business latitude'),
+              validator: (value) =>
+                  _VendorZoneDialogState._coordinate(value, 90),
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-visit-longitude'),
+              controller: _longitude,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Business longitude',
+              ),
+              validator: (value) =>
+                  _VendorZoneDialogState._coordinate(value, 180),
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-visit-radius'),
+              controller: _radius,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Check-in radius (metres)',
+              ),
+              validator: (value) {
+                final radius = int.tryParse(value?.trim() ?? '');
+                return radius == null || radius < 25 || radius > 1000
+                    ? 'Enter a radius from 25 to 1000 metres.'
+                    : null;
+              },
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const ValueKey('vendor-schedule-visit'),
+        onPressed: _save,
+        child: const Text('Schedule'),
+      ),
+    ],
+  );
+
+  void _save() {
+    if (!(_form.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(
+      VendorFieldVisitDraft(
+        scheduledAt: DateTime.parse(_scheduledAt.text.trim()).toUtc(),
+        latitude: double.parse(_latitude.text.trim()),
+        longitude: double.parse(_longitude.text.trim()),
+        allowedRadiusMeters: int.parse(_radius.text.trim()),
+      ),
+    );
+  }
 }
 
 final class _VendorRegistrationCard extends StatefulWidget {
@@ -1322,26 +1767,233 @@ class _VendorRegistrationCardState extends State<_VendorRegistrationCard> {
   );
 }
 
+final class _RiderRegistrationCard extends StatefulWidget {
+  const _RiderRegistrationCard({
+    required this.controller,
+    required this.provider,
+  });
+
+  final RiderOperationsController controller;
+  final RiderOnboardingProvider? provider;
+
+  @override
+  State<_RiderRegistrationCard> createState() => _RiderRegistrationCardState();
+}
+
+class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
+  final _form = GlobalKey<FormState>();
+  final _fullName = TextEditingController();
+  final _vehicleNumber = TextEditingController();
+  final _zones = TextEditingController();
+  String _vehicleType = 'MOTORBIKE';
+  bool _dutyLocationConsent = false;
+  bool _busy = false;
+  String? _message;
+
+  @override
+  void dispose() {
+    _fullName.dispose();
+    _vehicleNumber.dispose();
+    _zones.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Form(
+    key: _form,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Planext4uSectionHeader(
+          title: 'Rider onboarding',
+          subtitle:
+              'KYC files and bank details stay with approved private providers. Only opaque references are sent to Planext4u.',
+        ),
+        const SizedBox(height: Planext4uSpacing.x3),
+        if (widget.provider == null)
+          const _OnboardingProviderUnavailable(
+            key: ValueKey('rider-register-provider-unavailable'),
+            capability: 'Rider KYC and bank verification',
+          ),
+        if (_message != null)
+          Semantics(
+            liveRegion: true,
+            child: Card(
+              child: ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: Text(_message!),
+              ),
+            ),
+          ),
+        TextFormField(
+          key: const ValueKey('rider-registration-name'),
+          controller: _fullName,
+          enabled: !_busy,
+          maxLength: 120,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Full name'),
+          validator: (value) {
+            final length = value?.trim().length ?? 0;
+            return length < 2 ? 'Enter your full name.' : null;
+          },
+        ),
+        const SizedBox(height: Planext4uSpacing.x2),
+        DropdownButtonFormField<String>(
+          key: const ValueKey('rider-registration-vehicle-type'),
+          initialValue: _vehicleType,
+          decoration: const InputDecoration(labelText: 'Vehicle type'),
+          items: const [
+            DropdownMenuItem(value: 'BICYCLE', child: Text('Bicycle')),
+            DropdownMenuItem(value: 'MOTORBIKE', child: Text('Motorbike')),
+            DropdownMenuItem(value: 'CAR', child: Text('Car')),
+            DropdownMenuItem(value: 'VAN', child: Text('Van')),
+          ],
+          onChanged: _busy
+              ? null
+              : (value) {
+                  if (value != null) setState(() => _vehicleType = value);
+                },
+        ),
+        const SizedBox(height: Planext4uSpacing.x2),
+        TextFormField(
+          key: const ValueKey('rider-registration-vehicle-number'),
+          controller: _vehicleNumber,
+          enabled: !_busy,
+          maxLength: 20,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(labelText: 'Vehicle number'),
+          validator: (value) =>
+              !RegExp(r'^[A-Za-z0-9 -]{4,20}$').hasMatch(value?.trim() ?? '')
+              ? 'Enter a valid vehicle number.'
+              : null,
+        ),
+        const SizedBox(height: Planext4uSpacing.x2),
+        TextFormField(
+          key: const ValueKey('rider-registration-zones'),
+          controller: _zones,
+          enabled: !_busy,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Service postal codes',
+            helperText: 'Comma-separated, 4–10 digits each.',
+          ),
+          validator: (value) {
+            final zones = _normalizedZones(value);
+            return zones.isEmpty ||
+                    zones.any(
+                      (zone) => !RegExp(r'^[0-9]{4,10}$').hasMatch(zone),
+                    )
+                ? 'Enter valid service postal codes.'
+                : null;
+          },
+        ),
+        CheckboxListTile(
+          key: const ValueKey('rider-duty-location-consent'),
+          contentPadding: EdgeInsets.zero,
+          value: _dutyLocationConsent,
+          onChanged: _busy
+              ? null
+              : (value) =>
+                    setState(() => _dutyLocationConsent = value ?? false),
+          title: const Text(
+            'I agree to share location only while I am on duty.',
+          ),
+          subtitle: const Text(
+            'Duty cannot start without this consent. Location stops when duty ends.',
+          ),
+        ),
+        const SizedBox(height: Planext4uSpacing.x2),
+        FilledButton.icon(
+          key: const ValueKey('rider-submit-registration'),
+          onPressed: widget.provider == null || _busy ? null : _submit,
+          icon: _busy
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.verified_user_outlined),
+          label: const Text('Verify and submit'),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _submit() async {
+    if (!(_form.currentState?.validate() ?? false)) return;
+    if (!_dutyLocationConsent) {
+      setState(() {
+        _message = 'Duty-location consent is required before registration.';
+      });
+      return;
+    }
+    final provider = widget.provider;
+    if (provider == null) return;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final evidence = await provider.collectEvidence(
+        vehicleType: _vehicleType,
+      );
+      await widget.controller.register(
+        RiderRegistrationDraft(
+          fullName: _fullName.text,
+          vehicleType: _vehicleType,
+          vehicleNumber: _vehicleNumber.text,
+          documents: evidence.documents,
+          bankReference: evidence.bankReference,
+          zones: _normalizedZones(_zones.text),
+          dutyLocationConsent: _dutyLocationConsent,
+        ),
+      );
+      if (!mounted) return;
+      if (widget.controller.state.status != OperationsStatus.ready) {
+        _message = 'Registration was not accepted. Review and try again.';
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _message =
+          'The onboarding provider did not return a safe, complete result.';
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  static List<String> _normalizedZones(String? value) => (value ?? '')
+      .split(',')
+      .map((zone) => zone.trim())
+      .where((zone) => zone.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+}
+
 final class RiderOperationsView extends StatefulWidget {
   const RiderOperationsView({
     required this.controller,
     required this.destination,
+    this.onboardingProvider,
     this.onNavigate,
     this.onCapturePhoto,
     this.onCaptureSignature,
+    this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
+    this.supportController,
     this.appearancePreferencesController,
     this.accountPrivacyController,
     super.key,
   });
   final RiderOperationsController controller;
   final RoleDestination destination;
+  final RiderOnboardingProvider? onboardingProvider;
   final RiderNavigationAction? onNavigate;
   final RiderEvidenceCapture? onCapturePhoto;
-  final RiderEvidenceCapture? onCaptureSignature;
+  final RiderSignatureEvidenceUpload? onCaptureSignature;
+  final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
+  final SupportController? supportController;
   final AppearancePreferencesController? appearancePreferencesController;
   final AccountPrivacyController? accountPrivacyController;
 
@@ -1432,6 +2084,10 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
                     onPressed: widget.controller.recoverOffline,
                     child: const Text('Sync now'),
                   ),
+                TextButton(
+                  onPressed: widget.controller.clearMessage,
+                  child: const Text('Dismiss'),
+                ),
               ],
             ),
           switch (widget.destination.id) {
@@ -1454,18 +2110,17 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
   Future<void> _refresh() => switch (widget.destination.id) {
     'assignments' => widget.controller.refreshTasks(),
     'earnings' => widget.controller.loadSettlements(),
+    'emergency' when widget.controller.state.emergencyIncident != null =>
+      widget.controller.refreshEmergencyIncident(),
     _ => widget.controller.load(),
   };
 
   Widget _duty(RiderOperationsState state) {
     final profile = state.profile;
     if (profile == null) {
-      return const Planext4uStatePanel(
-        key: ValueKey('rider-register-provider-required'),
-        state: Planext4uViewState.permissionDenied,
-        title: 'Verified onboarding provider required',
-        message:
-            'Rider registration unlocks only after the private KYC, document upload and tokenized bank providers are configured.',
+      return _RiderRegistrationCard(
+        controller: widget.controller,
+        provider: widget.onboardingProvider,
       );
     }
     if (profile.status != 'APPROVED') {
@@ -1677,17 +2332,116 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
     final activeTask = state.tasks
         .where((task) => !task.isTerminal)
         .firstOrNull;
+    final incident = state.emergencyIncident;
+    final onDuty =
+        state.duty != null &&
+        const {'ACTIVE', 'ONLINE'}.contains(state.duty!.status);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text('Safety centre', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: Planext4uSpacing.x3),
         const Planext4uStatePanel(
-          state: Planext4uViewState.permissionDenied,
-          title: 'Emergency dispatch is not enabled',
+          state: Planext4uViewState.empty,
+          title: 'Use local emergency services first',
           message:
-              'The current mobile contract has no rider emergency escalation endpoint. Use local emergency services for immediate danger.',
+              'If anyone is in immediate danger, contact the local emergency number. Planext4u responder activation depends on approved regional availability.',
         ),
+        const SizedBox(height: Planext4uSpacing.x3),
+        if (incident == null && !onDuty)
+          const Planext4uStatePanel(
+            state: Planext4uViewState.permissionDenied,
+            title: 'Start duty to use rider SOS',
+            message:
+                'Rider emergency incidents require a verified active duty session.',
+          )
+        else if (incident == null) ...[
+          FilledButton.icon(
+            key: const ValueKey('create-rider-emergency'),
+            onPressed: state.status == OperationsStatus.submitting
+                ? null
+                : _openEmergencyDialog,
+            icon: const Icon(Icons.sos),
+            label: const Text('Request emergency assistance'),
+          ),
+          const SizedBox(height: Planext4uSpacing.x2),
+          const Text(
+            'A fresh on-duty location and explicit consent are required. Emergency requests are never queued offline.',
+            textAlign: TextAlign.center,
+          ),
+        ] else
+          Card(
+            key: ValueKey('rider-emergency-${incident.id}'),
+            child: Padding(
+              padding: const EdgeInsets.all(Planext4uSpacing.x4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.emergency_outlined),
+                      const SizedBox(width: Planext4uSpacing.x2),
+                      Expanded(
+                        child: Text(
+                          'Emergency incident active',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      Planext4uStatusPill(
+                        label: incident.status.replaceAll('_', ' '),
+                        tone: incident.status == 'RESOLVED'
+                            ? Planext4uStatusTone.neutral
+                            : Planext4uStatusTone.danger,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x2),
+                  Text('Reference ${incident.id}'),
+                  Text(
+                    'Escalation level ${incident.escalationLevel} • response target ${TimeOfDay.fromDateTime(incident.slaDeadline.toLocal()).format(context)}',
+                  ),
+                  Text(
+                    incident.assignedResponder.isEmpty
+                        ? 'Awaiting an approved responder. Continue to use local emergency services for immediate danger.'
+                        : 'A responder has been assigned.',
+                  ),
+                  const SizedBox(height: Planext4uSpacing.x3),
+                  Wrap(
+                    spacing: Planext4uSpacing.x2,
+                    runSpacing: Planext4uSpacing.x2,
+                    children: [
+                      OutlinedButton.icon(
+                        key: const ValueKey('refresh-rider-emergency'),
+                        onPressed: widget.controller.refreshEmergencyIncident,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Refresh status'),
+                      ),
+                      if (incident.status != 'RESOLVED')
+                        OutlinedButton.icon(
+                          key: const ValueKey(
+                            'toggle-rider-emergency-location',
+                          ),
+                          onPressed: () =>
+                              widget.controller.setEmergencyLocationConsent(
+                                !incident.locationConsent,
+                              ),
+                          icon: Icon(
+                            incident.locationConsent
+                                ? Icons.location_off_outlined
+                                : Icons.my_location,
+                          ),
+                          label: Text(
+                            incident.locationConsent
+                                ? 'Stop location sharing'
+                                : 'Share current location',
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
         if (activeTask != null) ...[
           const SizedBox(height: Planext4uSpacing.x3),
           OutlinedButton.icon(
@@ -1706,6 +2460,98 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
         ),
       ],
     );
+  }
+
+  Future<void> _openEmergencyDialog() async {
+    final description = TextEditingController(
+      text: 'Rider requested urgent safety assistance while on duty',
+    );
+    var category = 'SAFETY';
+    var consent = false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Request emergency assistance?'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Use local emergency services first for immediate danger. Planext4u regional responder activation may be unavailable.',
+                ),
+                const SizedBox(height: Planext4uSpacing.x3),
+                DropdownButtonFormField<String>(
+                  key: const ValueKey('rider-emergency-category'),
+                  initialValue: category,
+                  decoration: const InputDecoration(labelText: 'Incident type'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'SAFETY',
+                      child: Text('Safety concern'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'ACCIDENT',
+                      child: Text('Accident'),
+                    ),
+                    DropdownMenuItem(value: 'MEDICAL', child: Text('Medical')),
+                    DropdownMenuItem(value: 'FIRE', child: Text('Fire')),
+                    DropdownMenuItem(value: 'OTHER', child: Text('Other')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => category = value);
+                  },
+                ),
+                TextField(
+                  key: const ValueKey('rider-emergency-description'),
+                  controller: description,
+                  maxLength: 2000,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'What happened?',
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+                CheckboxListTile(
+                  key: const ValueKey('rider-emergency-consent'),
+                  contentPadding: EdgeInsets.zero,
+                  value: consent,
+                  onChanged: (value) =>
+                      setDialogState(() => consent = value ?? false),
+                  title: const Text(
+                    'I consent to share my current precise location for this incident.',
+                  ),
+                  subtitle: const Text('Location sharing can be revoked.'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('confirm-rider-emergency'),
+              onPressed: consent && description.text.trim().length >= 5
+                  ? () => Navigator.of(context).pop(true)
+                  : null,
+              child: const Text('Create SOS incident'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true) {
+      await widget.controller.createEmergencyIncident(
+        category: category,
+        description: description.text,
+        locationConsent: consent,
+      );
+    }
+    description.dispose();
   }
 
   Future<void> _openTaskChat(RiderTask task) async {
@@ -1794,10 +2640,29 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
                 : 'Duty ${state.duty!.status} • last seen ${state.duty!.lastSeenAt.toLocal()}',
           ),
         ),
-        const ListTile(
-          leading: Icon(Icons.support_agent),
-          title: Text('Rider support'),
-          subtitle: Text('Tasks, POD, attendance, safety and payout help'),
+        if (widget.identityProfileController != null)
+          ListTile(
+            key: const ValueKey('rider-edit-identity-profile'),
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: const Text('Personal profile'),
+            subtitle: const Text(
+              'Edit your display name, language and time zone',
+            ),
+            onTap: () => _openIdentityProfile(
+              context,
+              widget.identityProfileController!,
+            ),
+          ),
+        ListTile(
+          key: const ValueKey('rider-support'),
+          leading: const Icon(Icons.support_agent),
+          title: const Text('Rider support'),
+          subtitle: const Text(
+            'Tasks, POD, attendance, safety and payout help',
+          ),
+          onTap: widget.supportController == null
+              ? null
+              : () => _openSupport(context, widget.supportController!),
         ),
         if (widget.notificationPreferencesController != null)
           ListTile(
@@ -1863,6 +2728,15 @@ Future<void> _openSessionManagement(
   ),
 );
 
+Future<void> _openIdentityProfile(
+  BuildContext context,
+  IdentityProfileController controller,
+) => Navigator.of(context).push(
+  MaterialPageRoute<void>(
+    builder: (_) => IdentityProfileScreen(controller: controller),
+  ),
+);
+
 Future<void> _openNotificationPreferences(
   BuildContext context,
   NotificationPreferencesController controller,
@@ -1871,6 +2745,13 @@ Future<void> _openNotificationPreferences(
     builder: (_) => NotificationPreferencesScreen(controller: controller),
   ),
 );
+
+Future<void> _openSupport(BuildContext context, SupportController controller) =>
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SupportScreen(controller: controller),
+      ),
+    );
 
 Future<void> _openAppearancePreferences(
   BuildContext context,
@@ -1906,7 +2787,7 @@ final class _RiderTaskCard extends StatelessWidget {
   final bool historical;
   final RiderNavigationAction? onNavigate;
   final RiderEvidenceCapture? onCapturePhoto;
-  final RiderEvidenceCapture? onCaptureSignature;
+  final RiderSignatureEvidenceUpload? onCaptureSignature;
 
   @override
   Widget build(BuildContext context) {
@@ -1938,10 +2819,24 @@ final class _RiderTaskCard extends StatelessWidget {
                   : null,
             ),
             if (offer)
-              FilledButton(
-                key: ValueKey('accept-${task.id}'),
-                onPressed: remaining > 0 ? () => controller.accept(task) : null,
-                child: const Text('Accept delivery'),
+              Wrap(
+                spacing: Planext4uSpacing.x2,
+                runSpacing: Planext4uSpacing.x2,
+                children: [
+                  FilledButton(
+                    key: ValueKey('accept-${task.id}'),
+                    onPressed: remaining > 0
+                        ? () => controller.accept(task)
+                        : null,
+                    child: const Text('Accept delivery'),
+                  ),
+                  if (task.allowedActions.contains('DECLINE'))
+                    OutlinedButton(
+                      key: ValueKey('decline-${task.id}'),
+                      onPressed: remaining > 0 ? () => _decline(context) : null,
+                      child: const Text('Decline'),
+                    ),
+                ],
               )
             else if (!historical) ...[
               Wrap(
@@ -1996,7 +2891,7 @@ final class _RiderTaskCard extends StatelessWidget {
                 subtitle: Text(
                   task.podAssetId.isEmpty
                       ? 'No proof reference is exposed on this record.'
-                      : 'Private proof reference verified by the server.',
+                      : 'Delivery evidence verified',
                 ),
               ),
           ],
@@ -2028,10 +2923,80 @@ final class _RiderTaskCard extends StatelessWidget {
     );
   }
 
+  Future<void> _decline(BuildContext context) async {
+    final note = TextEditingController();
+    var reason = RiderOfferDeclineReason.tooFar;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final noteRequired = reason == RiderOfferDeclineReason.other;
+          final ready = !noteRequired || note.text.trim().length >= 3;
+          return AlertDialog(
+            title: const Text('Decline delivery offer?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'This hides the offer for you. Other eligible riders can still accept it.',
+                ),
+                const SizedBox(height: Planext4uSpacing.x3),
+                DropdownButtonFormField<RiderOfferDeclineReason>(
+                  key: const ValueKey('offer-decline-reason'),
+                  initialValue: reason,
+                  decoration: const InputDecoration(labelText: 'Reason'),
+                  items: [
+                    for (final value in RiderOfferDeclineReason.values)
+                      DropdownMenuItem(value: value, child: Text(value.label)),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => reason = value);
+                  },
+                ),
+                const SizedBox(height: Planext4uSpacing.x3),
+                TextField(
+                  key: const ValueKey('offer-decline-note'),
+                  controller: note,
+                  maxLength: 240,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: InputDecoration(
+                    labelText: noteRequired
+                        ? 'Note (required)'
+                        : 'Note (optional)',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Keep offer'),
+              ),
+              FilledButton(
+                key: const ValueKey('confirm-offer-decline'),
+                onPressed: ready ? () => Navigator.pop(context, true) : null,
+                child: const Text('Decline offer'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (confirmed == true) {
+      await controller.decline(task, reason: reason, note: note.text);
+    }
+    note.dispose();
+  }
+
   Future<void> _complete(BuildContext context) async {
     final otp = TextEditingController();
+    final signatureBoundary = GlobalKey();
+    final signatureStrokes = <List<Offset>>[];
     String photoAssetId = '';
     String signatureAssetId = '';
+    String? captureMessage;
+    bool signatureUploading = false;
     final requiresOtp = task.requiredEvidence.contains('OTP');
     final requiresPhoto = task.requiredEvidence.contains('PHOTO');
     final requiresSignature = task.requiredEvidence.contains('SIGNATURE');
@@ -2077,9 +3042,24 @@ final class _RiderTaskCard extends StatelessWidget {
                       onPressed: onCapturePhoto == null
                           ? null
                           : () async {
-                              final value = await onCapturePhoto!(task);
-                              if (value?.isNotEmpty == true) {
-                                setDialogState(() => photoAssetId = value!);
+                              try {
+                                final value = await onCapturePhoto!(task);
+                                if (!context.mounted) return;
+                                setDialogState(() {
+                                  if (value?.isNotEmpty == true) {
+                                    photoAssetId = value!;
+                                    captureMessage =
+                                        'Privacy-processed photo uploaded.';
+                                  } else {
+                                    captureMessage = 'Photo capture cancelled.';
+                                  }
+                                });
+                              } catch (_) {
+                                if (!context.mounted) return;
+                                setDialogState(() {
+                                  captureMessage =
+                                      'The private photo provider is unavailable.';
+                                });
                               }
                             },
                       icon: Icon(
@@ -2100,24 +3080,130 @@ final class _RiderTaskCard extends StatelessWidget {
                   ],
                   if (requiresSignature) ...[
                     const SizedBox(height: Planext4uSpacing.x3),
+                    Semantics(
+                      label: 'Recipient signature drawing area',
+                      child: RepaintBoundary(
+                        key: signatureBoundary,
+                        child: Container(
+                          key: const ValueKey('pod-signature-pad'),
+                          height: 160,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                            borderRadius: BorderRadius.circular(
+                              Planext4uRadii.control,
+                            ),
+                          ),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: signatureUploading
+                                ? null
+                                : (details) => setDialogState(
+                                    () => signatureStrokes.add([
+                                      details.localPosition,
+                                    ]),
+                                  ),
+                            onPanUpdate: signatureUploading
+                                ? null
+                                : (details) => setDialogState(
+                                    () => signatureStrokes.last.add(
+                                      details.localPosition,
+                                    ),
+                                  ),
+                            child: CustomPaint(
+                              painter: _PodSignaturePainter(signatureStrokes),
+                              child: const SizedBox.expand(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        TextButton(
+                          key: const ValueKey('clear-pod-signature'),
+                          onPressed:
+                              signatureStrokes.isEmpty || signatureUploading
+                              ? null
+                              : () => setDialogState(() {
+                                  signatureStrokes.clear();
+                                  signatureAssetId = '';
+                                }),
+                          child: const Text('Clear'),
+                        ),
+                        const Spacer(),
+                        Text(
+                          signatureAssetId.isEmpty
+                              ? 'Not uploaded'
+                              : 'Signature uploaded',
+                        ),
+                      ],
+                    ),
                     OutlinedButton.icon(
                       key: const ValueKey('capture-pod-signature'),
-                      onPressed: onCaptureSignature == null
+                      onPressed:
+                          onCaptureSignature == null ||
+                              signatureStrokes.isEmpty ||
+                              signatureUploading
                           ? null
                           : () async {
-                              final value = await onCaptureSignature!(task);
-                              if (value?.isNotEmpty == true) {
-                                setDialogState(() => signatureAssetId = value!);
+                              setDialogState(() => signatureUploading = true);
+                              try {
+                                final pngBytes = await _signaturePng(
+                                  signatureBoundary,
+                                  signatureStrokes,
+                                );
+                                if (!context.mounted) return;
+                                final value = await onCaptureSignature!(
+                                  task,
+                                  pngBytes,
+                                );
+                                if (!context.mounted) return;
+                                setDialogState(() {
+                                  if (value?.isNotEmpty == true) {
+                                    signatureAssetId = value!;
+                                    captureMessage =
+                                        'Recipient signature uploaded.';
+                                  } else {
+                                    captureMessage =
+                                        'Signature upload cancelled.';
+                                  }
+                                });
+                              } catch (error) {
+                                assert(() {
+                                  debugPrint(
+                                    'POD signature encoding failed: $error',
+                                  );
+                                  return true;
+                                }());
+                                if (!context.mounted) return;
+                                setDialogState(() {
+                                  captureMessage =
+                                      'The private signature provider is unavailable.';
+                                });
+                              } finally {
+                                if (context.mounted) {
+                                  setDialogState(
+                                    () => signatureUploading = false,
+                                  );
+                                }
                               }
                             },
-                      icon: Icon(
-                        signatureAssetId.isEmpty
-                            ? Icons.draw_outlined
-                            : Icons.check_circle_outline,
-                      ),
+                      icon: signatureUploading
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              signatureAssetId.isEmpty
+                                  ? Icons.draw_outlined
+                                  : Icons.check_circle_outline,
+                            ),
                       label: Text(
                         signatureAssetId.isEmpty
-                            ? 'Capture recipient signature'
+                            ? 'Upload recipient signature'
                             : 'Signature captured',
                       ),
                     ),
@@ -2125,6 +3211,10 @@ final class _RiderTaskCard extends StatelessWidget {
                       const Text(
                         'Signature capture becomes available after the evidence provider is configured.',
                       ),
+                  ],
+                  if (captureMessage != null) ...[
+                    const SizedBox(height: Planext4uSpacing.x2),
+                    Semantics(liveRegion: true, child: Text(captureMessage!)),
                   ],
                   const SizedBox(height: Planext4uSpacing.x3),
                   const Text(
@@ -2159,6 +3249,34 @@ final class _RiderTaskCard extends StatelessWidget {
     otp.dispose();
   }
 
+  Future<Uint8List> _signaturePng(
+    GlobalKey boundaryKey,
+    List<List<Offset>> strokes,
+  ) async {
+    final surface =
+        boundaryKey.currentContext?.findRenderObject() as RenderBox?;
+    if (surface == null || !surface.hasSize || surface.size.isEmpty) {
+      throw StateError('Signature surface is unavailable.');
+    }
+    const pixelRatio = 2.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(pixelRatio);
+    canvas.drawRect(Offset.zero & surface.size, Paint()..color = Colors.white);
+    _PodSignaturePainter([
+      for (final stroke in strokes) List<Offset>.of(stroke),
+    ]).paint(canvas, surface.size);
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      (surface.size.width * pixelRatio).ceil(),
+      (surface.size.height * pixelRatio).ceil(),
+    );
+    picture.dispose();
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    if (data == null) throw StateError('Signature could not be encoded.');
+    return data.buffer.asUint8List();
+  }
+
   Future<void> _chat(BuildContext context) async {
     await controller.openChat(task.orderId);
     if (!context.mounted) return;
@@ -2168,6 +3286,42 @@ final class _RiderTaskCard extends StatelessWidget {
       ),
     );
   }
+}
+
+final class _PodSignaturePainter extends CustomPainter {
+  const _PodSignaturePainter(this.strokes);
+
+  final List<List<Offset>> strokes;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.black
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+    for (final stroke in strokes) {
+      if (stroke.isEmpty) continue;
+      if (stroke.length == 1) {
+        canvas.drawCircle(
+          stroke.single,
+          1.5,
+          paint..style = PaintingStyle.fill,
+        );
+        paint.style = PaintingStyle.stroke;
+        continue;
+      }
+      final path = Path()..moveTo(stroke.first.dx, stroke.first.dy);
+      for (final point in stroke.skip(1)) {
+        path.lineTo(point.dx, point.dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PodSignaturePainter oldDelegate) => true;
 }
 
 final class RiderNavigationView extends StatelessWidget {

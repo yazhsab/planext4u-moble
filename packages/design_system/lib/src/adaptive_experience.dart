@@ -62,11 +62,33 @@ class Planext4uAdaptiveAppBuilder extends StatelessWidget {
   }
 }
 
+final class Planext4uNetworkImageVariant {
+  const Planext4uNetworkImageVariant({
+    required this.url,
+    required this.width,
+    required this.height,
+  });
+
+  final String url;
+  final int width;
+  final int height;
+}
+
+bool planext4uSafeNetworkImageUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  return uri != null &&
+      uri.scheme == 'https' &&
+      uri.host.isNotEmpty &&
+      uri.userInfo.isEmpty;
+}
+
 class Planext4uNetworkImage extends StatefulWidget {
   const Planext4uNetworkImage({
     required this.url,
     required this.semanticLabel,
     this.fit = BoxFit.cover,
+    this.variants = const [],
+    this.expiresAt,
     this.onFirstFrame,
     super.key,
   });
@@ -74,6 +96,8 @@ class Planext4uNetworkImage extends StatefulWidget {
   final String url;
   final String semanticLabel;
   final BoxFit fit;
+  final List<Planext4uNetworkImageVariant> variants;
+  final DateTime? expiresAt;
   final VoidCallback? onFirstFrame;
 
   @override
@@ -87,6 +111,14 @@ class _Planext4uNetworkImageState extends State<Planext4uNetworkImage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!planext4uSafeNetworkImageUrl(widget.url) ||
+        (widget.expiresAt?.isAfter(DateTime.now().toUtc()) == false)) {
+      return const Planext4uStatePanel(
+        state: Planext4uViewState.empty,
+        title: 'Image unavailable',
+        message: 'This image is no longer available.',
+      );
+    }
     final dataSaver = Planext4uExperiencePolicy.dataSaverOf(context);
     if (dataSaver && !_requested) {
       return Planext4uStatePanel(
@@ -110,9 +142,31 @@ class _Planext4uNetworkImageState extends State<Planext4uNetworkImage> {
                       .clamp(1, 4096)
                       .toInt()
                 : null;
+            final requestedWidth = cacheWidth ?? 4096;
+            final safeVariants =
+                widget.variants
+                    .where(
+                      (variant) =>
+                          variant.width > 0 &&
+                          variant.height > 0 &&
+                          planext4uSafeNetworkImageUrl(variant.url),
+                    )
+                    .toList(growable: false)
+                  ..sort((left, right) => left.width.compareTo(right.width));
+            Planext4uNetworkImageVariant? selectedVariant;
+            for (final variant in safeVariants) {
+              if (variant.width >= requestedWidth) {
+                selectedVariant = variant;
+                break;
+              }
+            }
+            if (selectedVariant == null && safeVariants.isNotEmpty) {
+              selectedVariant = safeVariants.last;
+            }
+            final resolvedUrl = selectedVariant?.url ?? widget.url;
             return Image.network(
-              widget.url,
-              key: ValueKey('${widget.url}:$_attempt'),
+              resolvedUrl,
+              key: ValueKey('$resolvedUrl:$_attempt'),
               fit: widget.fit,
               cacheWidth: cacheWidth,
               frameBuilder: (context, child, frame, synchronous) {

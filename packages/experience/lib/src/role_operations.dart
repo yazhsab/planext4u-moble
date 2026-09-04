@@ -4,8 +4,189 @@ import 'package:flutter/foundation.dart';
 import 'package:planext4u_api_client/planext4u_api_client.dart';
 
 import 'catalog.dart';
+import 'phase5.dart' show EmergencyAssistance;
 
 enum OperationsStatus { idle, loading, ready, submitting, offline, failure }
+
+/// Opaque document references returned by a private onboarding provider.
+///
+/// The mobile application never receives or persists extracted KYC fields.
+final class VendorOnboardingDocument {
+  const VendorOnboardingDocument({required this.kind, required this.assetId});
+
+  final String kind;
+  final String assetId;
+
+  Map<String, Object?> toJson() => {'kind': kind, 'asset_id': assetId};
+}
+
+/// Masked bank metadata plus the provider-owned token used by the backend.
+final class VendorOnboardingBankAccount {
+  const VendorOnboardingBankAccount({
+    required this.reference,
+    required this.holderName,
+    required this.last4,
+    required this.ifsc,
+  });
+
+  final String reference;
+  final String holderName;
+  final String last4;
+  final String ifsc;
+
+  Map<String, Object?> toJson() => {
+    'reference': reference,
+    'holder_name': holderName,
+    'last4': last4,
+    'ifsc': ifsc,
+  };
+}
+
+/// Integration boundary for OCR/KYC and bank-tokenization SDKs.
+///
+/// Production apps leave this unset until the approved private providers are
+/// configured. The UI then fails closed instead of accepting raw documents or
+/// bank account numbers.
+abstract interface class VendorOnboardingProvider {
+  Future<List<VendorOnboardingDocument>> collectDocuments();
+  Future<VendorOnboardingBankAccount> tokenizeBankAccount();
+}
+
+final class VendorFieldVisitDraft {
+  const VendorFieldVisitDraft({
+    required this.scheduledAt,
+    required this.latitude,
+    required this.longitude,
+    required this.allowedRadiusMeters,
+  });
+
+  final DateTime scheduledAt;
+  final double latitude;
+  final double longitude;
+  final int allowedRadiusMeters;
+
+  Map<String, Object?> toJson() => {
+    'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+    'latitude': latitude,
+    'longitude': longitude,
+    'allowed_radius_m': allowedRadiusMeters,
+  };
+}
+
+final class RiderOnboardingEvidence {
+  const RiderOnboardingEvidence({
+    required this.documents,
+    required this.bankReference,
+  });
+
+  final List<RiderDocumentDraft> documents;
+  final String bankReference;
+}
+
+/// Integration boundary for rider KYC, private uploads and bank tokenization.
+abstract interface class RiderOnboardingProvider {
+  Future<RiderOnboardingEvidence> collectEvidence({
+    required String vehicleType,
+  });
+}
+
+enum RiderPodEvidenceKind { blurredPhoto, signature }
+
+final class RiderPodBinaryEvidence {
+  const RiderPodBinaryEvidence({
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final Uint8List bytes;
+  final String contentType;
+}
+
+/// Device-camera boundary. Returning `null` means the rider cancelled capture.
+abstract interface class RiderPodPhotoSource {
+  Future<RiderPodBinaryEvidence?> capture(RiderTask task);
+}
+
+/// Private upload/processing boundary. Photo implementations must return only
+/// the server-owned reference for the privacy-processed (blurred) result.
+abstract interface class RiderPodEvidenceUploader {
+  Future<String> upload({
+    required RiderTask task,
+    required RiderPodEvidenceKind kind,
+    required RiderPodBinaryEvidence evidence,
+  });
+}
+
+final class RiderPodCaptureCoordinator {
+  const RiderPodCaptureCoordinator({
+    required RiderPodPhotoSource photoSource,
+    required RiderPodEvidenceUploader uploader,
+  }) : _photoSource = photoSource,
+       _uploader = uploader;
+
+  static const int maxPhotoBytes = 10 * 1024 * 1024;
+  static const int maxSignatureBytes = 1024 * 1024;
+
+  final RiderPodPhotoSource _photoSource;
+  final RiderPodEvidenceUploader _uploader;
+
+  Future<String?> capturePhoto(RiderTask task) async {
+    final evidence = await _photoSource.capture(task);
+    if (evidence == null) return null;
+    _validateEvidence(
+      evidence,
+      kind: RiderPodEvidenceKind.blurredPhoto,
+      maximumBytes: maxPhotoBytes,
+      allowedContentTypes: const {'image/jpeg', 'image/png'},
+    );
+    return _upload(task, RiderPodEvidenceKind.blurredPhoto, evidence);
+  }
+
+  Future<String?> uploadSignature(RiderTask task, Uint8List bytes) async {
+    final evidence = RiderPodBinaryEvidence(
+      bytes: bytes,
+      contentType: 'image/png',
+    );
+    _validateEvidence(
+      evidence,
+      kind: RiderPodEvidenceKind.signature,
+      maximumBytes: maxSignatureBytes,
+      allowedContentTypes: const {'image/png'},
+    );
+    return _upload(task, RiderPodEvidenceKind.signature, evidence);
+  }
+
+  Future<String> _upload(
+    RiderTask task,
+    RiderPodEvidenceKind kind,
+    RiderPodBinaryEvidence evidence,
+  ) async {
+    final reference = (await _uploader.upload(
+      task: task,
+      kind: kind,
+      evidence: evidence,
+    )).trim();
+    if (!_validPrivateReference(reference)) {
+      throw const FormatException(
+        'POD provider returned an invalid private asset reference.',
+      );
+    }
+    return reference;
+  }
+
+  static void _validateEvidence(
+    RiderPodBinaryEvidence evidence, {
+    required RiderPodEvidenceKind kind,
+    required int maximumBytes,
+    required Set<String> allowedContentTypes,
+  }) {
+    if (evidence.bytes.isEmpty ||
+        evidence.bytes.length > maximumBytes ||
+        !allowedContentTypes.contains(evidence.contentType)) {
+      throw FormatException('Invalid ${kind.name} evidence payload.');
+    }
+  }
+}
 
 final class VendorDocumentSummary {
   const VendorDocumentSummary({
@@ -385,7 +566,10 @@ abstract interface class VendorOperationsRemote {
     int revision,
     List<Map<String, Object?>> documents,
   );
-  Future<VendorApplication> scheduleVisit(int revision, DateTime scheduledAt);
+  Future<VendorApplication> scheduleVisit(
+    int revision,
+    VendorFieldVisitDraft visit,
+  );
   Future<VendorApplication> setZones(
     int revision,
     List<Map<String, Object?>> zones,
@@ -446,19 +630,16 @@ final class VendorOperationsApi implements VendorOperationsRemote {
   );
 
   @override
-  Future<VendorApplication> scheduleVisit(int revision, DateTime scheduledAt) =>
-      _revisionCommand(
-        'supply.schedule_visit',
-        '/v1/vendor/application/field-visit',
-        revision,
-        {
-          'scheduled_at': scheduledAt.toUtc().toIso8601String(),
-          'latitude': 13.0827,
-          'longitude': 80.2707,
-          'allowed_radius_m': 200,
-        },
-        VendorApplication.fromJson,
-      );
+  Future<VendorApplication> scheduleVisit(
+    int revision,
+    VendorFieldVisitDraft visit,
+  ) => _revisionCommand(
+    'supply.schedule_visit',
+    '/v1/vendor/application/field-visit',
+    revision,
+    visit.toJson(),
+    VendorApplication.fromJson,
+  );
 
   @override
   Future<VendorApplication> setZones(
@@ -854,12 +1035,31 @@ final class VendorOperationsController extends ChangeNotifier {
     );
   }
 
-  Future<void> scheduleFieldVisit() => _applicationCommand(
-    (application) => _remote.scheduleVisit(
-      application.revision,
-      DateTime.now().toUtc().add(const Duration(days: 1)),
-    ),
+  Future<void> submitOnboardingDocuments(
+    List<VendorOnboardingDocument> documents,
+  ) => submitDocuments(
+    documents.map((document) => document.toJson()).toList(growable: false),
   );
+
+  Future<void> scheduleFieldVisit(VendorFieldVisitDraft visit) {
+    final now = DateTime.now().toUtc();
+    final scheduledAt = visit.scheduledAt.toUtc();
+    if (!visit.latitude.isFinite ||
+        visit.latitude < -90 ||
+        visit.latitude > 90 ||
+        !visit.longitude.isFinite ||
+        visit.longitude < -180 ||
+        visit.longitude > 180 ||
+        visit.allowedRadiusMeters < 25 ||
+        visit.allowedRadiusMeters > 1000 ||
+        !scheduledAt.isAfter(now) ||
+        scheduledAt.isAfter(now.add(const Duration(days: 90)))) {
+      throw const FormatException('Vendor field visit details are invalid.');
+    }
+    return _applicationCommand(
+      (application) => _remote.scheduleVisit(application.revision, visit),
+    );
+  }
 
   Future<void> configureZones(List<Map<String, Object?>> zones) {
     if (zones.isEmpty || zones.length > 20) {
@@ -946,6 +1146,9 @@ final class VendorOperationsController extends ChangeNotifier {
       ),
     );
   }
+
+  Future<void> configureOnboardingBank(VendorOnboardingBankAccount bank) =>
+      configureBank(bank.toJson());
 
   Future<void> _applicationCommand(
     Future<VendorApplication> Function(VendorApplication application) action,
@@ -1521,6 +1724,52 @@ final class RiderTask {
   }
 }
 
+enum RiderOfferDeclineReason {
+  tooFar('TOO_FAR', 'Pickup is too far'),
+  vehicleOrCapacity('VEHICLE_OR_CAPACITY', 'Vehicle or capacity mismatch'),
+  endingDuty('ENDING_DUTY', 'Ending duty soon'),
+  safetyConcern('SAFETY_CONCERN', 'Safety concern'),
+  other('OTHER', 'Other');
+
+  const RiderOfferDeclineReason(this.code, this.label);
+  final String code;
+  final String label;
+}
+
+final class RiderOfferDecline {
+  const RiderOfferDecline({
+    required this.taskId,
+    required this.taskRevision,
+    required this.reason,
+    required this.declinedAt,
+    this.note = '',
+  });
+
+  factory RiderOfferDecline.fromJson(Object? value) {
+    final json = _roleObject(value, 'rider offer decline');
+    final reasonCode = _roleString(json, 'reason_code');
+    final reasons = RiderOfferDeclineReason.values.where(
+      (reason) => reason.code == reasonCode,
+    );
+    if (reasons.isEmpty) {
+      throw const FormatException('Rider offer decline reason is invalid.');
+    }
+    return RiderOfferDecline(
+      taskId: _roleString(json, 'task_id'),
+      taskRevision: _roleInteger(json, 'task_revision'),
+      reason: reasons.single,
+      declinedAt: _roleInstant(json, 'declined_at'),
+      note: json['note'] as String? ?? '',
+    );
+  }
+
+  final String taskId;
+  final int taskRevision;
+  final RiderOfferDeclineReason reason;
+  final DateTime declinedAt;
+  final String note;
+}
+
 final class ChatMessageRecord {
   const ChatMessageRecord({
     required this.id,
@@ -1738,6 +1987,11 @@ abstract interface class RiderOperationsRemote {
   Future<List<RiderTask>> offers();
   Future<List<RiderTask>> tasks();
   Future<RiderTask> accept(RiderTask task);
+  Future<RiderOfferDecline> decline(
+    RiderTask task, {
+    required RiderOfferDeclineReason reason,
+    String note,
+  });
   Future<RiderTask> pickup(RiderTask task);
   Future<RiderTask> complete(
     RiderTask task, {
@@ -1754,6 +2008,17 @@ abstract interface class RiderOperationsRemote {
   Future<List<SettlementEntry>> ledger();
   Future<List<PayoutRecord>> payouts();
   Future<PayoutRecord> requestPayout(List<String> entryIds);
+  Future<EmergencyAssistance> createEmergencyIncident({
+    required String category,
+    required String description,
+    required RiderTrackedPosition location,
+  });
+  Future<EmergencyAssistance> emergencyIncident(String incidentId);
+  Future<EmergencyAssistance> updateEmergencyIncidentLocation(
+    String incidentId, {
+    required bool consent,
+    RiderTrackedPosition? location,
+  });
 }
 
 final class RiderOperationsApi implements RiderOperationsRemote {
@@ -1809,6 +2074,21 @@ final class RiderOperationsApi implements RiderOperationsRemote {
     RiderTask.fromJson,
   );
   @override
+  Future<RiderOfferDecline> decline(
+    RiderTask task, {
+    required RiderOfferDeclineReason reason,
+    String note = '',
+  }) => _revisionCommand(
+    'rider.decline_offer',
+    '/v1/rider/offers/${Uri.encodeComponent(task.id)}/decline',
+    task.revision,
+    {
+      'reason_code': reason.code,
+      if (note.trim().isNotEmpty) 'note': note.trim(),
+    },
+    RiderOfferDecline.fromJson,
+  );
+  @override
   Future<RiderTask> pickup(RiderTask task) => _revisionCommand(
     'rider.pickup',
     '/v1/rider/tasks/${Uri.encodeComponent(task.id)}/pickup',
@@ -1827,7 +2107,7 @@ final class RiderOperationsApi implements RiderOperationsRemote {
     '/v1/rider/tasks/${Uri.encodeComponent(task.id)}/completion',
     task.revision,
     {
-      'otp': otp,
+      if (otp.isNotEmpty) 'otp': otp,
       'blurred_photo_asset_id': blurredPhotoAssetId,
       if (signatureAssetId.isNotEmpty) 'signature_asset_id': signatureAssetId,
     },
@@ -1889,6 +2169,51 @@ final class RiderOperationsApi implements RiderOperationsRemote {
     {'entry_ids': entryIds},
     PayoutRecord.fromJson,
   );
+  @override
+  Future<EmergencyAssistance> createEmergencyIncident({
+    required String category,
+    required String description,
+    required RiderTrackedPosition location,
+  }) => _command(
+    'rider.create_emergency_incident',
+    '/v1/rider/emergency-incidents',
+    {
+      'category': category,
+      'description': description.trim(),
+      'priority': 'CRITICAL',
+      'location_consent': true,
+      'location': {
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+        'accuracy_m': location.accuracyMeters,
+      },
+    },
+    EmergencyAssistance.fromJson,
+  );
+  @override
+  Future<EmergencyAssistance> emergencyIncident(String incidentId) => _get(
+    'rider.get_emergency_incident',
+    '/v1/rider/emergency-incidents/${Uri.encodeComponent(incidentId)}',
+    EmergencyAssistance.fromJson,
+  );
+  @override
+  Future<EmergencyAssistance> updateEmergencyIncidentLocation(
+    String incidentId, {
+    required bool consent,
+    RiderTrackedPosition? location,
+  }) => _command(
+    'rider.update_emergency_location',
+    '/v1/rider/emergency-incidents/${Uri.encodeComponent(incidentId)}/location',
+    {
+      'consent': consent,
+      'location': {
+        'latitude': location?.latitude ?? 0,
+        'longitude': location?.longitude ?? 0,
+        'accuracy_m': location?.accuracyMeters ?? 0,
+      },
+    },
+    EmergencyAssistance.fromJson,
+  );
 
   Future<T> _get<T>(
     String operation,
@@ -1940,6 +2265,7 @@ final class RiderOperationsState {
     this.ledger = const [],
     this.payouts = const [],
     this.conversation,
+    this.emergencyIncident,
     this.pendingCommands = 0,
     this.locationStatus = RiderLocationStatus.unknown,
     this.message,
@@ -1952,6 +2278,7 @@ final class RiderOperationsState {
   final List<SettlementEntry> ledger;
   final List<PayoutRecord> payouts;
   final OrderConversation? conversation;
+  final EmergencyAssistance? emergencyIncident;
   final int pendingCommands;
   final RiderLocationStatus locationStatus;
   final String? message;
@@ -1965,6 +2292,7 @@ final class RiderOperationsState {
     List<SettlementEntry>? ledger,
     List<PayoutRecord>? payouts,
     OrderConversation? conversation,
+    EmergencyAssistance? emergencyIncident,
     int? pendingCommands,
     RiderLocationStatus? locationStatus,
     String? message,
@@ -1978,6 +2306,7 @@ final class RiderOperationsState {
     ledger: ledger ?? this.ledger,
     payouts: payouts ?? this.payouts,
     conversation: conversation ?? this.conversation,
+    emergencyIncident: emergencyIncident ?? this.emergencyIncident,
     pendingCommands: pendingCommands ?? this.pendingCommands,
     locationStatus: locationStatus ?? this.locationStatus,
     message: clearMessage ? null : message ?? this.message,
@@ -2005,6 +2334,7 @@ final class RiderRegistrationDraft {
     required this.documents,
     required this.bankReference,
     required this.zones,
+    required this.dutyLocationConsent,
   });
 
   final String fullName;
@@ -2013,6 +2343,7 @@ final class RiderRegistrationDraft {
   final List<RiderDocumentDraft> documents;
   final String bankReference;
   final List<String> zones;
+  final bool dutyLocationConsent;
 
   Map<String, Object?> toJson() {
     final name = fullName.trim();
@@ -2045,6 +2376,7 @@ final class RiderRegistrationDraft {
               !_validPrivateReference(document.assetId),
         ) ||
         !_validPrivateReference(bankReference) ||
+        !dutyLocationConsent ||
         zones.isEmpty ||
         zones.length > 20 ||
         zones.any((zone) => !RegExp(r'^[0-9]{4,10}$').hasMatch(zone))) {
@@ -2075,6 +2407,8 @@ final class RiderOperationsController extends ChangeNotifier {
   RiderOperationsState get state => _state;
   int _deviceSequence = 0;
   int _locationSequence = 0;
+  RiderTrackedPosition? _lastTrackedPosition;
+  final Set<String> _submittedCompletions = {};
 
   Future<void> load() => _run(() async {
     RiderProfile? profile;
@@ -2172,6 +2506,46 @@ final class RiderOperationsController extends ChangeNotifier {
 
   Future<void> accept(RiderTask task) =>
       _taskCommand(task, 'ACCEPT', () => _remote.accept(task));
+  Future<void> decline(
+    RiderTask task, {
+    required RiderOfferDeclineReason reason,
+    String note = '',
+  }) async {
+    final normalizedNote = note.trim();
+    if (normalizedNote.length > 240 ||
+        (reason == RiderOfferDeclineReason.other &&
+            normalizedNote.length < 3)) {
+      throw const FormatException('Provide a valid offer decline reason.');
+    }
+    _state = _state.copyWith(
+      status: OperationsStatus.submitting,
+      clearMessage: true,
+    );
+    notifyListeners();
+    try {
+      await _remote.decline(task, reason: reason, note: normalizedNote);
+      _state = _state.copyWith(
+        status: OperationsStatus.ready,
+        offers: _state.offers
+            .where((item) => item.id != task.id)
+            .toList(growable: false),
+        message: 'Offer declined.',
+      );
+    } on ApiTransportFailure {
+      _state = _state.copyWith(
+        status: OperationsStatus.offline,
+        message:
+            'Decline was not queued because this offer may expire. Reconnect and refresh offers.',
+      );
+    } catch (_) {
+      _state = _state.copyWith(
+        status: OperationsStatus.failure,
+        message: 'The offer changed or is no longer available.',
+      );
+    }
+    notifyListeners();
+  }
+
   Future<void> pickup(RiderTask task) =>
       _taskCommand(task, 'PICKUP', () => _remote.pickup(task));
   Future<void> complete(
@@ -2180,34 +2554,91 @@ final class RiderOperationsController extends ChangeNotifier {
     String blurredPhotoAssetId = '',
     String signatureAssetId = '',
   }) {
-    if (task.requiredEvidence.contains('OTP') &&
-        !RegExp(r'^\d{4,8}$').hasMatch(otp)) {
+    final required = task.requiredEvidence;
+    final requiresOtp = required.contains('OTP');
+    final requiresPhoto = required.contains('PHOTO');
+    final requiresSignature = required.contains('SIGNATURE');
+    if (!task.allowedActions.contains('COMPLETE') || task.isTerminal) {
+      throw StateError('This task cannot accept proof of delivery.');
+    }
+    if (required.any(
+          (value) => !const {'OTP', 'PHOTO', 'SIGNATURE'}.contains(value),
+        ) ||
+        !requiresPhoto ||
+        (!requiresOtp && !requiresSignature)) {
+      throw const FormatException(
+        'The server supplied an unsupported delivery evidence policy.',
+      );
+    }
+    if (requiresOtp && !RegExp(r'^\d{4,8}$').hasMatch(otp)) {
       throw const FormatException('A valid delivery OTP is required.');
     }
-    if (task.requiredEvidence.contains('PHOTO') &&
-        blurredPhotoAssetId.isEmpty) {
+    if (!requiresOtp && otp.isNotEmpty) {
+      throw const FormatException('Unexpected delivery OTP evidence.');
+    }
+    if (!_validPrivateReference(blurredPhotoAssetId)) {
       throw const FormatException('A private delivery photo is required.');
     }
-    if (task.requiredEvidence.contains('SIGNATURE') &&
-        signatureAssetId.isEmpty) {
+    if (requiresSignature && !_validPrivateReference(signatureAssetId)) {
       throw const FormatException('A recipient signature is required.');
     }
-    return _taskCommand(
+    if (!requiresSignature && signatureAssetId.isNotEmpty) {
+      throw const FormatException('Unexpected recipient signature evidence.');
+    }
+    final submissionKey = '${task.id}:${task.revision}';
+    if (!_submittedCompletions.add(submissionKey)) return Future<void>.value();
+    final current = _state.tasks
+        .where((value) => value.id == task.id)
+        .firstOrNull;
+    if (current != null &&
+        (current.revision != task.revision ||
+            current.isTerminal ||
+            !current.allowedActions.contains('COMPLETE'))) {
+      _submittedCompletions.remove(submissionKey);
+      throw StateError(
+        'Refresh this task before submitting delivery evidence.',
+      );
+    }
+    return _completeOnce(
       task,
-      'COMPLETE',
-      () => _remote.complete(
-        task,
-        otp: otp,
-        blurredPhotoAssetId: blurredPhotoAssetId,
-        signatureAssetId: signatureAssetId,
-      ),
-      payload: {
-        if (otp.isNotEmpty) 'otp': otp,
-        if (blurredPhotoAssetId.isNotEmpty)
-          'blurred_photo_asset_id': blurredPhotoAssetId,
-        if (signatureAssetId.isNotEmpty) 'signature_asset_id': signatureAssetId,
-      },
+      submissionKey: submissionKey,
+      otp: otp,
+      blurredPhotoAssetId: blurredPhotoAssetId,
+      signatureAssetId: signatureAssetId,
     );
+  }
+
+  Future<void> _completeOnce(
+    RiderTask task, {
+    required String submissionKey,
+    required String otp,
+    required String blurredPhotoAssetId,
+    required String signatureAssetId,
+  }) async {
+    try {
+      await _taskCommand(
+        task,
+        'COMPLETE',
+        () => _remote.complete(
+          task,
+          otp: otp,
+          blurredPhotoAssetId: blurredPhotoAssetId,
+          signatureAssetId: signatureAssetId,
+        ),
+        payload: {
+          if (otp.isNotEmpty) 'otp': otp,
+          'blurred_photo_asset_id': blurredPhotoAssetId,
+          if (signatureAssetId.isNotEmpty)
+            'signature_asset_id': signatureAssetId,
+        },
+      );
+    } finally {
+      // Keep the key while an offline completion is queued. Online results
+      // advance the task revision, so stale retries are rejected by state.
+      if (_state.status != OperationsStatus.offline) {
+        _submittedCompletions.remove(submissionKey);
+      }
+    }
   }
 
   Future<void> _taskCommand(
@@ -2289,6 +2720,7 @@ final class RiderOperationsController extends ChangeNotifier {
     if (position.accuracyMeters <= 0 || position.accuracyMeters > 100) {
       throw const FormatException('Location accuracy is unsafe.');
     }
+    _lastTrackedPosition = position;
     await _remote.updateLocation(
       RiderLocationCommand(
         sequence: ++_locationSequence,
@@ -2343,6 +2775,118 @@ final class RiderOperationsController extends ChangeNotifier {
     final payout = await _remote.requestPayout(ids);
     _state = _state.copyWith(payouts: [payout, ..._state.payouts]);
   });
+
+  Future<void> createEmergencyIncident({
+    required String category,
+    required String description,
+    required bool locationConsent,
+  }) => _emergencyMutation(() async {
+    if (!_dutyIsActive(_state.duty)) {
+      throw StateError('Start duty before requesting emergency assistance.');
+    }
+    if (!locationConsent) {
+      throw const FormatException(
+        'Explicit location consent is required for an emergency incident.',
+      );
+    }
+    final normalizedCategory = category.trim().toUpperCase();
+    final normalizedDescription = description.trim();
+    if (!const {
+          'MEDICAL',
+          'SAFETY',
+          'FIRE',
+          'ACCIDENT',
+          'OTHER',
+        }.contains(normalizedCategory) ||
+        normalizedDescription.length < 5 ||
+        normalizedDescription.length > 2000) {
+      throw const FormatException('Emergency incident details are invalid.');
+    }
+    _state = _state.copyWith(
+      emergencyIncident: await _remote.createEmergencyIncident(
+        category: normalizedCategory,
+        description: normalizedDescription,
+        location: _freshEmergencyPosition(),
+      ),
+      message: 'Emergency incident created. Keep your phone available.',
+    );
+  });
+
+  Future<void> refreshEmergencyIncident() => _run(() async {
+    final incident = _state.emergencyIncident;
+    if (incident == null) return;
+    _state = _state.copyWith(
+      emergencyIncident: await _remote.emergencyIncident(incident.id),
+    );
+  });
+
+  Future<void> setEmergencyLocationConsent(bool consent) =>
+      _emergencyMutation(() async {
+        final incident = _state.emergencyIncident;
+        if (incident == null || incident.status == 'RESOLVED') return;
+        _state = _state.copyWith(
+          emergencyIncident: await _remote.updateEmergencyIncidentLocation(
+            incident.id,
+            consent: consent,
+            location: consent ? _freshEmergencyPosition() : null,
+          ),
+          message: consent
+              ? 'Emergency location refreshed.'
+              : 'Emergency location sharing stopped.',
+        );
+      });
+
+  RiderTrackedPosition _freshEmergencyPosition() {
+    final position = _lastTrackedPosition;
+    if (position == null ||
+        DateTime.now().toUtc().difference(position.capturedAt.toUtc()) >
+            const Duration(minutes: 2)) {
+      throw StateError(
+        'A fresh on-duty location is required. Check location permissions and try again.',
+      );
+    }
+    return position;
+  }
+
+  Future<void> _emergencyMutation(Future<void> Function() action) async {
+    _state = _state.copyWith(
+      status: OperationsStatus.submitting,
+      clearMessage: true,
+    );
+    notifyListeners();
+    try {
+      await action();
+      _state = _state.copyWith(status: OperationsStatus.ready);
+    } on ApiTransportFailure {
+      _state = _state.copyWith(
+        status: OperationsStatus.offline,
+        message:
+            'Emergency incidents are never queued offline. Contact local emergency services now and retry when connected.',
+      );
+    } on FormatException catch (error) {
+      _state = _state.copyWith(
+        status: OperationsStatus.failure,
+        message: error.message,
+      );
+    } on StateError catch (error) {
+      _state = _state.copyWith(
+        status: OperationsStatus.failure,
+        message: error.message,
+      );
+    } catch (_) {
+      _state = _state.copyWith(
+        status: OperationsStatus.failure,
+        message: 'The emergency incident could not be updated safely.',
+      );
+    }
+    notifyListeners();
+  }
+
+  void clearMessage() {
+    if (_state.message == null) return;
+    _state = _state.copyWith(clearMessage: true);
+    notifyListeners();
+  }
 
   void _replaceTask(RiderTask updated) {
     _state = _state.copyWith(
