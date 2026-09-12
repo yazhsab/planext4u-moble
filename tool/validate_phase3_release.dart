@@ -185,7 +185,13 @@ void _validateAutomation(List<String> failures) {
 
   final release = _read('.github/workflows/mobile-release.yml');
   for (final marker in [
-    'environment: production',
+    r'environment: production-${{ inputs.app }}',
+    'dart run tool/validate_release_inputs.dart',
+    'MOBILE_SIGNING_ROTATION_APPROVED',
+    'persist-credentials: false',
+    r'--build-name="$RELEASE_VERSION"',
+    r'--build-number="$RELEASE_BUILD_NUMBER"',
+    r'--dart-define="API_BASE_URL=$RELEASE_API_BASE_URL"',
     'ANDROID_KEYSTORE_B64',
     'IOS_DISTRIBUTION_CERTIFICATE_B64',
     'MOBILE_ANDROID_FIREBASE_CONFIG_B64',

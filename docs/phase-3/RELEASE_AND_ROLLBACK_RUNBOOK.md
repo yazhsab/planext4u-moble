@@ -3,7 +3,8 @@
 ## Release invariant
 
 Every production candidate is role-specific, signed in the protected
-`production` GitHub environment and generated from a reviewed commit. The
+role-specific `production-customer`, `production-vendor` or `production-rider`
+GitHub environment and generated from a reviewed `main` commit. The
 workflow builds both the Android App Bundle and iOS IPA, uploads an immutable
 30-day candidate artifact and attaches build-provenance attestations. It does
 not publish to Google Play or App Store Connect.
@@ -18,6 +19,20 @@ selected customer, vendor or rider environment:
   export-options plist and development team identifier.
 - Android and iOS Firebase production configuration matching the selected
   production package/bundle identifier.
+
+Each role environment also needs the public `MOBILE_API_BASE_URL` variable and
+`MOBILE_SIGNING_ROTATION_APPROVED=true` after the signing owner records retirement
+or store-authorized reset of the historically exposed credentials. Setting the
+variable is an owner attestation; it does not perform key rotation. Do not delete
+or replace a published application's signing identity outside the store owner's
+approved reset/rotation procedure. Do not reuse historical repository keystores.
+
+The workflow validates input structure with `tool/validate_release_inputs.dart`,
+passes version/build values as quoted shell variables and checks the provisioning
+profile team and exact role application identifier. No role falls back to shared
+`production` secrets. Protect each named environment and restrict it to `main`
+before running a signed candidate. Store build numbers must also be checked
+against the latest uploaded version; local validation cannot prove monotonicity.
 
 Credentials are decoded only into the ephemeral runner, validated before the
 build and removed in an always-running cleanup step. Production Android release
