@@ -16,19 +16,21 @@ workspace:
   - packages/identity
   - packages/experience
   - packages/storage
+  - packages/device_access
   - packages/observability
 
 dev_dependencies:
   melos: ^8.5.0
 
+  planext4u_api_client: any
 melos:
   command:
     bootstrap:
       runPubGetInParallel: false
   scripts:
     format:
-      description: Format all Dart sources and fail when changes are needed.
-      run: dart format --output=none --set-exit-if-changed .
+      description: Format application, package and tool Dart sources without generated build output.
+      run: dart format --output=none --set-exit-if-changed apps packages tool
     analyze:
       description: Analyze every Flutter application and shared package.
       run: dart run melos exec --concurrency=1 --fail-fast -- flutter analyze

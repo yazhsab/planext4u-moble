@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:planext4u_api_client/planext4u_api_client.dart';
 
+import 'account_export_document.dart';
+
 enum Phase5Status { idle, loading, ready, submitting, failure }
 
 enum CommunityMediaKind { storyImage, reelVideo, classifiedImage, voiceNote }
@@ -120,7 +122,7 @@ final class CommunityMediaCoordinator {
       final media = await _voiceSource.stop();
       if (media == null) return null;
       _validate(CommunityMediaKind.voiceNote, media);
-      return _upload(CommunityMediaKind.voiceNote, media);
+      return await _upload(CommunityMediaKind.voiceNote, media);
     } finally {
       _voiceActive = false;
     }
@@ -582,6 +584,10 @@ final class AccountDataExport {
     required this.identityId,
     required this.sessionCount,
     required this.consentCount,
+    this.document,
+    this.consentHistoryCount = 0,
+    this.vendorApplicationCount = 0,
+    this.riderProfileCount = 0,
   });
   factory AccountDataExport.fromJson(Object? value) {
     final json = _object(value, 'account data export');
@@ -590,11 +596,22 @@ final class AccountDataExport {
       identityId: _string(json, 'identity_id'),
       sessionCount: _list(json, 'sessions').length,
       consentCount: _list(json, 'consents').length,
+      consentHistoryCount: _list(json, 'consent_history').length,
+      vendorApplicationCount: json['schema_version'] == 4
+          ? _list(json, 'vendor_applications').length
+          : 0,
+      riderProfileCount: json['schema_version'] == 4
+          ? _list(json, 'rider_profiles').length
+          : 0,
+      document: AccountExportDocument.fromJson(json),
     );
   }
   final DateTime generatedAt;
   final String identityId;
   final int sessionCount, consentCount;
+  final int consentHistoryCount;
+  final int vendorApplicationCount, riderProfileCount;
+  final AccountExportDocument? document;
 }
 
 final class AccountDeletionRequest {
@@ -606,11 +623,20 @@ final class AccountDeletionRequest {
   });
   factory AccountDeletionRequest.fromJson(Object? value) {
     final json = _object(value, 'account deletion request');
+    final id = _string(json, 'id');
+    final status = _string(json, 'status');
+    final requestedAt = _instant(json, 'requested_at');
+    final effectiveAt = _instant(json, 'effective_at');
+    if (!RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(id) ||
+        status != 'SCHEDULED' ||
+        !effectiveAt.isAfter(requestedAt)) {
+      throw const FormatException('Account deletion request is invalid.');
+    }
     return AccountDeletionRequest(
-      id: _string(json, 'id'),
-      status: _string(json, 'status'),
-      requestedAt: _instant(json, 'requested_at'),
-      effectiveAt: _instant(json, 'effective_at'),
+      id: id,
+      status: status,
+      requestedAt: requestedAt,
+      effectiveAt: effectiveAt,
     );
   }
   final String id, status;
@@ -738,13 +764,11 @@ final class Phase5Api implements Phase5Remote {
     String kind,
     String mediaJobId,
     String caption,
-  ) => _command(
-    'social.create_ephemeral',
-    'POST',
-    '/v1/social/ephemeral',
-    {'kind': kind, 'media_job_id': mediaJobId, 'caption': caption},
-    SocialEphemeral.fromJson,
-  );
+  ) => _command('social.create_ephemeral', 'POST', '/v1/social/ephemeral', {
+    'kind': kind,
+    'media_job_id': mediaJobId,
+    'caption': caption,
+  }, SocialEphemeral.fromJson);
   @override
   Future<SocialEphemeral> setHighlight(String id, bool active) => _command(
     'social.set_highlight',
@@ -960,24 +984,18 @@ final class Phase5Api implements Phase5Remote {
     required double latitude,
     required double longitude,
     required double accuracyM,
-  }) => _command(
-    'emergency.create',
-    'POST',
-    '/v1/emergency/requests',
-    {
-      'category': category,
-      'description': description,
-      'priority': priority,
-      'location_consent': true,
-      'location': {
-        'latitude': latitude,
-        'longitude': longitude,
-        'accuracy_m': accuracyM,
-        'captured_at': DateTime.now().toUtc().toIso8601String(),
-      },
+  }) => _command('emergency.create', 'POST', '/v1/emergency/requests', {
+    'category': category,
+    'description': description,
+    'priority': priority,
+    'location_consent': true,
+    'location': {
+      'latitude': latitude,
+      'longitude': longitude,
+      'accuracy_m': accuracyM,
+      'captured_at': DateTime.now().toUtc().toIso8601String(),
     },
-    EmergencyAssistance.fromJson,
-  );
+  }, EmergencyAssistance.fromJson);
   @override
   Future<EmergencyAssistance> updateEmergencyLocation(
     String id, {
@@ -1023,6 +1041,9 @@ final class Phase5Api implements Phase5Remote {
     'identity.export_account_data',
     '/v1/me/data-export',
     AccountDataExport.fromJson,
+    query: const {
+      'schema': ['4'],
+    },
   );
 
   @override

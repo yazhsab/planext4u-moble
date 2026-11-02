@@ -32,6 +32,8 @@ dependencies:
   record: ^6.2.1
 
 dev_dependencies:
+  local_auth: ^3.0.2
+  planext4u_device_access: ^0.1.0
   integration_test:
     sdk: flutter
   flutter_test:

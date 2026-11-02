@@ -170,6 +170,7 @@ final class FoodCartLineRequest {
 final class FoodCart {
   const FoodCart({
     required this.id,
+    this.paymentMethods = const ["WALLET"],
     required this.revision,
     required this.restaurant,
     required this.lines,
@@ -188,6 +189,14 @@ final class FoodCart {
     if (lines.isEmpty) throw const FormatException('Food cart is empty.');
     return FoodCart(
       id: _string(json, 'id'),
+      paymentMethods: List.unmodifiable(
+        (json['payment_methods'] as List<Object?>? ?? const <Object?>['WALLET'])
+            .cast<String>()
+            .where(
+              (method) =>
+                  const {'WALLET', 'RAZORPAY', 'PAYSTACK'}.contains(method),
+            ),
+      ),
       revision: _integer(json, 'revision'),
       restaurant: FoodRestaurant.fromJson(json['restaurant']),
       lines: List.unmodifiable(lines.cast<Map<String, Object?>>()),
@@ -201,6 +210,7 @@ final class FoodCart {
   }
 
   final String id;
+  final List<String> paymentMethods;
   final int revision;
   final FoodRestaurant restaurant;
   final List<Map<String, Object?>> lines;
@@ -442,6 +452,10 @@ final class FoodController extends ChangeNotifier {
     final cart = _state.cart;
     if (cart == null || cart.expiredAt(DateTime.now())) {
       _fail('The restaurant price expired. Review the cart again.');
+      return null;
+    }
+    if (!cart.paymentMethods.contains(paymentMethod)) {
+      _fail('Choose an available payment method.');
       return null;
     }
     return _submit(() async {

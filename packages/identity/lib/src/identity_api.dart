@@ -15,6 +15,23 @@ abstract interface class IdentityRemote {
   Future<void> revoke(String refreshToken);
 }
 
+abstract interface class IdentityEnrollmentRemote {
+  Future<IdentityAuthentication> enroll({
+    required ProviderAssertion assertion,
+    required String deviceId,
+    required String country,
+    required AppRole role,
+  });
+}
+
+abstract interface class IdentityRecoveryRemote {
+  Future<IdentityAuthentication> recover({
+    required ProviderAssertion assertion,
+    required String deviceId,
+    required String country,
+  });
+}
+
 abstract interface class IdentityProfileRemote {
   Future<CurrentIdentityProfile> current();
 
@@ -73,10 +90,66 @@ final class IdentityProfileApi implements IdentityProfileRemote {
   }
 }
 
-final class IdentityApi implements IdentityRemote {
+final class IdentityApi
+    implements
+        IdentityRemote,
+        IdentityEnrollmentRemote,
+        IdentityRecoveryRemote {
   const IdentityApi(this._client);
 
   final ApiClient _client;
+
+  @override
+  Future<IdentityAuthentication> recover({
+    required ProviderAssertion assertion,
+    required String deviceId,
+    required String country,
+  }) async {
+    _validateDevice(deviceId, country);
+    return (await _client.send(
+      ApiRequest(
+        operation: 'identity.recover_account',
+        method: 'POST',
+        path: '/v1/auth/recover',
+        authRequired: false,
+        replayPolicy: ApiReplayPolicy.never,
+        body: {
+          'provider': assertion.provider.wireValue,
+          'provider_token': assertion.token,
+          'device_id': deviceId,
+          'country': country,
+        },
+      ),
+      IdentityAuthentication.fromJson,
+    )).value;
+  }
+
+  @override
+  Future<IdentityAuthentication> enroll({
+    required ProviderAssertion assertion,
+    required String deviceId,
+    required String country,
+    required AppRole role,
+  }) async {
+    _validateDevice(deviceId, country);
+    return (await _client.send(
+      ApiRequest(
+        operation: 'identity.enroll_participant',
+        method: 'POST',
+        path: '/v1/auth/enroll',
+        authRequired: false,
+        replayPolicy: ApiReplayPolicy.never,
+        body: {
+          'provider': assertion.provider.wireValue,
+          'provider_token': assertion.token,
+          'device_id': deviceId,
+          'country': country,
+          'enroll_as': role.name.toUpperCase(),
+        },
+      ),
+      IdentityAuthentication.fromJson,
+    )).value;
+  }
 
   @override
   Future<IdentityAuthentication> exchange({

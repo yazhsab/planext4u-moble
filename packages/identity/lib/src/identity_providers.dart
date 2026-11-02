@@ -24,6 +24,13 @@ abstract interface class EmailIdentityProvider {
   });
 }
 
+abstract interface class EmailRegistrationProvider {
+  Future<ProviderAssertion> register({
+    required String email,
+    required String secret,
+  });
+}
+
 /// Provider-owned password recovery boundary.
 ///
 /// Keeping recovery separate from [EmailIdentityProvider] lets applications

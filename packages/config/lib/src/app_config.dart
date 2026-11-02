@@ -70,6 +70,8 @@ final class AppConfig {
     required this.apiBaseUrl,
     required this.webBaseUrl,
     required this.deepLinkHost,
+    this.privateUploadOrigin,
+    this.bankLinkLaunchOrigin,
   });
 
   static const publicDefineKeys = <String>{
@@ -77,6 +79,8 @@ final class AppConfig {
     'API_BASE_URL',
     'WEB_BASE_URL',
     'DEEP_LINK_HOST',
+    'PRIVATE_UPLOAD_ORIGIN',
+    'BANK_LINK_LAUNCH_ORIGIN',
   };
 
   /// Parses the public compile-time values used by an application build.
@@ -88,6 +92,12 @@ final class AppConfig {
     rawApiBaseUrl: const String.fromEnvironment('API_BASE_URL'),
     rawWebBaseUrl: const String.fromEnvironment('WEB_BASE_URL'),
     rawDeepLinkHost: const String.fromEnvironment('DEEP_LINK_HOST'),
+    rawPrivateUploadOrigin: const String.fromEnvironment(
+      'PRIVATE_UPLOAD_ORIGIN',
+    ),
+    rawBankLinkLaunchOrigin: const String.fromEnvironment(
+      'BANK_LINK_LAUNCH_ORIGIN',
+    ),
   );
 
   /// Parses an explicit public configuration map and rejects unknown keys.
@@ -105,6 +115,8 @@ final class AppConfig {
       rawApiBaseUrl: defines['API_BASE_URL'] ?? '',
       rawWebBaseUrl: defines['WEB_BASE_URL'] ?? '',
       rawDeepLinkHost: defines['DEEP_LINK_HOST'] ?? '',
+      rawPrivateUploadOrigin: defines['PRIVATE_UPLOAD_ORIGIN'] ?? '',
+      rawBankLinkLaunchOrigin: defines['BANK_LINK_LAUNCH_ORIGIN'] ?? '',
     );
   }
 
@@ -114,6 +126,8 @@ final class AppConfig {
     required String rawApiBaseUrl,
     String rawWebBaseUrl = '',
     String rawDeepLinkHost = '',
+    String rawPrivateUploadOrigin = '',
+    String rawBankLinkLaunchOrigin = '',
   }) {
     final environment = switch (rawEnvironment.trim().toLowerCase()) {
       'development' || 'dev' => AppEnvironment.development,
@@ -140,11 +154,56 @@ final class AppConfig {
     if (!_isValidHost(deepLinkHost)) {
       throw const FormatException('DEEP_LINK_HOST must be a hostname.');
     }
+    Uri? privateUploadOrigin;
+    if (rawPrivateUploadOrigin.trim().isNotEmpty ||
+        environment == AppEnvironment.development) {
+      privateUploadOrigin = _validatedPublicUrl(
+        key: 'PRIVATE_UPLOAD_ORIGIN',
+        rawValue: rawPrivateUploadOrigin,
+        fallback: 'http://127.0.0.1:9000',
+        environment: environment,
+      );
+      if ((privateUploadOrigin.path.isNotEmpty &&
+              privateUploadOrigin.path != '/') ||
+          (privateUploadOrigin.scheme == 'http' &&
+              !const {
+                'localhost',
+                '127.0.0.1',
+                '10.0.2.2',
+              }.contains(privateUploadOrigin.host))) {
+        throw const FormatException(
+          'PRIVATE_UPLOAD_ORIGIN must be a trusted root origin.',
+        );
+      }
+    }
+    Uri? bankLinkLaunchOrigin;
+    if (rawBankLinkLaunchOrigin.trim().isNotEmpty) {
+      bankLinkLaunchOrigin = _validatedPublicUrl(
+        key: 'BANK_LINK_LAUNCH_ORIGIN',
+        rawValue: rawBankLinkLaunchOrigin,
+        fallback: '',
+        environment: environment,
+      );
+      if (bankLinkLaunchOrigin.path.isNotEmpty ||
+          (bankLinkLaunchOrigin.scheme == 'http' &&
+              !const {
+                'localhost',
+                '127.0.0.1',
+                '10.0.2.2',
+                '::1',
+              }.contains(bankLinkLaunchOrigin.host))) {
+        throw const FormatException(
+          'BANK_LINK_LAUNCH_ORIGIN must be an approved root origin.',
+        );
+      }
+    }
     return AppConfig(
       environment: environment,
       apiBaseUrl: apiBaseUrl,
       webBaseUrl: webBaseUrl,
       deepLinkHost: deepLinkHost,
+      privateUploadOrigin: privateUploadOrigin,
+      bankLinkLaunchOrigin: bankLinkLaunchOrigin,
     );
   }
 
@@ -152,6 +211,8 @@ final class AppConfig {
   final Uri apiBaseUrl;
   final Uri webBaseUrl;
   final String deepLinkHost;
+  final Uri? privateUploadOrigin;
+  final Uri? bankLinkLaunchOrigin;
 
   String get environmentLabel => environment.name;
 

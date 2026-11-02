@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
@@ -13,16 +14,40 @@ import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
 import 'package:planext4u_observability/planext4u_observability.dart';
-import 'package:planext4u_storage/planext4u_storage.dart';
 
 import 'community_capture.dart';
 import 'firebase_identity_providers.dart';
 import 'payment_provider_launcher.dart';
 import 'push_registration.dart';
+import 'account_stores.dart';
+
+export 'account_stores.dart' show CustomerLocationStore;
 
 Future<void> main() async {
   final startup = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
+  final config = AppConfig.fromCompileTime();
+  final observability = _observability(config.environment);
+  _installRuntimeErrorBoundary(observability.runtimeMetrics);
+  runApp(
+    PublicStartupGate(
+      apiBaseUrl: config.apiBaseUrl,
+      role: 'customer',
+      initialize: () => _initializeCustomerRuntime(config, observability),
+    ),
+  );
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => observability.runtimeMetrics.firstFrame(
+      startup.elapsed,
+      application: 'customer',
+    ),
+  );
+}
+
+Future<Widget> _initializeCustomerRuntime(
+  AppConfig config,
+  MobileObservability observability,
+) async {
   FirebaseAuth? firebaseAuth;
   FirebaseMessaging? firebaseMessaging;
   Object? firebaseFailure;
@@ -33,23 +58,12 @@ Future<void> main() async {
   } catch (error) {
     firebaseFailure = error;
   }
-  final config = AppConfig.fromCompileTime();
-  final observability = _observability(config.environment);
-  _installRuntimeErrorBoundary(observability.runtimeMetrics);
-  runApp(
-    CustomerRuntime(
-      config: config,
-      apiDiagnostics: observability.apiDiagnostics,
-      firebaseAuth: firebaseAuth,
-      firebaseMessaging: firebaseMessaging,
-      firebaseFailure: firebaseFailure,
-    ),
-  );
-  WidgetsBinding.instance.addPostFrameCallback(
-    (_) => observability.runtimeMetrics.firstFrame(
-      startup.elapsed,
-      application: 'customer',
-    ),
+  return CustomerRuntime(
+    config: config,
+    apiDiagnostics: observability.apiDiagnostics,
+    firebaseAuth: firebaseAuth,
+    firebaseMessaging: firebaseMessaging,
+    firebaseFailure: firebaseFailure,
   );
 }
 
@@ -77,7 +91,8 @@ class CustomerRuntime extends StatefulWidget {
   State<CustomerRuntime> createState() => _CustomerRuntimeState();
 }
 
-class _CustomerRuntimeState extends State<CustomerRuntime> {
+class _CustomerRuntimeState extends State<CustomerRuntime>
+    with WidgetsBindingObserver {
   final IoApiTransport _transport = IoApiTransport();
   IdentitySessionController? _session;
   StreamSubscription<IdentitySessionState>? _sessionSubscription;
@@ -100,14 +115,16 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   ConsentController? _consent;
   LocationController? _location;
   GeocodingRemote? _geocoding;
-  final _EncryptedLocationStore _locationStore = _EncryptedLocationStore();
+  CustomerLocationStoreEncrypted? _locationStore;
   Object? _startupFailure;
+  String? _controllerScope;
   CustomerPushRegistration? _pushRegistration;
   Uri? _notificationUri;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_initialize());
   }
 
@@ -137,7 +154,18 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         country: 'IN',
       );
       _session = session;
-      _sessionSubscription = session.states.listen((_) {
+      _sessionSubscription = session.states.listen((state) {
+        if (state.authentication == null &&
+            const {
+              IdentitySessionStatus.signedOut,
+              IdentitySessionStatus.expired,
+              IdentitySessionStatus.roleDenied,
+            }.contains(state.status)) {
+          _disposeControllers();
+          final push = _pushRegistration;
+          _pushRegistration = null;
+          unawaited(push?.dispose());
+        }
         if (mounted) setState(() {});
       });
       await session.initialize();
@@ -153,11 +181,33 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   }
 
   void _buildControllers(IdentitySessionController session) {
-    if (_catalog != null) return;
+    String? scope() {
+      final auth = session.state.authentication;
+      return auth == null
+          ? null
+          : '${auth.tenantId}:${auth.country}:${auth.identityId}:${auth.session.id}';
+    }
+
+    final controllerScope = scope();
+    if (controllerScope == null) return;
+    if (_catalog != null && _controllerScope == controllerScope) return;
+    _disposeControllers();
+    _controllerScope = controllerScope;
+    final authentication = session.state.authentication!;
+    final cacheScope = CustomerCacheScope(
+      tenantId: authentication.tenantId,
+      country: authentication.country,
+      identityId: authentication.identityId,
+    );
+    _locationStore = CustomerLocationStoreEncrypted.platform(cacheScope);
     final client = ApiClient(
       baseUrl: widget.config.apiBaseUrl,
       transport: _transport,
-      authSession: session,
+      authSession: RoleBoundApiSession(
+        delegate: session,
+        expectedScope: controllerScope,
+        currentScope: scope,
+      ),
       diagnostics: widget.apiDiagnostics,
     );
     final catalogApi = CatalogApi(
@@ -172,7 +222,10 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _cart = CartController(remote: CartApi(client));
     _transactions = TransactionController(
       remote: TransactionApi(client),
-      recoveryStore: _EncryptedPaymentRecoveryStore(),
+      recoveryStore: CustomerPaymentRecoveryStore.platform(cacheScope),
+      geography: GeographyApi(client, country: authentication.country),
+      addressCountry: authentication.country,
+      scopeIsCurrent: () => mounted && scope() == controllerScope,
     );
     _serviceBookings = ServiceBookingController(
       remote: ServiceBookingApi(client),
@@ -187,10 +240,91 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
         uploader: communityMediaUploader,
       );
     }
-    _accountPrivacy = AccountPrivacyController(phase5Api);
+    _consent = ConsentController(
+      ConsentApi(client),
+      journal: SecureConsentJournal(
+        tenantId: authentication.tenantId,
+        country: authentication.country,
+        identityId: authentication.identityId,
+      ),
+    );
+    _accountPrivacy = AccountPrivacyController(
+      phase5Api,
+      contacts: ContactMatchingController(
+        api: ContactMatchingApi(client),
+        consent: _consent!,
+        policyVersion: () {
+          for (final policy
+              in _bootstrap?.state.config.consentPolicies ??
+                  const <ConsentPolicy>[]) {
+            if (policy.purpose == ConsentPurpose.contactMatching.wireValue) {
+              return policy.policyVersion;
+            }
+          }
+          return null;
+        },
+        freshProviderToken: () async {
+          final auth = widget.firebaseAuth;
+          final user = auth?.currentUser;
+          if (user == null || !mounted || scope() != controllerScope) {
+            throw StateError('Provider sign-in is unavailable.');
+          }
+          await user.reload();
+          if (auth?.currentUser?.uid != user.uid ||
+              scope() != controllerScope) {
+            throw StateError('Provider account changed.');
+          }
+          final token = await user.getIdToken(true);
+          if (token == null ||
+              token.length < 8 ||
+              auth?.currentUser?.uid != user.uid ||
+              scope() != controllerScope) {
+            throw StateError('Fresh provider proof is unavailable.');
+          }
+          return token;
+        },
+        scopeIsCurrent: () => mounted && scope() == controllerScope,
+      ),
+      appLock: LocalAppLockController(
+        store: SecureLocalAppLockStore(
+          tenantId: authentication.tenantId,
+          country: authentication.country,
+          identityId: authentication.identityId,
+        ),
+        signInAgain: _signOut,
+        freshServerSignIn: session.hasFreshInteractiveAuthentication,
+      ),
+      consents: _consent,
+      ownsConsents: false,
+      lifecycle: AccountLifecycleController(
+        AccountLifecycleApi(client),
+        onDeactivated: _signOut,
+      ),
+    );
     _identityProfile = IdentityProfileController(
       expectedRole: AppRole.customer,
       remote: IdentityProfileApi(client),
+      occupations: ProfileOccupationController(
+        ProfileOccupationApi(client, country: authentication.country),
+        scopeIsCurrent: () => mounted && scope() == controllerScope,
+      ),
+      education: PublishedEducationController(
+        remote: PublishedEducationApi(client),
+        role: 'customer',
+        scope: jsonEncode([
+          authentication.tenantId,
+          authentication.country,
+          authentication.identityId,
+        ]),
+        scopeIsCurrent: () => mounted && scope() == controllerScope,
+      ),
+      accountSecurity: widget.firebaseAuth == null
+          ? null
+          : AccountSecurityController(
+              remote: AccountSecurityApi(client),
+              provider: FirebaseAccountLinkingProvider(widget.firebaseAuth!),
+              scopeIsCurrent: () => mounted && scope() == controllerScope,
+            ),
     );
     _sessionManagement = IdentitySessionManagementController(
       IdentitySessionManagementApi(client),
@@ -224,7 +358,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     }
     _bootstrap = BootstrapController(
       remote: BootstrapApi(client),
-      cache: _EncryptedBootstrapCache(),
+      cache: CustomerBootstrapCache.platform(cacheScope),
       platform: Platform.isIOS ? MobilePlatform.ios : MobilePlatform.android,
       appVersion: const String.fromEnvironment(
         'APP_VERSION',
@@ -232,14 +366,21 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
       ),
       locale: Platform.localeName.split(RegExp('[-_]')).first,
     );
-    _consent = ConsentController(ConsentApi(client));
     _location = LocationController(
       platform: const GeolocatorDeviceLocation(),
       remote: ServiceabilityApi(client),
       hasConsent: _hasLocationConsent,
     );
     _geocoding = GeocodingApi(client);
-    unawaited(_loadCustomerBootstrap());
+    unawaited(
+      _loadCustomerBootstrap(
+        controllerScope,
+        _bootstrap!,
+        _consent!,
+        _location!,
+        _locationStore!,
+      ),
+    );
   }
 
   bool _hasLocationConsent() {
@@ -256,12 +397,20 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     return false;
   }
 
-  Future<void> _loadCustomerBootstrap() async {
+  Future<void> _loadCustomerBootstrap(
+    String scope,
+    BootstrapController bootstrap,
+    ConsentController consent,
+    LocationController location,
+    CustomerLocationStore store,
+  ) async {
     try {
-      await Future.wait([_bootstrap!.load(), _consent!.load()]);
-      final selected = await _locationStore.read();
+      await Future.wait([bootstrap.load(), consent.load()]);
+      if (!mounted || _controllerScope != scope) return;
+      final selected = await store.read();
+      if (!mounted || _controllerScope != scope) return;
       if (selected != null && _hasLocationConsent()) {
-        await _location!.selectManual(selected);
+        await location.selectManual(selected);
       }
     } catch (_) {
       // Each controller exposes a retryable UI state; startup remains available.
@@ -289,7 +438,15 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_pushRegistration?.refreshAuthorization());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _disposeControllers();
     unawaited(_sessionSubscription?.cancel());
     unawaited(_session?.dispose());
@@ -300,6 +457,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
   }
 
   void _disposeControllers() {
+    _controllerScope = null;
     _catalog?.dispose();
     _marketplace?.dispose();
     _cart?.dispose();
@@ -335,6 +493,8 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
     _consent = null;
     _location = null;
     _geocoding = null;
+    _locationStore = null;
+    _notificationUri = null;
   }
 
   @override
@@ -391,13 +551,17 @@ class _CustomerRuntimeState extends State<CustomerRuntime> {
       ),
       home: session == null
           ? _RuntimeStateScreen(failure: _startupFailure)
-          : CustomerSignInScreen(
-              session: session,
-              firebaseAuth: widget.firebaseAuth,
-              firebaseFailure: widget.firebaseFailure,
-              development:
-                  widget.config.environment == AppEnvironment.development,
-              onAuthenticated: _authenticated,
+          : FirstRunGate(
+              config: FirstRunConfig.forRole('customer'),
+              store: EncryptedFirstRunStore.platform('customer'),
+              child: CustomerSignInScreen(
+                session: session,
+                firebaseAuth: widget.firebaseAuth,
+                firebaseFailure: widget.firebaseFailure,
+                development:
+                    widget.config.environment == AppEnvironment.development,
+                onAuthenticated: _authenticated,
+              ),
             ),
     );
   }
@@ -475,6 +639,7 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
   String? _phoneChallenge;
   String? _message;
   bool _busy = false;
+  bool _recoverAccount = false;
 
   @override
   void dispose() {
@@ -514,6 +679,19 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
         provider: FirebaseEmailProvider(auth),
         email: _email.text,
         secret: _password.text,
+        recoverAccount: _recoverAccount,
+      );
+    });
+  }
+
+  Future<void> _emailRegister() async {
+    final auth = widget.firebaseAuth;
+    if (auth == null) return;
+    await _run(() async {
+      await widget.session.registerWithEmail(
+        provider: FirebaseEmailProvider(auth),
+        email: _email.text,
+        secret: _password.text,
       );
     });
   }
@@ -525,6 +703,7 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
       await widget.session.signInWithOAuth(
         provider: FirebaseOAuthProvider(auth),
         vendor: OAuthVendor.google,
+        recoverAccount: _recoverAccount,
       );
     });
   }
@@ -536,6 +715,7 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
       await widget.session.signInWithOAuth(
         provider: FirebaseOAuthProvider(auth),
         vendor: OAuthVendor.apple,
+        recoverAccount: _recoverAccount,
       );
     });
   }
@@ -577,6 +757,7 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
         provider: provider,
         challengeId: challenge,
         code: _otp.text,
+        recoverAccount: _recoverAccount,
       );
     });
   }
@@ -611,6 +792,14 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
                     'This build is missing its Firebase environment configuration.',
               )
             else ...[
+              CheckboxListTile(
+                value: _recoverAccount,
+                onChanged: _busy
+                    ? null
+                    : (value) =>
+                          setState(() => _recoverAccount = value ?? false),
+                title: const Text('Recover my deactivated account'),
+              ),
               TextField(
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
@@ -633,6 +822,10 @@ class _CustomerSignInScreenState extends State<CustomerSignInScreen> {
               PasswordRecoveryButton(
                 emailController: _email,
                 provider: FirebaseEmailProvider(widget.firebaseAuth!),
+              ),
+              OutlinedButton(
+                onPressed: _busy || _recoverAccount ? null : _emailRegister,
+                child: const Text('Create customer account'),
               ),
               OutlinedButton(
                 onPressed: _busy ? null : _googleSignIn,
@@ -702,11 +895,6 @@ final class _DevelopmentIdentityProvider implements EmailIdentityProvider {
     provider: IdentityProviderKind.local,
     token: 'synthetic-customer',
   );
-}
-
-abstract interface class CustomerLocationStore {
-  Future<ServiceLocation?> read();
-  Future<void> write(ServiceLocation value);
 }
 
 class CustomerApp extends StatefulWidget {
@@ -798,7 +986,7 @@ class _CustomerAppState extends State<CustomerApp> {
       TransactionController(
         remote: _requiredRemote,
         recoveryStore:
-            widget.paymentRecoveryStore ?? _EncryptedPaymentRecoveryStore(),
+            widget.paymentRecoveryStore ?? MemoryPaymentRecoveryStore(),
       );
   late final bool _ownsServiceBookings =
       widget.serviceBookingController == null;
@@ -854,7 +1042,13 @@ class _CustomerAppState extends State<CustomerApp> {
         dataSaver: appearance.dataSaver,
         forceReducedMotion: appearance.reduceMotion,
         minimumTextScale: appearance.textScale.minimumScale,
-        child: child ?? const SizedBox.shrink(),
+        child: LocalAppLockGate(
+          controller: widget.accountPrivacyController?.appLock,
+          child: PublishedEducationGate(
+            controller: widget.identityProfileController?.education,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
       ),
       home: AnimatedBuilder(
         animation: Listenable.merge([
@@ -1445,124 +1639,4 @@ final class _AuthenticatedSessionRequiredRemote
     required String offerId,
     required CustomerPaymentMethod method,
   }) async => _required();
-}
-
-final class _EncryptedPaymentRecoveryStore implements PaymentRecoveryStore {
-  _EncryptedPaymentRecoveryStore()
-    : _store = EncryptedRecordStore(
-        records: FileBinaryRecordStore(namespace: 'customer-payment-recovery'),
-        keyProvider: PlatformCacheKeyProvider(
-          namespace: 'planext4u.payment.recovery.v1',
-        ),
-        namespace: 'customer-payment-recovery',
-      );
-
-  static const _key = 'pending.payment';
-  final EncryptedRecordStore _store;
-
-  @override
-  Future<void> clear() => _store.delete(_key);
-
-  @override
-  Future<String?> read() async =>
-      (await _store.get<String>(_key, (value) => value! as String)).value;
-
-  @override
-  Future<void> save(String paymentId) {
-    final now = DateTime.now().toUtc();
-    return _store.put(
-      _key,
-      paymentId,
-      expiresAt: now.add(const Duration(days: 7)),
-      staleUntil: now.add(const Duration(days: 7)),
-    );
-  }
-}
-
-final class _EncryptedBootstrapCache implements BootstrapCache {
-  _EncryptedBootstrapCache()
-    : _store = EncryptedRecordStore(
-        records: FileBinaryRecordStore(namespace: 'customer-bootstrap'),
-        keyProvider: PlatformCacheKeyProvider(
-          namespace: 'planext4u.bootstrap.v1',
-        ),
-        namespace: 'customer-bootstrap',
-      );
-
-  static const _key = 'configuration';
-  final EncryptedRecordStore _store;
-
-  @override
-  Future<BootstrapConfig?> read() async => (await _store.get<BootstrapConfig>(
-    _key,
-    (value) => BootstrapConfig.fromJson(value),
-  )).value;
-
-  @override
-  Future<void> write(BootstrapConfig value) {
-    final now = DateTime.now().toUtc();
-    return _store.put(
-      _key,
-      value.toJson(),
-      expiresAt: now.add(const Duration(hours: 24)),
-      staleUntil: now.add(const Duration(days: 7)),
-    );
-  }
-}
-
-final class _EncryptedLocationStore implements CustomerLocationStore {
-  _EncryptedLocationStore()
-    : _store = EncryptedRecordStore(
-        records: FileBinaryRecordStore(namespace: 'customer-selected-location'),
-        keyProvider: PlatformCacheKeyProvider(
-          namespace: 'planext4u.location.v1',
-        ),
-        namespace: 'customer-selected-location',
-      );
-
-  static const _key = 'serviceability.location';
-  final EncryptedRecordStore _store;
-
-  @override
-  Future<ServiceLocation?> read() async =>
-      (await _store.get<ServiceLocation>(_key, (value) {
-        if (value is! Map<String, Object?> ||
-            value['latitude'] is! num ||
-            value['longitude'] is! num ||
-            value['accuracy_metres'] is! num ||
-            value['captured_at'] is! String ||
-            value['label'] is! String) {
-          throw const FormatException('Stored location is invalid.');
-        }
-        final capturedAt = DateTime.tryParse(value['captured_at']! as String);
-        if (capturedAt == null) {
-          throw const FormatException('Stored location time is invalid.');
-        }
-        return ServiceLocation(
-          latitude: (value['latitude']! as num).toDouble(),
-          longitude: (value['longitude']! as num).toDouble(),
-          accuracyMetres: (value['accuracy_metres']! as num).toDouble(),
-          capturedAt: capturedAt.toUtc(),
-          label: value['label']! as String,
-          postalCode: value['postal_code'] as String?,
-        );
-      })).value;
-
-  @override
-  Future<void> write(ServiceLocation value) {
-    final now = DateTime.now().toUtc();
-    return _store.put(
-      _key,
-      {
-        'latitude': value.latitude,
-        'longitude': value.longitude,
-        'accuracy_metres': value.accuracyMetres,
-        'captured_at': value.capturedAt.toIso8601String(),
-        'label': value.label,
-        if (value.postalCode != null) 'postal_code': value.postalCode,
-      },
-      expiresAt: now.add(const Duration(days: 30)),
-      staleUntil: now.add(const Duration(days: 30)),
-    );
-  }
 }

@@ -102,7 +102,12 @@ final class IoApiTransport implements ApiTransport {
         }
         ioRequest!.followRedirects = false;
         request.headers.forEach(ioRequest!.headers.set);
-        if (request.body != null) ioRequest!.add(request.body!);
+        if (request.body != null) {
+          // Signed object-store PUTs require the exact length. Without this,
+          // dart:io streams a chunked body that S3 rejects with HTTP 411.
+          ioRequest!.contentLength = request.body!.length;
+          ioRequest!.add(request.body!);
+        }
         final response = await ioRequest!.close();
         final body = await _readBoundedBody(
           response,

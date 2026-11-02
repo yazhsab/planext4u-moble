@@ -1,5 +1,7 @@
 # Planext4u Mobile
 
+Current increment: vendor/rider onboarding correction forms, source-bound resubmission, scoped reviewer evidence access and portable privacy export are implemented. The Flutter workspace passes 573 tests and all 12 analyses on 597 unchanged inputs; final contract sync passes 95 API-client tests. All three matching-source Android development/debug APKs compile with verified package IDs and hashes. The canonical admin passes 137 tests and its production build; the real HTTPS/private-scan/regional/reviewer-grant/normal-Flutter journey passes 85 checks, and the persistent API suite passes 264. The earlier captured backend checkpoint passes a complete 27-target/131-migration gate; a later aggregate gate for reviewer access and the first order-work handoff is being rerun after a disposable test-fixture correction. Real provider/device evidence, full cross-owner erasure and release readiness remain open. iOS remains deferred.
+
 Greenfield Flutter workspace for the Planext4u customer, vendor, and rider applications.
 
 This repository is intentionally independent of the Lovable/Vercel proof-of-concept. No source code, generated code, dependencies, or assets will be copied from the legacy repository. The live application may be used only as a black-box behavioural and visual reference after access is authorised.
@@ -15,37 +17,29 @@ The administrator console is planned as a separately deployable web workspace un
 
 ## Current status
 
-Phase 1 product archaeology, Phase 2 platform engineering, Phase 3 customer
-commerce and Phase 4 supply, food and fulfilment are complete. Phase 4 delivers
-customer service/food flows, complete vendor operations, complete rider duty and
-POD flows, background location, chat, push and settlement. Phase 5 is complete:
-the authenticated customer app now provides Socio profiles and relationships,
-ranked feeds, moderated media/stories/reels, collections, DMs, presence and call
-signalling; KYC-gated Homes; safe-contact classifieds; and consent-driven
-emergency assistance with responder communications. Responsive governed admin
-operations are delivered in the backend repository. Phase 5 contracts are
-pinned to backend commit `cdfc28dbaecad124500f93bd63a50a1865bf781e`. The Phase 3 source covers FTUX and
-location, discovery, PDP/reviews/Q&A, server-authoritative cart and checkout,
-native Razorpay/Paystack/COD handoff and recovery, orders/returns/ratings,
-wallet/referrals/refills/rewards, and FCM device registration/deep links against
-backend commit `e78941b`. Service discovery, live slot holds, booking payment,
-rescheduling, cancellation, start OTP, completion evidence, disputes and booking
-activity are pinned to backend commit
-`bf0b8b1cf01e559dccca030e237459e882dc0331`. Cloud staging and live provider
-credentials remain controlled deployment gates, not client-side configuration.
+Latest local checkpoint (28 October 2026): Flutter and all three Android development/debug APKs pass on the final API 36 and secure-storage 11.2.0 source. The admin and 85-check local onboarding/reviewer journey pass. Phase 2 remains partial; Phase 3 has an ordering-to-supply foundation under test but is not accepted. iOS, configured provider/device and release evidence remain pending. The authoritative receipt index is in the adjacent backend workspace at `docs/completion/phase-2/STATUS.md`.
 
-The three-phase production-hardening programme now has repository implementation
-for all three roles: nine-locale/adaptive runtime behavior, privacy-redacted
-release health, fail-closed Android signing, iOS privacy manifests, store/privacy
-source declarations, pinned security scanning, provenance-attested release
-candidates and controlled rollout evaluation. Production approval remains
-blocked until the documented external device, provider, security, privacy,
-performance, store and organizational evidence is supplied.
+The product is under implementation and is not production-ready. Source code,
+contracts and test scaffolds exist across the three roles and product verticals;
+these do not establish complete user journeys or verified production operation.
+Earlier repository milestone labels are separate from the current mobile-first
+completion plan and must not be read as phase acceptance.
 
-The workspace contains the three role-specific Flutter applications and shared
-configuration, core, identity, secure storage, experience, API, observability
-and design-system packages. It remains greenfield and does not import the
-Lovable proof-of-concept source.
+The authoritative mobile-first completion plan is
+[`../MOBILE_FIRST_IMPLEMENTATION_PLAN_2026-10-24.md`](../MOBILE_FIRST_IMPLEMENTATION_PLAN_2026-10-24.md).
+Its current Phase 2 remains partial. See
+[the acceptance register](../planext4u-backend/docs/completion/phase-2/STATUS.md)
+for verified implementation and remaining work. Phase 3 has not been accepted
+or started under that plan.
+
+The 27 October occupation/profile workspace passes 549 Flutter tests and all
+12 analyses on 593 matching source inputs. All three Android development/debug
+APKs compile. The current full backend gate/all 27 PostgreSQL targets and the actual
+17-check admin-to-Flutter occupation journey also pass after Docker recovery.
+Local provider assertions are synthetic; real provider/device, release and
+remote deployment acceptance remain separate. Android, the Go backend and the canonical admin are the current target.
+iOS is explicitly deferred. Do not infer feature completion or production
+readiness from compilation, test counts or historical milestone descriptions.
 
 ## Local development
 

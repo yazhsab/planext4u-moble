@@ -267,23 +267,29 @@ final class LocationController extends ChangeNotifier {
   final ServiceabilityRemote _remote;
   final LocationConsentCheck _hasConsent;
   LocationState _state = const LocationState(status: LocationStatus.education);
+  bool _disposed = false;
 
   LocationState get state => _state;
 
   Future<void> useCurrentLocation() async {
+    if (_disposed) return;
     if (!_hasConsent()) {
       _set(const LocationState(status: LocationStatus.consentRequired));
       return;
     }
-    if (!await _platform.serviceEnabled()) {
+    final enabled = await _platform.serviceEnabled();
+    if (!_canUseLocation()) return;
+    if (!enabled) {
       _set(const LocationState(status: LocationStatus.serviceDisabled));
       return;
     }
     var permission = await _platform.checkPermission();
+    if (!_canUseLocation()) return;
     if (permission == LocationPermissionState.denied) {
       _set(const LocationState(status: LocationStatus.requestingPermission));
       permission = await _platform.requestPermission();
     }
+    if (!_canUseLocation()) return;
     if (permission == LocationPermissionState.deniedForever) {
       _set(const LocationState(status: LocationStatus.permissionDeniedForever));
       return;
@@ -301,6 +307,7 @@ final class LocationController extends ChangeNotifier {
   }
 
   Future<void> selectManual(ServiceLocation location) async {
+    if (_disposed) return;
     if (!_hasConsent()) {
       _set(const LocationState(status: LocationStatus.consentRequired));
       return;
@@ -309,6 +316,7 @@ final class LocationController extends ChangeNotifier {
   }
 
   Future<void> _resolve(ServiceLocation location) async {
+    if (!_canUseLocation()) return;
     _set(
       LocationState(
         status: LocationStatus.checkingServiceability,
@@ -317,6 +325,7 @@ final class LocationController extends ChangeNotifier {
     );
     try {
       final decision = await _remote.check(location);
+      if (!_canUseLocation()) return;
       _set(
         LocationState(
           status: decision.serviceable
@@ -327,8 +336,10 @@ final class LocationController extends ChangeNotifier {
         ),
       );
     } on ApiTransportFailure {
+      if (!_canUseLocation()) return;
       _set(LocationState(status: LocationStatus.offline, location: location));
     } catch (_) {
+      if (!_canUseLocation()) return;
       _set(LocationState(status: LocationStatus.failure, location: location));
     }
   }
@@ -338,9 +349,24 @@ final class LocationController extends ChangeNotifier {
 
   void retry() => _set(const LocationState(status: LocationStatus.education));
 
+  bool _canUseLocation() {
+    if (_disposed) return false;
+    if (_hasConsent()) return true;
+    _set(const LocationState(status: LocationStatus.consentRequired));
+    return false;
+  }
+
   void _set(LocationState value) {
+    if (_disposed) return;
     _state = value;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    super.dispose();
   }
 }
 

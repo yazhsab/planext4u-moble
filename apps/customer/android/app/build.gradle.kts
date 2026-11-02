@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -29,13 +28,13 @@ android {
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
+    buildFeatures {
+        resValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -96,10 +95,17 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 gradle.taskGraph.whenReady {
     val productionReleaseRequested = allTasks.any {
         it.name.contains("production", ignoreCase = true) &&
-            it.name.contains("release", ignoreCase = true)
+            it.name.contains("release", ignoreCase = true) &&
+            !it.name.contains("clean", ignoreCase = true)
     }
     if (productionReleaseRequested && !protectedAndroidSigningPresent) {
         throw GradleException(
@@ -110,4 +116,9 @@ gradle.taskGraph.whenReady {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // local_auth_android requires an AppCompat launch theme on Android 8 and below.
+    implementation("androidx.appcompat:appcompat:1.8.0")
 }

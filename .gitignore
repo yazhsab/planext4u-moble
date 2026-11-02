@@ -4,6 +4,7 @@
 .vscode/
 build/
 coverage/
+packages/design_system/test/failures/
 *.iml
 *.log
 .DS_Store

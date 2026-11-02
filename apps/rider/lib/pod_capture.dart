@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:image_picker/image_picker.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
+import 'package:planext4u_storage/planext4u_storage.dart';
 
 /// Opens the device camera for proof-of-delivery photos.
 ///
@@ -16,15 +18,15 @@ final class ImagePickerRiderPodPhotoSource implements RiderPodPhotoSource {
 
   @override
   Future<RiderPodBinaryEvidence?> capture(RiderTask task) async {
-    XFile? file;
     if (Platform.isAndroid) {
-      final recovered = await _picker.retrieveLostData();
-      if (recovered.exception != null) throw recovered.exception!;
-      if (!recovered.isEmpty && recovered.type == RetrieveType.image) {
-        file = recovered.file;
-      }
+      // The old task/account cannot be established after process death.
+      // Require fresh capture rather than attach an unowned previous result.
+      final lost = await _picker.retrieveLostData();
+      await PrivateCameraCache().discardUnattributed(
+        (lost.files ?? const <XFile>[]).map((file) => file.path),
+      );
     }
-    file ??= await _picker.pickImage(
+    final file = await _picker.pickImage(
       source: ImageSource.camera,
       preferredCameraDevice: CameraDevice.rear,
       imageQuality: 85,
@@ -33,15 +35,31 @@ final class ImagePickerRiderPodPhotoSource implements RiderPodPhotoSource {
       requestFullMetadata: false,
     );
     if (file == null) return null;
-    final bytes = await file.readAsBytes();
-    return RiderPodBinaryEvidence(
-      bytes: bytes,
-      contentType: file.mimeType ?? _contentType(file.name),
-    );
-  }
-
-  static String _contentType(String name) {
-    final normalized = name.toLowerCase();
-    return normalized.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    Uint8List? capturedBytes;
+    try {
+      if (await file.length() > RiderPodCaptureCoordinator.maxPhotoBytes) {
+        throw const FormatException('POD photo is too large.');
+      }
+      capturedBytes = await sanitizePrivateCameraPhoto(
+        await file.readAsBytes(),
+        maxBytes: RiderPodCaptureCoordinator.maxPhotoBytes,
+      );
+      return RiderPodBinaryEvidence(
+        bytes: capturedBytes,
+        contentType: 'image/png',
+      );
+    } finally {
+      try {
+        if (Platform.isAndroid) {
+          await PrivateCameraCache().discardUnattributed([file.path]);
+        } else {
+          final temporary = File(file.path);
+          if (await temporary.exists()) await temporary.delete();
+        }
+      } catch (_) {
+        capturedBytes?.fillRange(0, capturedBytes.length, 0);
+        rethrow;
+      }
+    }
   }
 }

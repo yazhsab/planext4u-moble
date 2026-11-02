@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -21,9 +22,27 @@ final class PlatformSecureSessionStore implements SecureSessionStore {
 
   final FlutterSecureStorage _storage;
   final String _key;
+  static final Map<String, Future<void>> _pending = {};
+
+  Future<T> _serialize<T>(Future<T> Function() operation) {
+    final result = (_pending[_key] ?? Future<void>.value()).then(
+      (_) => operation(),
+    );
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    _pending[_key] = tail;
+    unawaited(
+      tail.then((_) {
+        if (identical(_pending[_key], tail)) _pending.remove(_key);
+      }),
+    );
+    return result;
+  }
 
   @override
-  Future<IdentityAuthentication?> read() async {
+  Future<IdentityAuthentication?> read() => _serialize(() async {
     final encoded = await _storage.read(key: _key);
     if (encoded == null) return null;
     try {
@@ -33,19 +52,24 @@ final class PlatformSecureSessionStore implements SecureSessionStore {
       }
       return IdentityAuthentication.fromJson(envelope['authentication']);
     } catch (_) {
-      await clear();
+      await _storage.delete(key: _key);
       rethrow;
     }
-  }
+  });
 
   @override
-  Future<void> write(IdentityAuthentication authentication) => _storage.write(
-    key: _key,
-    value: jsonEncode({'schema': 1, 'authentication': authentication.toJson()}),
+  Future<void> write(IdentityAuthentication authentication) => _serialize(
+    () => _storage.write(
+      key: _key,
+      value: jsonEncode({
+        'schema': 1,
+        'authentication': authentication.toJson(),
+      }),
+    ),
   );
 
   @override
-  Future<void> clear() => _storage.delete(key: _key);
+  Future<void> clear() => _serialize(() => _storage.delete(key: _key));
 }
 
 final class MemorySecureSessionStore implements SecureSessionStore {

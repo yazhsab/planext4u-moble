@@ -7,6 +7,8 @@ import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'commerce.dart';
 import 'localization.dart';
 import 'transactions.dart';
+import 'geography.dart';
+import 'geography_picker.dart';
 
 abstract interface class PaymentProviderLauncher {
   Future<void> launch(CustomerPayment payment);
@@ -407,8 +409,16 @@ final class _CustomerAddressesScreenState
   void initState() {
     super.initState();
     widget.controller.addListener(_changed);
-    if (widget.controller.state.addresses.isEmpty) {
-      widget.controller.loadCheckout();
+    widget.controller.loadAddresses();
+  }
+
+  @override
+  void didUpdateWidget(CustomerAddressesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_changed);
+      widget.controller.addListener(_changed);
+      widget.controller.loadAddresses();
     }
   }
 
@@ -426,7 +436,12 @@ final class _CustomerAddressesScreenState
     final draft = await Navigator.of(context).push<CustomerAddressDraft>(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => _AddressEditor(current: current),
+        builder: (_) => _AddressEditor(
+          current: current,
+          directory: widget.controller.geography,
+          country: widget.controller.addressCountry,
+          scopeIsCurrent: () => widget.controller.accountIsCurrent,
+        ),
       ),
     );
     if (draft == null) return;
@@ -437,7 +452,10 @@ final class _CustomerAddressesScreenState
     if (!saved || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(current == null ? 'Address added' : 'Address updated'),
+        content: Text(
+          widget.controller.state.message ??
+              (current == null ? 'Address added' : 'Address updated'),
+        ),
       ),
     );
   }
@@ -471,7 +489,7 @@ final class _CustomerAddressesScreenState
     return Scaffold(
       appBar: AppBar(title: const Text('Saved addresses')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _edit,
+        onPressed: widget.controller.addressCommandPending ? null : _edit,
         icon: const Icon(Icons.add_location_alt_outlined),
         label: const Text('Add address'),
       ),
@@ -494,10 +512,10 @@ final class _CustomerAddressesScreenState
                 message:
                     state.message ?? 'Add a serviceable address for checkout.',
                 actionLabel: 'Try again',
-                onAction: widget.controller.loadCheckout,
+                onAction: widget.controller.loadAddresses,
               )
             : RefreshIndicator(
-                onRefresh: widget.controller.loadCheckout,
+                onRefresh: widget.controller.loadAddresses,
                 child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(
                     Planext4uSpacing.x4,
@@ -505,11 +523,23 @@ final class _CustomerAddressesScreenState
                     Planext4uSpacing.x4,
                     96,
                   ),
-                  itemCount: state.addresses.length,
+                  itemCount:
+                      state.addresses.length + (state.message == null ? 0 : 1),
                   separatorBuilder: (_, _) =>
                       const SizedBox(height: Planext4uSpacing.x2),
                   itemBuilder: (context, index) {
-                    final address = state.addresses[index];
+                    if (state.message != null && index == 0) {
+                      return ListTile(
+                        title: Text(state.message!),
+                        trailing: IconButton(
+                          tooltip: 'Refresh addresses',
+                          onPressed: widget.controller.loadAddresses,
+                          icon: const Icon(Icons.refresh),
+                        ),
+                      );
+                    }
+                    final address = state
+                        .addresses[index - (state.message == null ? 0 : 1)];
                     return Card(
                       child: ListTile(
                         leading: Icon(
@@ -535,10 +565,12 @@ final class _CustomerAddressesScreenState
                           ].join(' • '),
                         ),
                         isThreeLine: true,
-                        onTap: () => _edit(address),
+                        onTap: widget.controller.addressCommandPending
+                            ? null
+                            : () => _edit(address),
                         trailing: IconButton(
                           tooltip: 'Remove ${address.label}',
-                          onPressed: state.addresses.length == 1
+                          onPressed: widget.controller.addressCommandPending
                               ? null
                               : () => _delete(address),
                           icon: const Icon(Icons.delete_outline),
@@ -554,7 +586,15 @@ final class _CustomerAddressesScreenState
 }
 
 final class _AddressEditor extends StatefulWidget {
-  const _AddressEditor({this.current});
+  const _AddressEditor({
+    this.current,
+    this.directory,
+    this.country,
+    required this.scopeIsCurrent,
+  });
+  final GeographyDirectory? directory;
+  final String? country;
+  final bool Function() scopeIsCurrent;
   final CustomerAddress? current;
   @override
   State<_AddressEditor> createState() => _AddressEditorState();
@@ -568,6 +608,35 @@ final class _AddressEditorState extends State<_AddressEditor> {
   late final _locality = TextEditingController(text: widget.current?.locality);
   late final _postal = TextEditingController(text: widget.current?.postalCode);
   late bool _default = widget.current?.isDefault ?? false;
+  late AddressGeography? _geography = widget.current?.geography;
+  bool _areaRequired = false;
+  Future<void> _chooseArea() async {
+    final directory = widget.directory, country = widget.country;
+    if (directory == null || country == null || !widget.scopeIsCurrent()) {
+      return;
+    }
+    final controller = GeographyController(
+      directory,
+      country: country,
+      scopeIsCurrent: widget.scopeIsCurrent,
+    );
+    AddressGeography? selected;
+    try {
+      selected = await Navigator.of(context).push<AddressGeography>(
+        MaterialPageRoute(
+          builder: (_) => GeographyPicker(controller: controller),
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+    if (!mounted || !widget.scopeIsCurrent() || selected == null) return;
+    setState(() {
+      _geography = selected;
+      _areaRequired = false;
+      _locality.text = selected!.path[3].nameEN;
+    });
+  }
 
   @override
   void dispose() {
@@ -586,10 +655,15 @@ final class _AddressEditorState extends State<_AddressEditor> {
   }
 
   void _submit() {
-    if (!_form.currentState!.validate()) return;
+    if (!widget.scopeIsCurrent() || !_form.currentState!.validate()) return;
+    if (widget.directory != null && _geography == null) {
+      setState(() => _areaRequired = true);
+      return;
+    }
     Navigator.pop(
       context,
       CustomerAddressDraft(
+        geographyAreaID: _geography?.areaID,
         label: _label.text,
         line1: _line1.text,
         line2: _line2.text,
@@ -614,6 +688,36 @@ final class _AddressEditorState extends State<_AddressEditor> {
         child: ListView(
           padding: const EdgeInsets.all(Planext4uSpacing.x4),
           children: [
+            if (widget.directory != null) ...[
+              ListTile(
+                key: const ValueKey('address-geography-choice'),
+                leading: const Icon(Icons.map_outlined),
+                title: Text(
+                  geographyText(context, 'Address area', 'முகவரிப் பகுதி'),
+                ),
+                subtitle: Text(
+                  _geography?.label(
+                        Localizations.localeOf(context).languageCode,
+                      ) ??
+                      geographyText(
+                        context,
+                        'Choose country, state, district, city and area',
+                        'நாடு, மாநிலம், மாவட்டம், நகரம் மற்றும் பகுதியைத் தேர்ந்தெடுக்கவும்',
+                      ),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _chooseArea,
+              ),
+              if (_areaRequired)
+                Text(
+                  geographyText(
+                    context,
+                    'Choose an address area before saving.',
+                    'சேமிப்பதற்கு முன் முகவரிப் பகுதியைத் தேர்ந்தெடுக்கவும்.',
+                  ),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+            ],
             TextFormField(
               controller: _label,
               textInputAction: TextInputAction.next,

@@ -47,6 +47,7 @@ jobs:
       RELEASE_VERSION: ${{ inputs.version }}
       RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}
       RELEASE_API_BASE_URL: ${{ vars.MOBILE_API_BASE_URL }}
+      RELEASE_BANK_LINK_LAUNCH_ORIGIN: ${{ vars.MOBILE_BANK_LINK_LAUNCH_ORIGIN }}
       MOBILE_SIGNING_ROTATION_APPROVED: ${{ vars.MOBILE_SIGNING_ROTATION_APPROVED }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -165,7 +166,8 @@ jobs:
             --obfuscate \
             --split-debug-info="$RUNNER_TEMP/planext4u-symbols/android" \
             --dart-define=APP_ENV=production \
-            --dart-define="API_BASE_URL=$RELEASE_API_BASE_URL"
+            --dart-define="API_BASE_URL=$RELEASE_API_BASE_URL" \
+            --dart-define="BANK_LINK_LAUNCH_ORIGIN=$RELEASE_BANK_LINK_LAUNCH_ORIGIN"
           flutter build ipa --release --flavor production \
             --build-name="$RELEASE_VERSION" \
             --build-number="$RELEASE_BUILD_NUMBER" \
@@ -173,6 +175,7 @@ jobs:
             --split-debug-info="$RUNNER_TEMP/planext4u-symbols/ios" \
             --dart-define=APP_ENV=production \
             --dart-define="API_BASE_URL=$RELEASE_API_BASE_URL" \
+            --dart-define="BANK_LINK_LAUNCH_ORIGIN=$RELEASE_BANK_LINK_LAUNCH_ORIGIN" \
             --export-options-plist="$IOS_EXPORT_OPTIONS_PATH"
           test -s build/app/outputs/bundle/productionRelease/app-production-release.aab
           find build/ios/ipa -name '*.ipa' -type f -size +0 | grep -q .

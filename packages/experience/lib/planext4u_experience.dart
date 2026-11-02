@@ -1,7 +1,23 @@
 library;
 
+export 'src/hosted_bank_link_dialog.dart';
+export 'src/contact_matching.dart';
+export 'src/contact_matching_screen.dart';
+export 'src/private_camera_image.dart';
+
+export 'src/account_security.dart';
+export 'src/firebase_account_linking.dart';
+export 'src/account_security_screen.dart';
+export 'src/published_education.dart';
+
 export 'src/account_privacy.dart';
+export 'src/account_export_document.dart';
+export 'src/account_lifecycle.dart';
 export 'src/account_privacy_screen.dart';
+export 'src/device_permissions.dart';
+export 'src/device_permissions_screen.dart';
+export 'src/local_app_lock.dart';
+export 'src/local_app_lock_widgets.dart';
 export 'src/appearance_preferences.dart';
 export 'src/appearance_preferences_screen.dart';
 export 'src/bootstrap.dart';
@@ -9,7 +25,9 @@ export 'src/catalog.dart';
 export 'src/commerce.dart';
 export 'src/customer_shell.dart';
 export 'src/consent.dart';
+export 'src/consent_journal.dart';
 export 'src/food.dart';
+export 'src/first_run.dart';
 export 'src/food_screens.dart';
 export 'src/identity_profile.dart';
 export 'src/identity_profile_screen.dart';
@@ -26,6 +44,9 @@ export 'src/role_operations.dart';
 export 'src/role_operation_screens.dart';
 export 'src/role_push.dart';
 export 'src/role_runtime.dart';
+export 'src/onboarding_progress.dart';
+export 'src/private_onboarding_progress.dart';
+export 'src/role_bound_session.dart';
 export 'src/service_booking.dart';
 export 'src/service_booking_screens.dart';
 export 'src/session_management_screen.dart';
@@ -35,3 +56,10 @@ export 'src/support.dart';
 export 'src/support_screen.dart';
 export 'src/transactions.dart';
 export 'src/transaction_screens.dart';
+
+export 'src/startup_splash.dart';
+export 'src/startup_splash_gate.dart';
+export 'src/profile_occupation.dart';
+export 'src/geography.dart';
+export 'src/geography_picker.dart';
+export 'src/profile_occupation_screen.dart';

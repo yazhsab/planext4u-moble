@@ -4,6 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:planext4u_api_client/planext4u_api_client.dart';
 
 import 'catalog.dart';
+import 'bootstrap.dart';
+import 'consent.dart';
+import 'onboarding_progress.dart';
+import 'private_onboarding_progress.dart';
 import 'phase5.dart' show EmergencyAssistance;
 
 enum OperationsStatus { idle, loading, ready, submitting, offline, failure }
@@ -52,6 +56,19 @@ abstract interface class VendorOnboardingProvider {
   Future<VendorOnboardingBankAccount> tokenizeBankAccount();
 }
 
+/// A configured document collector does not imply an available bank provider.
+abstract interface class VendorOnboardingCapabilities {
+  bool get canCollectDocuments;
+  bool get canTokenizeBankAccount;
+}
+
+/// Optional cleanup for privately uploaded evidence abandoned before submit.
+abstract interface class VendorDocumentCleanup {
+  Future<void> discardUnsubmittedDocuments(
+    List<VendorOnboardingDocument> documents,
+  );
+}
+
 final class VendorFieldVisitDraft {
   const VendorFieldVisitDraft({
     required this.scheduledAt,
@@ -88,6 +105,19 @@ abstract interface class RiderOnboardingProvider {
   Future<RiderOnboardingEvidence> collectEvidence({
     required String vehicleType,
   });
+}
+
+/// Document collection can be available before a bank provider is connected.
+/// These capabilities never imply KYC approval or a verified bank account.
+abstract interface class RiderDocumentOnboardingProvider
+    implements RiderOnboardingProvider {
+  bool get canCollectDocuments;
+  bool get canTokenizeBankAccount;
+  Future<List<RiderDocumentDraft>> collectDocuments({
+    required String vehicleType,
+  });
+  Future<String> tokenizeBankAccount();
+  Future<void> discardUnsubmittedDocuments(List<RiderDocumentDraft> documents);
 }
 
 enum RiderPodEvidenceKind { blurredPhoto, signature }
@@ -595,7 +625,18 @@ abstract interface class VendorOperationsRemote {
   Future<PayoutRecord> requestPayout(List<String> entryIds);
 }
 
-final class VendorOperationsApi implements VendorOperationsRemote {
+abstract interface class VendorReworkRemote {
+  Future<VendorApplication> resubmitApplication(
+    int revision, {
+    required String businessName,
+    required String businessType,
+    required String contactName,
+    required List<Map<String, Object?>> documents,
+  });
+}
+
+final class VendorOperationsApi
+    implements VendorOperationsRemote, VendorReworkRemote {
   const VendorOperationsApi(this._client);
   final ApiClient _client;
 
@@ -626,6 +667,26 @@ final class VendorOperationsApi implements VendorOperationsRemote {
     '/v1/vendor/application/documents',
     revision,
     {'documents': documents},
+    VendorApplication.fromJson,
+  );
+
+  @override
+  Future<VendorApplication> resubmitApplication(
+    int revision, {
+    required String businessName,
+    required String businessType,
+    required String contactName,
+    required List<Map<String, Object?>> documents,
+  }) => _revisionCommand(
+    'supply.resubmit_documents',
+    '/v1/vendor/application/resubmissions',
+    revision,
+    {
+      'business_name': businessName,
+      'business_type': businessType,
+      'contact_name': contactName,
+      'documents': documents,
+    },
     VendorApplication.fromJson,
   );
 
@@ -951,6 +1012,10 @@ final class VendorOperationsState {
 }
 
 final class VendorOperationsController extends ChangeNotifier {
+  PrivateOnboardingProgressStore? documentProgress;
+  VendorOnboardingProgressStore? onboardingProgress;
+  bool onboardingProgressClearPending = false;
+  HostedBankLinkClient? bankLinks;
   VendorOperationsController(this._remote);
   final VendorOperationsRemote _remote;
   VendorOperationsState _state = const VendorOperationsState();
@@ -982,7 +1047,23 @@ final class VendorOperationsController extends ChangeNotifier {
       catalog: catalog,
       work: work,
     );
+    if (application != null &&
+        !(application.status == 'REJECTED' &&
+            application.allowedActions.contains('RESUBMIT_DOCUMENTS'))) {
+      await _clearOnboardingProgress();
+    }
   });
+
+  Future<void> _clearOnboardingProgress() async {
+    try {
+      await onboardingProgress?.clear();
+      onboardingProgressClearPending = false;
+    } catch (_) {
+      // The server acknowledgement remains authoritative; retry this local
+      // form cleanup on a later application refresh.
+      onboardingProgressClearPending = true;
+    }
+  }
 
   Future<void> register({
     required String businessName,
@@ -995,9 +1076,87 @@ final class VendorOperationsController extends ChangeNotifier {
       contactName: contactName,
     );
     _state = _state.copyWith(application: value);
+    await _clearOnboardingProgress();
   });
 
   Future<void> submitDocuments(List<Map<String, Object?>> documents) {
+    final normalizedDocuments = _validatedVendorDocuments(documents);
+    return _applicationCommand((application) async {
+      if (application.allowedActions.contains('RESUBMIT_DOCUMENTS')) {
+        throw StateError(
+          'Use the full correction form for application rework.',
+        );
+      }
+      return _remote.submitDocuments(application.revision, normalizedDocuments);
+    });
+  }
+
+  Future<void> resubmitApplication({
+    required String businessName,
+    required String businessType,
+    required String contactName,
+    required List<Map<String, Object?>> documents,
+  }) {
+    final name = businessName.trim();
+    final type = businessType.trim();
+    final contact = contactName.trim();
+    if (name.length < 3 ||
+        name.length > 120 ||
+        type.length < 3 ||
+        type.length > 120 ||
+        contact.length < 3 ||
+        contact.length > 120) {
+      throw const FormatException('Vendor correction details are invalid.');
+    }
+    final normalizedDocuments = _validatedVendorDocuments(documents);
+    return _applicationCommand((application) async {
+      if (application.status != 'REJECTED' ||
+          !application.allowedActions.contains('RESUBMIT_DOCUMENTS')) {
+        throw StateError('This application is not eligible for rework.');
+      }
+      final remote = _remote;
+      if (remote is! VendorReworkRemote) {
+        throw StateError('Application rework is unavailable.');
+      }
+      final accepted = await (remote as VendorReworkRemote).resubmitApplication(
+        application.revision,
+        businessName: name,
+        businessType: type,
+        contactName: contact,
+        documents: normalizedDocuments,
+      );
+      if (accepted.id != application.id ||
+          accepted.revision != application.revision + 1 ||
+          accepted.status != 'DOCUMENTS_SUBMITTED' ||
+          accepted.verified ||
+          accepted.allowedActions.contains('RESUBMIT_DOCUMENTS')) {
+        throw StateError('Application correction acknowledgement is invalid.');
+      }
+      if (_disposed) return accepted;
+      _state = _state.copyWith(application: accepted);
+      await _clearOnboardingProgress();
+      try {
+        final latest = await _remote.application();
+        if (latest.id != accepted.id ||
+            latest.revision < accepted.revision ||
+            (latest.revision == accepted.revision &&
+                latest.status != accepted.status)) {
+          throw StateError('Application correction readback is invalid.');
+        }
+        return latest;
+      } catch (_) {
+        _state = _state.copyWith(
+          message:
+              'Corrections submitted. Refresh to check the current review status.',
+        );
+        return accepted;
+      }
+    });
+  }
+
+  List<Map<String, Object?>> _validatedVendorDocuments(
+    List<Map<String, Object?>> documents,
+  ) {
     if (documents.isEmpty || documents.length > 10) {
       throw const FormatException('Vendor documents are invalid.');
     }
@@ -1027,12 +1186,7 @@ final class VendorOperationsController extends ChangeNotifier {
         'Vendor business and owner identity documents are required.',
       );
     }
-    return _applicationCommand(
-      (application) => _remote.submitDocuments(
-        application.revision,
-        List.unmodifiable(normalizedDocuments),
-      ),
-    );
+    return List.unmodifiable(normalizedDocuments);
   }
 
   Future<void> submitOnboardingDocuments(
@@ -1155,7 +1309,8 @@ final class VendorOperationsController extends ChangeNotifier {
   ) => _run(() async {
     final current = _state.application;
     if (current == null) throw StateError('Vendor application is required.');
-    _state = _state.copyWith(application: await action(current));
+    final accepted = await action(current);
+    if (!_disposed) _state = _state.copyWith(application: accepted);
   });
 
   Future<void> createCatalog({
@@ -1506,7 +1661,20 @@ final class VendorOperationsController extends ChangeNotifier {
     );
   }
 
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   Future<void> _run(Future<void> Function() action) async {
+    if (_disposed ||
+        _state.status == OperationsStatus.loading ||
+        _state.status == OperationsStatus.submitting) {
+      return;
+    }
     _state = _state.copyWith(
       status: OperationsStatus.loading,
       clearMessage: true,
@@ -1514,6 +1682,7 @@ final class VendorOperationsController extends ChangeNotifier {
     notifyListeners();
     try {
       await action();
+      if (_disposed) return;
       _state = _state.copyWith(status: OperationsStatus.ready);
     } on ApiTransportFailure {
       _state = _state.copyWith(
@@ -1531,17 +1700,22 @@ final class VendorOperationsController extends ChangeNotifier {
         message: 'The operation could not be completed.',
       );
     }
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 }
 
 final class RiderProfile {
   const RiderProfile({
     required this.id,
+    this.lastCommandSequence = 0,
+    this.lastLocationSequence = 0,
     required this.revision,
     required this.status,
     required this.fullName,
     required this.vehicleNumber,
+    this.vehicleType = 'MOTORBIKE',
+    this.reviewReason = '',
+    this.reworkAllowed = false,
     required this.bankStatus,
     required this.zones,
     required this.maxConcurrent,
@@ -1551,10 +1725,15 @@ final class RiderProfile {
     final json = _roleObject(value, 'rider profile');
     return RiderProfile(
       id: _roleString(json, 'id'),
+      lastCommandSequence: _roleInteger(json, 'last_command_sequence'),
+      lastLocationSequence: _roleInteger(json, 'last_location_sequence'),
       revision: _roleInteger(json, 'revision'),
       status: _roleString(json, 'status'),
       fullName: _roleString(json, 'full_name'),
       vehicleNumber: _roleString(json, 'vehicle_number'),
+      vehicleType: json['vehicle_type'] as String? ?? 'MOTORBIKE',
+      reviewReason: json['review_reason'] as String? ?? '',
+      reworkAllowed: json['rework_allowed'] as bool? ?? false,
       bankStatus: json['bank_status'] as String? ?? 'NOT_CONFIGURED',
       zones: List.unmodifiable(_roleList(json, 'zones').cast<String>()),
       maxConcurrent: _roleInteger(json, 'max_concurrent'),
@@ -1564,10 +1743,15 @@ final class RiderProfile {
     );
   }
   final String id;
+  final int lastCommandSequence;
+  final int lastLocationSequence;
   final int revision;
   final String status;
   final String fullName;
   final String vehicleNumber;
+  final String vehicleType;
+  final String reviewReason;
+  final bool reworkAllowed;
   final String bankStatus;
   final List<String> zones;
   final int maxConcurrent;
@@ -1887,6 +2071,11 @@ abstract final class RiderCommandQueuePolicy {
   static const maxCommands = 100;
 }
 
+/// Production queues bind to an authenticated profile before reading any data.
+abstract interface class ScopedRiderCommandStore {
+  Future<void> bind(String profileId);
+}
+
 abstract interface class RiderCommandStore {
   Future<void> enqueue(RiderOfflineCommand command);
   Future<List<RiderOfflineCommand>> pending();
@@ -1939,8 +2128,9 @@ enum RiderLocationStatus {
 /// session without making unit tests depend on device plugins.
 abstract interface class RiderLocationTracker {
   Future<void> start(
-    Future<void> Function(RiderTrackedPosition position) onPosition,
-  );
+    Future<void> Function(RiderTrackedPosition position) onPosition, {
+    void Function(Object error)? onError,
+  });
   Future<void> stop();
   Future<void> openAppSettings();
   Future<void> openServiceSettings();
@@ -2021,7 +2211,12 @@ abstract interface class RiderOperationsRemote {
   });
 }
 
-final class RiderOperationsApi implements RiderOperationsRemote {
+abstract interface class RiderReworkRemote {
+  Future<RiderProfile> resubmit(int revision, Map<String, Object?> value);
+}
+
+final class RiderOperationsApi
+    implements RiderOperationsRemote, RiderReworkRemote {
   const RiderOperationsApi(this._client);
   final ApiClient _client;
 
@@ -2032,6 +2227,15 @@ final class RiderOperationsApi implements RiderOperationsRemote {
     value,
     RiderProfile.fromJson,
   );
+  @override
+  Future<RiderProfile> resubmit(int revision, Map<String, Object?> value) =>
+      _revisionCommand(
+        'rider.resubmit',
+        '/v1/rider/application/resubmissions',
+        revision,
+        value,
+        RiderProfile.fromJson,
+      );
   @override
   Future<RiderProfile> profile() =>
       _get('rider.get_profile', '/v1/rider/profile', RiderProfile.fromJson);
@@ -2394,23 +2598,118 @@ final class RiderRegistrationDraft {
 }
 
 final class RiderOperationsController extends ChangeNotifier {
+  PrivateOnboardingProgressStore? documentProgress;
+  HostedBankLinkClient? bankLinks;
+  RiderOnboardingProgressStore? onboardingProgress;
+  bool onboardingProgressClearPending = false;
+
+  Future<void> _clearOnboardingProgress() async {
+    try {
+      await onboardingProgress?.clear();
+      onboardingProgressClearPending = false;
+    } catch (_) {
+      // Registration already committed remotely. Keep that outcome truthful;
+      // retry the local form cleanup on the next profile refresh.
+      onboardingProgressClearPending = true;
+    }
+  }
+
   RiderOperationsController(
     this._remote, {
     RiderCommandStore? commandStore,
     RiderLocationTracker? locationTracker,
+    Future<ConsentPolicy?> Function()? deliveryPolicyLoader,
   }) : _commandStore = commandStore ?? MemoryRiderCommandStore(),
-       _locationTracker = locationTracker;
+       _locationTracker = locationTracker,
+       _deliveryPolicyLoader = deliveryPolicyLoader;
   final RiderOperationsRemote _remote;
   final RiderCommandStore _commandStore;
   final RiderLocationTracker? _locationTracker;
+  final Future<ConsentPolicy?> Function()? _deliveryPolicyLoader;
+  ConsentController? _deliveryConsents;
+  ConsentPolicy? _deliveryPolicy;
+  bool get deliveryPrivacyEnforced => _deliveryConsents != null;
+  bool get deliveryPolicyAvailable => _deliveryPolicy != null;
+  bool get deliveryLocationAllowed =>
+      _deliveryConsents == null ||
+      (_deliveryPolicy != null &&
+          _deliveryConsents!.granted(
+            ConsentPurpose.locationDelivery,
+            _deliveryPolicy!.policyVersion,
+          ));
+
+  void bindDeliveryConsents(ConsentController consents) {
+    if (identical(_deliveryConsents, consents)) return;
+    _deliveryConsents?.removeListener(_deliveryPrivacyChanged);
+    _deliveryConsents = consents;
+    consents.addListener(_deliveryPrivacyChanged);
+    _deliveryPrivacyChanged();
+  }
+
+  void _deliveryPrivacyChanged() {
+    if (_disposed || deliveryLocationAllowed) return;
+    _lastTrackedPosition = null;
+    unawaited(_locationTracker?.stop());
+    _state = _state.copyWith(
+      locationStatus: RiderLocationStatus.permissionDenied,
+      message:
+          'Duty location is paused. Review your privacy choice before sharing location.',
+    );
+    notifyListeners();
+  }
+
+  Future<void> _refreshDeliveryPrivacy() async {
+    if (_deliveryConsents == null) return;
+    _deliveryPolicy = null;
+    try {
+      final policy = await _deliveryPolicyLoader?.call();
+      if (_disposed) return;
+      if (policy?.purpose == ConsentPurpose.locationDelivery.wireValue &&
+          RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(policy!.policyVersion)) {
+        _deliveryPolicy = policy;
+      }
+      await _deliveryConsents!.load();
+    } catch (_) {
+      _deliveryPolicy = null;
+    }
+  }
+
+  void _requireDeliveryLocation() {
+    if (_disposed || !deliveryLocationAllowed) {
+      throw const RiderLocationException(
+        RiderLocationIssue.permissionDenied,
+        'Duty location is paused. Review your privacy choice before sharing location.',
+      );
+    }
+  }
+
+  Future<void> allowDeliveryLocation() => _run(() async {
+    await _refreshDeliveryPrivacy();
+    final policy = _deliveryPolicy;
+    if (policy == null || _deliveryConsents == null) {
+      throw StateError('The current duty-location policy is unavailable.');
+    }
+    await _deliveryConsents!.setConsent(
+      purpose: ConsentPurpose.locationDelivery,
+      granted: true,
+      policyVersion: policy.policyVersion,
+    );
+    if (!_disposed && deliveryLocationAllowed) {
+      _state = _state.copyWith(locationStatus: RiderLocationStatus.unknown);
+    }
+  });
   RiderOperationsState _state = const RiderOperationsState();
   RiderOperationsState get state => _state;
   int _deviceSequence = 0;
   int _locationSequence = 0;
+  Future<void> _locationWrites = Future<void>.value();
+  bool _disposed = false;
   RiderTrackedPosition? _lastTrackedPosition;
   final Set<String> _submittedCompletions = {};
 
   Future<void> load() => _run(() async {
+    await _locationTracker?.stop();
+    await _refreshDeliveryPrivacy();
     RiderProfile? profile;
     RiderDuty? duty;
     try {
@@ -2433,7 +2732,19 @@ final class RiderOperationsController extends ChangeNotifier {
         // No active duty is a valid state.
       }
     }
-    final pendingCommands = await _commandStore.pending();
+    if (_state.profile != null && _state.profile?.id != profile?.id) {
+      _state = const RiderOperationsState();
+      _lastTrackedPosition = null;
+      _submittedCompletions.clear();
+    }
+    if (profile != null && _commandStore is ScopedRiderCommandStore) {
+      await (_commandStore as ScopedRiderCommandStore).bind(profile.id);
+    }
+    _deviceSequence = profile?.lastCommandSequence ?? 0;
+    _locationSequence = profile?.lastLocationSequence ?? 0;
+    final pendingCommands = profile == null
+        ? <RiderOfflineCommand>[]
+        : await _commandStore.pending();
     for (final command in pendingCommands) {
       command.validate();
       if (command.deviceSequence > _deviceSequence) {
@@ -2448,20 +2759,78 @@ final class RiderOperationsController extends ChangeNotifier {
           ? RiderLocationStatus.unavailable
           : RiderLocationStatus.ready,
     );
-    if (_dutyIsActive(duty)) {
-      await _locationTracker?.start(_publishTrackedPosition);
+    if (profile != null && !profile.reworkAllowed) {
+      await _clearOnboardingProgress();
+    }
+    if (_dutyIsActive(duty) && deliveryLocationAllowed) {
+      await _locationTracker?.start(_trackPosition, onError: _trackingFailed);
+      if (!deliveryLocationAllowed || _disposed) {
+        await _locationTracker?.stop();
+        return;
+      }
       if (_locationTracker != null) {
         _state = _state.copyWith(locationStatus: RiderLocationStatus.tracking);
       }
+    } else if (!deliveryLocationAllowed) {
+      _state = _state.copyWith(
+        locationStatus: RiderLocationStatus.permissionDenied,
+      );
     }
   });
 
   Future<void> register(RiderRegistrationDraft draft) => _run(() async {
     final profile = await _remote.register(draft.toJson());
+    await _clearOnboardingProgress();
     _state = _state.copyWith(profile: profile);
   });
 
+  Future<void> resubmit(RiderRegistrationDraft draft) => _run(() async {
+    final current = _state.profile;
+    final remote = _remote;
+    if (current == null ||
+        current.status != 'SUSPENDED' ||
+        !current.reworkAllowed ||
+        !current.allowedActions.contains('RESUBMIT_APPLICATION') ||
+        remote is! RiderReworkRemote) {
+      throw StateError('This application is not eligible for rework.');
+    }
+    final accepted = await (remote as RiderReworkRemote).resubmit(
+      current.revision,
+      draft.toJson(),
+    );
+    if (accepted.id != current.id ||
+        accepted.revision != current.revision + 1 ||
+        accepted.status != 'KYC_REVIEW' ||
+        accepted.reworkAllowed ||
+        accepted.allowedActions.contains('RESUBMIT_APPLICATION')) {
+      throw StateError('Rider correction acknowledgement is invalid.');
+    }
+    if (_disposed) return;
+    _state = _state.copyWith(profile: accepted);
+    await _clearOnboardingProgress();
+    if (_disposed) return;
+    try {
+      final latest = await _remote.profile();
+      if (latest.id != accepted.id ||
+          latest.revision < accepted.revision ||
+          (latest.revision == accepted.revision &&
+              latest.status != accepted.status)) {
+        throw StateError('Rider correction readback is invalid.');
+      }
+      if (!_disposed) _state = _state.copyWith(profile: latest);
+    } catch (_) {
+      if (!_disposed) {
+        _state = _state.copyWith(
+          message:
+              'Corrections submitted. Refresh to check the current review status.',
+        );
+      }
+    }
+  });
+
   Future<void> startDuty({String? zoneId}) => _run(() async {
+    await _refreshDeliveryPrivacy();
+    _requireDeliveryLocation();
     final profile = _state.profile;
     if (profile == null || profile.status != 'APPROVED') {
       throw StateError('An approved rider profile is required.');
@@ -2470,14 +2839,17 @@ final class RiderOperationsController extends ChangeNotifier {
     if (selectedZone == null || !profile.zones.contains(selectedZone)) {
       throw const FormatException('Select an approved rider service zone.');
     }
-    await _locationTracker?.start(_publishTrackedPosition);
+    await _locationTracker?.start(_trackPosition, onError: _trackingFailed);
     try {
+      _requireDeliveryLocation();
+      final accepted = await _remote.startDuty(selectedZone);
       _state = _state.copyWith(
-        duty: await _remote.startDuty(selectedZone),
+        duty: accepted,
         locationStatus: _locationTracker == null
             ? RiderLocationStatus.unavailable
             : RiderLocationStatus.tracking,
       );
+      _requireDeliveryLocation();
     } catch (_) {
       await _locationTracker?.stop();
       rethrow;
@@ -2657,6 +3029,15 @@ final class RiderOperationsController extends ChangeNotifier {
       _replaceTask(updated);
       _state = _state.copyWith(status: OperationsStatus.ready);
     } on ApiTransportFailure {
+      if (kind != 'PICKUP') {
+        _state = _state.copyWith(
+          status: OperationsStatus.offline,
+          message:
+              'This action needs a connection. Reconnect and refresh the task before retrying.',
+        );
+        notifyListeners();
+        return;
+      }
       final command = RiderOfflineCommand(
         deviceSequence: ++_deviceSequence,
         commandId: 'mobile-${DateTime.now().microsecondsSinceEpoch}',
@@ -2681,8 +3062,21 @@ final class RiderOperationsController extends ChangeNotifier {
   }
 
   Future<void> recoverOffline() => _run(() async {
+    final profile = await _remote.profile();
+    if (_state.profile?.id != profile.id) {
+      throw StateError('The rider account changed. Reload before recovery.');
+    }
+    _deviceSequence = profile.lastCommandSequence > _deviceSequence
+        ? profile.lastCommandSequence
+        : _deviceSequence;
+    _locationSequence = profile.lastLocationSequence > _locationSequence
+        ? profile.lastLocationSequence
+        : _locationSequence;
     final commands = await _commandStore.pending();
     if (commands.isEmpty) return;
+    if (commands.any((command) => command.kind == 'LOCATION')) {
+      _requireDeliveryLocation();
+    }
     final results = await _remote.recover(commands);
     final completedIds = results
         .where((value) => value['status'] == 'APPLIED')
@@ -2694,9 +3088,21 @@ final class RiderOperationsController extends ChangeNotifier {
           .where((value) => !completedIds.contains(value.commandId))
           .toList(),
     );
-    _state = _state.copyWith(
-      pendingCommands: (await _commandStore.pending()).length,
-    );
+    final remaining = await _commandStore.pending();
+    _state = _state.copyWith(pendingCommands: remaining.length);
+    if (remaining.isNotEmpty) {
+      throw StateError(
+        'Some offline actions were rejected. Refresh tasks and resolve them before continuing.',
+      );
+    }
+    final recoveredProfile = await _remote.profile();
+    if (recoveredProfile.id != profile.id) {
+      throw StateError('The rider account changed during recovery.');
+    }
+    _locationSequence =
+        recoveredProfile.lastLocationSequence > _locationSequence
+        ? recoveredProfile.lastLocationSequence
+        : _locationSequence;
     await _refreshTasks();
   });
 
@@ -2715,12 +3121,45 @@ final class RiderOperationsController extends ChangeNotifier {
     ),
   );
 
+  Future<void> _trackPosition(RiderTrackedPosition position) {
+    _locationWrites = _locationWrites.then((_) async {
+      if (_disposed || !deliveryLocationAllowed) return;
+      try {
+        await _publishTrackedPosition(position);
+        if (_disposed || !deliveryLocationAllowed) return;
+        _state = _state.copyWith(locationStatus: RiderLocationStatus.tracking);
+        notifyListeners();
+      } catch (error) {
+        _trackingFailed(error);
+      }
+    });
+    return _locationWrites;
+  }
+
+  void _trackingFailed(Object error) {
+    if (_disposed || !deliveryLocationAllowed) return;
+    _lastTrackedPosition = null;
+    _state = _state.copyWith(
+      status: error is ApiTransportFailure
+          ? OperationsStatus.offline
+          : OperationsStatus.failure,
+      locationStatus: RiderLocationStatus.unavailable,
+      message:
+          'Live location could not be shared. Reconnect and refresh rider status to resume tracking.',
+    );
+    notifyListeners();
+  }
+
   Future<void> _publishTrackedPosition(RiderTrackedPosition position) async {
+    _requireDeliveryLocation();
     if (!_dutyIsActive(_state.duty)) return;
     if (position.accuracyMeters <= 0 || position.accuracyMeters > 100) {
       throw const FormatException('Location accuracy is unsafe.');
     }
-    _lastTrackedPosition = position;
+    if (DateTime.now().toUtc().difference(position.capturedAt.toUtc()).abs() >
+        const Duration(minutes: 2)) {
+      throw const FormatException('Location is stale.');
+    }
     await _remote.updateLocation(
       RiderLocationCommand(
         sequence: ++_locationSequence,
@@ -2730,6 +3169,7 @@ final class RiderOperationsController extends ChangeNotifier {
         capturedAt: position.capturedAt.toUtc(),
       ),
     );
+    if (!_disposed && deliveryLocationAllowed) _lastTrackedPosition = position;
   }
 
   Future<void> openLocationSettings() async {
@@ -2896,6 +3336,11 @@ final class RiderOperationsController extends ChangeNotifier {
   }
 
   Future<void> _run(Future<void> Function() action) async {
+    if (_disposed ||
+        _state.status == OperationsStatus.loading ||
+        _state.status == OperationsStatus.submitting) {
+      return;
+    }
     _state = _state.copyWith(
       status: OperationsStatus.loading,
       clearMessage: true,
@@ -2903,6 +3348,7 @@ final class RiderOperationsController extends ChangeNotifier {
     notifyListeners();
     try {
       await action();
+      if (_disposed) return;
       _state = _state.copyWith(status: OperationsStatus.ready);
     } on ApiTransportFailure {
       _state = _state.copyWith(
@@ -2929,7 +3375,7 @@ final class RiderOperationsController extends ChangeNotifier {
         message: 'The operation could not be completed safely.',
       );
     }
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   bool _dutyIsActive(RiderDuty? duty) =>
@@ -2937,6 +3383,8 @@ final class RiderOperationsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _deliveryConsents?.removeListener(_deliveryPrivacyChanged);
     unawaited(_locationTracker?.stop());
     super.dispose();
   }

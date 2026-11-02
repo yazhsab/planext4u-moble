@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -148,6 +149,37 @@ void main() {
       expect(coordinator.voiceActive, isFalse);
       expect(uploader.uploadCount, 0);
     });
+
+    test(
+      'voice recording stays unavailable until its upload settles',
+      () async {
+        final uploadStarted = Completer<void>();
+        final uploadResult = Completer<String>();
+        final coordinator = CommunityMediaCoordinator(
+          visualSource: _VisualSource(null),
+          voiceSource: _VoiceSource(
+            CommunityBinaryMedia(
+              bytes: Uint8List.fromList(const [1, 2, 3]),
+              contentType: 'audio/mp4',
+              duration: const Duration(seconds: 3),
+            ),
+          ),
+          uploader: _GatedUploader(uploadStarted, uploadResult),
+        );
+
+        await coordinator.startVoice();
+        final pending = coordinator.stopVoiceAndUpload();
+        await uploadStarted.future;
+        expect(coordinator.voiceActive, isTrue);
+        await expectLater(
+          coordinator.startVoice(),
+          throwsA(isA<CommunityCaptureException>()),
+        );
+        uploadResult.complete('private-voice-asset-001');
+        expect(await pending, 'private-voice-asset-001');
+        expect(coordinator.voiceActive, isFalse);
+      },
+    );
   });
 
   group('community media contracts', () {
@@ -349,6 +381,22 @@ final class _Uploader implements CommunityMediaUploader {
     uploadCount++;
     lastKind = kind;
     return 'private-asset-001';
+  }
+}
+
+final class _GatedUploader implements CommunityMediaUploader {
+  _GatedUploader(this.started, this.result);
+
+  final Completer<void> started;
+  final Completer<String> result;
+
+  @override
+  Future<String> upload({
+    required CommunityMediaKind kind,
+    required CommunityBinaryMedia media,
+  }) {
+    started.complete();
+    return result.future;
   }
 }
 

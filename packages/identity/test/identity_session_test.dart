@@ -9,6 +9,67 @@ void main() {
   final now = DateTime.utc(2026, 8, 27, 10);
 
   group('identity provider flows', () {
+    test(
+      'verified phone enrollment opens vendor and rider onboarding only',
+      () async {
+        for (final role in [AppRole.vendor, AppRole.rider]) {
+          final remote = FakeRemote(
+            authentication(now, roles: {AppRole.customer, role}),
+          );
+          final controller = IdentitySessionController(
+            remote: remote,
+            store: MemorySecureSessionStore(),
+            applicationRole: role,
+            deviceId: 'new-phone-install',
+            country: 'IN',
+            clock: () => now,
+          );
+          final result = await controller.signInWithPhoneOtp(
+            provider: FakePhoneProvider(),
+            challengeId: 'verified-challenge',
+            code: '123456',
+          );
+          expect(result.status, IdentitySessionStatus.authenticated);
+          expect(remote.enrollments, [role]);
+          expect(
+            remote.exchanges.single.provider,
+            IdentityProviderKind.firebase,
+          );
+          controller.dispose();
+        }
+      },
+    );
+    test(
+      'explicit recovery uses the recovery endpoint and never enrollment',
+      () async {
+        final remote = FakeRemote(authentication(now));
+        final controller = session(remote, MemorySecureSessionStore(), now);
+        final result = await controller.signInWithEmail(
+          provider: FakeEmailProvider(),
+          email: 'owner@example.test',
+          secret: 'synthetic-secret',
+          recoverAccount: true,
+        );
+        expect(result.status, IdentitySessionStatus.authenticated);
+        expect(remote.recoveryCalls, 1);
+        expect(remote.enrollments, isEmpty);
+      },
+    );
+    test(
+      'registration enrolls only the application participation role',
+      () async {
+        final remote = FakeRemote(authentication(now));
+        final controller = session(remote, MemorySecureSessionStore(), now);
+        final result = await controller.registerWithEmail(
+          provider: FakeEmailProvider(),
+          email: 'new@example.test',
+          secret: 'synthetic-password',
+        );
+        expect(result.status, IdentitySessionStatus.authenticated);
+        expect(remote.enrollments, [AppRole.customer]);
+        expect(remote.exchanges, hasLength(1));
+      },
+    );
     test('phone OTP assertion is exchanged and persisted', () async {
       final remote = FakeRemote(authentication(now));
       final store = MemorySecureSessionStore();
@@ -226,14 +287,17 @@ IdentityAuthentication authentication(
   DateTime? accessExpiresAt,
   DateTime? refreshExpiresAt,
   String accessToken = 'access-token-1',
+  String identityId = 'identity-1',
+  String sessionId = 'session-1',
+  String refreshToken = 'refresh-token-00000000000000000000000000000001',
 }) => IdentityAuthentication(
-  identityId: 'identity-1',
+  identityId: identityId,
   tenantId: 'tenant-1',
   country: 'IN',
   tokens: IdentityTokens(
     accessToken: accessToken,
     accessExpiresAt: accessExpiresAt ?? now.add(const Duration(minutes: 10)),
-    refreshToken: 'refresh-token-00000000000000000000000000000001',
+    refreshToken: refreshToken,
     refreshExpiresAt: refreshExpiresAt ?? now.add(const Duration(days: 30)),
   ),
   profile: IdentityProfile(
@@ -245,7 +309,7 @@ IdentityAuthentication authentication(
   ),
   roles: roles,
   session: IdentityDeviceSession(
-    id: 'session-1',
+    id: sessionId,
     deviceReference: 'device-hash-1',
     country: 'IN',
     authenticatedAt: now,
@@ -263,7 +327,11 @@ final class FixedConnectivity implements ConnectivityProbe {
   Future<bool> isOnline() async => online;
 }
 
-class FakeRemote implements IdentityRemote {
+class FakeRemote
+    implements
+        IdentityRemote,
+        IdentityEnrollmentRemote,
+        IdentityRecoveryRemote {
   FakeRemote(this.next);
   IdentityAuthentication next;
   bool denyRefresh = false;
@@ -272,6 +340,28 @@ class FakeRemote implements IdentityRemote {
   final List<String> deviceIds = [];
   final List<String> revokedTokens = [];
   int refreshCalls = 0;
+  int recoveryCalls = 0;
+  @override
+  Future<IdentityAuthentication> recover({
+    required ProviderAssertion assertion,
+    required String deviceId,
+    required String country,
+  }) async {
+    recoveryCalls++;
+    return exchange(assertion: assertion, deviceId: deviceId, country: country);
+  }
+
+  final List<AppRole> enrollments = [];
+  @override
+  Future<IdentityAuthentication> enroll({
+    required ProviderAssertion assertion,
+    required String deviceId,
+    required String country,
+    required AppRole role,
+  }) async {
+    enrollments.add(role);
+    return exchange(assertion: assertion, deviceId: deviceId, country: country);
+  }
 
   @override
   Future<IdentityAuthentication> exchange({
@@ -333,7 +423,13 @@ final class FakePhoneProvider implements PhoneOtpProvider {
   );
 }
 
-final class FakeEmailProvider implements EmailIdentityProvider {
+final class FakeEmailProvider
+    implements EmailIdentityProvider, EmailRegistrationProvider {
+  @override
+  Future<ProviderAssertion> register({
+    required String email,
+    required String secret,
+  }) => authenticate(email: email, secret: secret);
   @override
   Future<ProviderAssertion> authenticate({
     required String email,

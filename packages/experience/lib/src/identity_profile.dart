@@ -3,6 +3,10 @@ import 'package:planext4u_api_client/planext4u_api_client.dart';
 import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
 
+import 'account_security.dart';
+import 'published_education.dart';
+import 'profile_occupation.dart';
+
 enum IdentityProfileStatus {
   idle,
   loading,
@@ -33,11 +37,18 @@ final class IdentityProfileController extends ChangeNotifier {
   IdentityProfileController({
     required AppRole expectedRole,
     required IdentityProfileRemote remote,
+    this.accountSecurity,
+    this.education,
+    this.occupations,
   }) : _expectedRole = expectedRole,
        _remote = remote;
 
   final AppRole _expectedRole;
   final IdentityProfileRemote _remote;
+  final AccountSecurityController? accountSecurity;
+  final PublishedEducationController? education;
+  final ProfileOccupationController? occupations;
+  bool _disposed = false;
   IdentityProfileState _state = const IdentityProfileState();
 
   AppRole get expectedRole => _expectedRole;
@@ -190,8 +201,18 @@ final class IdentityProfileController extends ChangeNotifier {
   }
 
   void _set(IdentityProfileState value) {
+    if (_disposed) return;
     _state = value;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    accountSecurity?.dispose();
+    education?.dispose();
+    occupations?.dispose();
+    super.dispose();
   }
 }
 

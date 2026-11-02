@@ -413,13 +413,26 @@ void main() {
   test('supply commands publish typed bodies and concurrency headers', () {
     final contract = _readContract('supply.openapi.json');
     final paths = contract['paths']! as Map<String, Object?>;
+    final components = contract['components']! as Map<String, Object?>;
+    final schemas = components['schemas']! as Map<String, Object?>;
     var typedCommands = 0;
 
-    for (final pathItem in paths.values.whereType<Map<String, Object?>>()) {
+    for (final entry in paths.entries) {
+      final pathItem = entry.value as Map<String, Object?>;
       for (final method in const ['post', 'put', 'patch']) {
         final operation = pathItem[method];
         if (operation is! Map<String, Object?>) continue;
         final operationId = operation['operationId']! as String;
+        if (operationId == 'accessVendorReviewDocument') {
+          _expectReviewAccess(
+            entry.key,
+            operation,
+            schemas,
+            'VendorReviewDocumentAccessRequest',
+            'VendorReviewAccess',
+          );
+          continue;
+        }
         final requestBody = operation['requestBody']! as Map<String, Object?>;
         expect(requestBody['required'], isTrue, reason: operationId);
         final content = requestBody['content']! as Map<String, Object?>;
@@ -442,12 +455,14 @@ void main() {
       }
     }
 
-    expect(typedCommands, 15);
+    expect(typedCommands, 18);
   });
 
   test('rider commands publish typed or intentional bodyless contracts', () {
     final contract = _readContract('fulfillment.openapi.json');
     final paths = contract['paths']! as Map<String, Object?>;
+    final components = contract['components']! as Map<String, Object?>;
+    final schemas = components['schemas']! as Map<String, Object?>;
     const allowedBodylessOperations = {
       'acceptRiderOffer',
       'endRiderDuty',
@@ -462,6 +477,16 @@ void main() {
       final operation = pathItem['post'];
       if (operation is! Map<String, Object?>) continue;
       final operationId = operation['operationId']! as String;
+      if (operationId == 'accessRiderReviewDocument') {
+        _expectReviewAccess(
+          entry.key,
+          operation,
+          schemas,
+          'RiderReviewDocumentAccessRequest',
+          'RiderReviewAccess',
+        );
+        continue;
+      }
       final requestBody = operation['requestBody'];
       final intentionalBodyless =
           operation['x-planext4u-bodyless-command'] == true;
@@ -485,7 +510,7 @@ void main() {
       }
     }
 
-    expect(typedCommands, 7);
+    expect(typedCommands, 10);
     expect(bodylessOperations, allowedBodylessOperations);
   });
 
@@ -587,4 +612,33 @@ Map<String, Object?> _readContract(String name) {
             .readAsStringSync(),
       )
       as Map<String, Object?>;
+}
+
+void _expectReviewAccess(
+  String path,
+  Map<String, Object?> operation,
+  Map<String, Object?> schemas,
+  String requestSchema,
+  String responseSchema,
+) {
+  expect(path, endsWith('/review/documents/{kind}/access'));
+  final requestBody = operation['requestBody']! as Map<String, Object?>;
+  expect(requestBody['required'], isTrue);
+  final requestContent = requestBody['content']! as Map<String, Object?>;
+  final requestJson =
+      requestContent['application/json']! as Map<String, Object?>;
+  final requestType = requestJson['schema']! as Map<String, Object?>;
+  expect(requestType[r'$ref'], '#/components/schemas/$requestSchema');
+  final requestModel = schemas[requestSchema]! as Map<String, Object?>;
+  expect(requestModel['required'], contains('purpose'));
+  final properties = requestModel['properties']! as Map<String, Object?>;
+  final purpose = properties['purpose']! as Map<String, Object?>;
+  expect(purpose['enum'], ['ONBOARDING_REVIEW']);
+  final responses = operation['responses']! as Map<String, Object?>;
+  expect(responses.keys, containsAll(['200', '403', '404', '409', '503']));
+  final ok = responses['200']! as Map<String, Object?>;
+  final content = ok['content']! as Map<String, Object?>;
+  final jsonContent = content['application/json']! as Map<String, Object?>;
+  final schema = jsonContent['schema']! as Map<String, Object?>;
+  expect(schema[r'$ref'], '#/components/schemas/$responseSchema');
 }

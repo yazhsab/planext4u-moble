@@ -14,6 +14,8 @@ void main() {
       captured.complete({
         'method': request.method,
         'header': request.headers.value('X-Synthetic'),
+        'length': request.contentLength,
+        'chunked': request.headers.chunkedTransferEncoding,
         'body': await utf8.decoder.bind(request).join(),
       });
       request.response.headers.contentType = ContentType.json;
@@ -39,6 +41,8 @@ void main() {
     expect(await captured.future, {
       'method': 'POST',
       'header': 'safe',
+      'length': utf8.encode('{"fixture":true}').length,
+      'chunked': false,
       'body': '{"fixture":true}',
     });
   });

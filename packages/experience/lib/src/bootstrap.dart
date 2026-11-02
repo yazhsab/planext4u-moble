@@ -50,6 +50,7 @@ final class HomeSectionConfig {
     this.collectionId = '',
     this.maximumItems = 8,
     this.items = const [],
+    this.requiresLiveAudience = false,
   });
 
   factory HomeSectionConfig.fromJson(Object? value) {
@@ -74,6 +75,10 @@ final class HomeSectionConfig {
       throw const FormatException('Home section has too many items.');
     }
     final maximumItems = json['maximum_items'] as int? ?? 8;
+    final liveAudience = json['requires_live_audience'] ?? false;
+    if (liveAudience is! bool) {
+      throw const FormatException('Home section audience policy is invalid.');
+    }
     if (maximumItems < 1 || maximumItems > 24) {
       throw const FormatException('Home section item limit is invalid.');
     }
@@ -90,6 +95,7 @@ final class HomeSectionConfig {
       collectionId: _optionalText(json, 'collection_id', maxLength: 128),
       maximumItems: maximumItems,
       items: List.unmodifiable(items.map(HomeSectionItemConfig.fromJson)),
+      requiresLiveAudience: liveAudience,
     );
   }
 
@@ -105,6 +111,7 @@ final class HomeSectionConfig {
   final String collectionId;
   final int maximumItems;
   final List<HomeSectionItemConfig> items;
+  final bool requiresLiveAudience;
 }
 
 final class HomeSectionItemConfig {
@@ -298,6 +305,25 @@ final class BootstrapConfig {
 
   bool flag(String name) => flags[name] ?? false;
 
+  /// Audience-derived presentation is available only from a current response.
+  /// Persisted and offline copies contain the public configuration subset.
+  BootstrapConfig withoutLiveAudience() => BootstrapConfig(
+    revision: revision,
+    publishedAt: publishedAt,
+    updateGate: updateGate,
+    latestVersion: latestVersion,
+    maintenance: maintenance,
+    maintenanceUntil: maintenanceUntil,
+    maintenanceText: maintenanceText,
+    locale: locale,
+    supportedLocales: supportedLocales,
+    consentPolicies: consentPolicies,
+    flags: flags,
+    homeSections: List.unmodifiable(
+      homeSections.where((value) => !value.requiresLiveAudience),
+    ),
+  );
+
   Map<String, Object?> toJson() => {
     'revision': revision,
     'published_at': publishedAt.toIso8601String(),
@@ -324,34 +350,35 @@ final class BootstrapConfig {
     'flags': flags,
     'home_sections': [
       for (final value in homeSections)
-        {
-          'id': value.id,
-          'kind': value.kind,
-          'title_key': value.titleKey,
-          'enabled': value.enabled,
-          'priority': value.priority,
-          if (value.displayTitle.isNotEmpty)
-            'display_title': value.displayTitle,
-          if (value.displaySubtitle.isNotEmpty)
-            'display_subtitle': value.displaySubtitle,
-          if (value.actionLabel.isNotEmpty) 'action_label': value.actionLabel,
-          if (value.actionRoute.isNotEmpty) 'action_route': value.actionRoute,
-          if (value.collectionId.isNotEmpty)
-            'collection_id': value.collectionId,
-          'maximum_items': value.maximumItems,
-          if (value.items.isNotEmpty)
-            'items': [
-              for (final item in value.items)
-                {
-                  'id': item.id,
-                  'title': item.title,
-                  if (item.subtitle.isNotEmpty) 'subtitle': item.subtitle,
-                  if (item.icon.isNotEmpty) 'icon': item.icon,
-                  if (item.actionRoute.isNotEmpty)
-                    'action_route': item.actionRoute,
-                },
-            ],
-        },
+        if (!value.requiresLiveAudience)
+          {
+            'id': value.id,
+            'kind': value.kind,
+            'title_key': value.titleKey,
+            'enabled': value.enabled,
+            'priority': value.priority,
+            if (value.displayTitle.isNotEmpty)
+              'display_title': value.displayTitle,
+            if (value.displaySubtitle.isNotEmpty)
+              'display_subtitle': value.displaySubtitle,
+            if (value.actionLabel.isNotEmpty) 'action_label': value.actionLabel,
+            if (value.actionRoute.isNotEmpty) 'action_route': value.actionRoute,
+            if (value.collectionId.isNotEmpty)
+              'collection_id': value.collectionId,
+            'maximum_items': value.maximumItems,
+            if (value.items.isNotEmpty)
+              'items': [
+                for (final item in value.items)
+                  {
+                    'id': item.id,
+                    'title': item.title,
+                    if (item.subtitle.isNotEmpty) 'subtitle': item.subtitle,
+                    if (item.icon.isNotEmpty) 'icon': item.icon,
+                    if (item.actionRoute.isNotEmpty)
+                      'action_route': item.actionRoute,
+                  },
+              ],
+          },
     ],
   };
 }
@@ -369,6 +396,14 @@ List<HomeSectionConfig> _homeSections(Map<String, Object?> json) {
   for (final rawPage in rawPages) {
     final page = _object(rawPage, 'bootstrap page');
     if (page['id'] != 'customer-home' || page['enabled'] != true) continue;
+    final groups = page['audience_groups'];
+    if (groups != null &&
+        (groups is! List<Object?> ||
+            groups.length > 16 ||
+            groups.any((group) => group is! String || group.isEmpty))) {
+      throw const FormatException('Bootstrap audience groups are invalid.');
+    }
+    final liveAudience = groups is List<Object?> && groups.isNotEmpty;
     final rawBlocks = page['blocks'];
     if (rawBlocks is! List<Object?>) {
       throw const FormatException('Customer home blocks must be a list.');
@@ -404,6 +439,7 @@ List<HomeSectionConfig> _homeSections(Map<String, Object?> json) {
           actionRoute: '/app/services',
           collectionId: collectionId,
           maximumItems: maximumItems,
+          requiresLiveAudience: liveAudience,
           enabled: block['enabled'] == true,
           priority: _integer(block, 'priority'),
         ),
@@ -495,10 +531,19 @@ final class BootstrapController extends ChangeNotifier {
   BootstrapState _state;
 
   BootstrapState get state => _state;
+  bool _disposed = false;
+  int _generation = 0;
+
+  bool _current(int generation) => !_disposed && _generation == generation;
 
   Future<void> load() async {
+    if (_disposed) return;
+    final generation = ++_generation;
     _set(
-      BootstrapState(status: BootstrapStatus.loading, config: _state.config),
+      BootstrapState(
+        status: BootstrapStatus.loading,
+        config: _state.config.withoutLiveAudience(),
+      ),
     );
     try {
       final config = await _remote.fetch(
@@ -506,24 +551,42 @@ final class BootstrapController extends ChangeNotifier {
         appVersion: _appVersion,
         locale: _locale,
       );
-      await _cache.write(config);
+      if (!_current(generation)) return;
+      await _cache.write(config.withoutLiveAudience());
+      if (!_current(generation)) return;
       _set(BootstrapState(status: BootstrapStatus.ready, config: config));
     } catch (_) {
-      final cached = await _cache.read();
+      if (!_current(generation)) return;
+      BootstrapConfig? cached;
+      try {
+        cached = await _cache.read();
+      } catch (_) {
+        // A failed cache must not restore protected content or strand startup.
+      }
+      if (!_current(generation)) return;
       _set(
         BootstrapState(
           status: cached == null
               ? BootstrapStatus.failure
               : BootstrapStatus.offline,
-          config: cached ?? BootstrapConfig.safeOffline(),
+          config:
+              cached?.withoutLiveAudience() ?? BootstrapConfig.safeOffline(),
         ),
       );
     }
   }
 
   void _set(BootstrapState value) {
+    if (_disposed) return;
     _state = value;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    super.dispose();
   }
 }
 

@@ -4,7 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
 
 final class FirebaseEmailProvider
-    implements EmailIdentityProvider, PasswordRecoveryProvider {
+    implements
+        EmailIdentityProvider,
+        PasswordRecoveryProvider,
+        EmailRegistrationProvider {
   FirebaseEmailProvider(this._auth);
   final FirebaseAuth _auth;
 
@@ -20,11 +23,17 @@ final class FirebaseEmailProvider
     return _assertion(credential.user);
   }
 
-  Future<void> register({required String email, required String secret}) async {
-    await _auth.createUserWithEmailAndPassword(
+  @override
+  Future<ProviderAssertion> register({
+    required String email,
+    required String secret,
+  }) async {
+    final credential = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: secret,
     );
+    await credential.user?.sendEmailVerification();
+    return _assertion(credential.user);
   }
 
   @override

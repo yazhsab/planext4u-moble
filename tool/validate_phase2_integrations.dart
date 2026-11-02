@@ -50,14 +50,20 @@ void main(List<String> arguments) {
   _containsAll(failures, customerPush, [
     'PushRegistrationStatus',
     'Future<void> retry()',
-    'uri.host.toLowerCase() == allowedHost.toLowerCase()',
-    'uri.scheme == allowedScheme',
+    '_registration = RolePushRegistration(',
+    'role: AppRole.customer',
+    'allowedHost: allowedHost',
+    'allowedScheme: allowedScheme',
+    'CustomerDeepLink.parse(uri)',
   ], 'customer push');
   _containsAll(failures, rolePush, [
     'RolePushRegistrationStatus',
     'Future<void> retry()',
     'allowedHost:',
     'allowedScheme:',
+    'uri.host.toLowerCase() == (allowedHost ??',
+    'uri.scheme == (allowedScheme ??',
+    'if (!_current(epoch)) return;',
   ], 'role push');
   _containsAll(failures, transactions, [
     "'CAPTURED', 'RECONCILED'",
@@ -76,6 +82,12 @@ void main(List<String> arguments) {
   _containsAll(failures, riderMain, [
     'RiderMapsLauncher.open',
     'LaunchMode.externalApplication',
+    'onConsentControllerReady:',
+    'onAccountScopeReady:',
+    'EncryptedRiderOnboardingProgressStore(',
+    'bindDeliveryConsents(consents)',
+    'deliveryPolicyLoader:',
+    'BootstrapApi(client).fetch',
   ], 'rider navigation provider');
   _containsAll(failures, rtc, [
     'SocialRtcOfferProvider',
@@ -83,27 +95,17 @@ void main(List<String> arguments) {
   ], 'WebRTC fail-closed boundary');
 
   for (final app in _apps.keys) {
-    _containsAll(
-      failures,
-      _read('apps/$app/android/settings.gradle.kts'),
-      ['com.google.gms.google-services', '4.5.0'],
-      '$app Android Firebase plugin',
-    );
-    _containsAll(
-      failures,
-      _read('apps/$app/android/app/build.gradle.kts'),
-      [
-        'protectedFirebaseConfigPresent',
-        'apply(plugin = "com.google.gms.google-services")',
-      ],
-      '$app protected Firebase boundary',
-    );
-    _containsAll(
-      failures,
-      _read('apps/$app/ios/Runner/Runner.entitlements'),
-      ['aps-environment'],
-      '$app APNS entitlement',
-    );
+    _containsAll(failures, _read('apps/$app/android/settings.gradle.kts'), [
+      'com.google.gms.google-services',
+      '4.5.0',
+    ], '$app Android Firebase plugin');
+    _containsAll(failures, _read('apps/$app/android/app/build.gradle.kts'), [
+      'protectedFirebaseConfigPresent',
+      'apply(plugin = "com.google.gms.google-services")',
+    ], '$app protected Firebase boundary');
+    _containsAll(failures, _read('apps/$app/ios/Runner/Runner.entitlements'), [
+      'aps-environment',
+    ], '$app APNS entitlement');
   }
 
   final contractRequirements = <String, List<String>>{

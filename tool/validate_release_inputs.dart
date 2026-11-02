@@ -52,6 +52,27 @@ List<String> validateReleaseInputs(Map<String, String> values) {
   } on FormatException {
     errors.add('RELEASE_API_BASE_URL must be a public HTTPS origin.');
   }
+  if (const {'vendor', 'rider'}.contains(values['RELEASE_APP'])) {
+    final raw = values['RELEASE_BANK_LINK_LAUNCH_ORIGIN'] ?? '';
+    final uri = Uri.tryParse(raw);
+    if (uri == null ||
+        raw.trim() != raw ||
+        uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        uri.path.isNotEmpty ||
+        !RegExp(
+          r'^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$',
+        ).hasMatch(uri.host) ||
+        RegExp(
+          r'(?:^|\.)(?:localhost|local|internal|test|invalid|example|example\.(?:com|net|org))$',
+        ).hasMatch(uri.host)) {
+      errors.add(
+        'RELEASE_BANK_LINK_LAUNCH_ORIGIN must select the approved public HTTPS bank provider origin.',
+      );
+    }
+  }
   if (values['MOBILE_SIGNING_ROTATION_APPROVED'] != 'true') {
     errors.add('Signing owner must record legacy credential retirement first.');
   }

@@ -3,6 +3,7 @@ import 'package:planext4u_api_client/planext4u_api_client.dart';
 
 import 'catalog.dart';
 import 'commerce.dart';
+import 'geography.dart';
 
 final class CustomerAddress {
   const CustomerAddress({
@@ -17,6 +18,7 @@ final class CustomerAddress {
     this.serviceable = true,
     this.isDefault = false,
     this.revision = 1,
+    this.geography,
   });
   factory CustomerAddress.fromJson(Object? value) {
     final json = _txObject(value, 'address');
@@ -32,6 +34,9 @@ final class CustomerAddress {
       serviceable: json['serviceable'] as bool? ?? true,
       isDefault: json['default'] as bool? ?? false,
       revision: json['revision'] as int? ?? 1,
+      geography: json['geography'] == null
+          ? null
+          : AddressGeography.fromJson(json['geography']),
     );
   }
   final String id;
@@ -45,6 +50,7 @@ final class CustomerAddress {
   final bool serviceable;
   final bool isDefault;
   final int revision;
+  final AddressGeography? geography;
 }
 
 final class CustomerAddressDraft {
@@ -57,7 +63,9 @@ final class CustomerAddressDraft {
     this.latitude,
     this.longitude,
     this.isDefault = false,
+    this.geographyAreaID,
   });
+  final String? geographyAreaID;
   final String label;
   final String line1;
   final String line2;
@@ -67,6 +75,7 @@ final class CustomerAddressDraft {
   final double? longitude;
   final bool isDefault;
   Map<String, Object?> toJson() => {
+    if (geographyAreaID != null) 'geography_area_id': geographyAreaID,
     'label': label.trim(),
     'line1': line1.trim(),
     if (line2.trim().isNotEmpty) 'line2': line2.trim(),
@@ -1011,16 +1020,66 @@ final class TransactionController extends ChangeNotifier {
   TransactionController({
     required TransactionRemote remote,
     PaymentRecoveryStore? recoveryStore,
+    this.geography,
+    this.addressCountry,
+    bool Function()? scopeIsCurrent,
   }) : _remote = remote,
+       _scopeIsCurrent = scopeIsCurrent ?? (() => true),
        _recovery = recoveryStore ?? MemoryPaymentRecoveryStore();
+  final GeographyDirectory? geography;
+  final String? addressCountry;
+  final bool Function() _scopeIsCurrent;
+  bool _disposed = false;
+  int _addressGeneration = 0;
+  bool _addressCommandPending = false;
+  bool get addressCommandPending => _addressCommandPending;
+  bool get accountIsCurrent => !_disposed && _scopeIsCurrent();
   final TransactionRemote _remote;
   final PaymentRecoveryStore _recovery;
   WalletExperience? _walletExperience;
-  WalletExperience? get walletExperience => _walletExperience;
+  WalletExperience? get walletExperience =>
+      accountIsCurrent ? _walletExperience : null;
   TransactionState _state = const TransactionState(
     status: TransactionStatus.idle,
   );
-  TransactionState get state => _state;
+  TransactionState get state => accountIsCurrent
+      ? _state
+      : const TransactionState(status: TransactionStatus.idle);
+  TransactionState _addressState(
+    TransactionStatus status,
+    List<CustomerAddress> addresses, {
+    String? message,
+  }) => TransactionState(
+    status: status,
+    addresses: List.unmodifiable(addresses),
+    slots: _state.slots,
+    quote: _state.quote,
+    payment: _state.payment,
+    order: _state.order,
+    orders: _state.orders,
+    wallet: _state.wallet,
+    message: message,
+  );
+  Future<void> loadAddresses() async {
+    if (!accountIsCurrent || _addressCommandPending) return;
+    final generation = ++_addressGeneration;
+    _set(_addressState(TransactionStatus.loading, _state.addresses));
+    try {
+      final addresses = await _remote.addresses();
+      if (!accountIsCurrent || generation != _addressGeneration) return;
+      _set(_addressState(TransactionStatus.ready, addresses));
+    } catch (_) {
+      if (!accountIsCurrent || generation != _addressGeneration) return;
+      _set(
+        _addressState(
+          TransactionStatus.failure,
+          _state.addresses,
+          message: 'Couldn’t load addresses. Try again.',
+        ),
+      );
+    }
+  }
+
   Future<void> loadCheckout() async {
     _set(
       TransactionState(status: TransactionStatus.loading, quote: _state.quote),
@@ -1050,72 +1109,108 @@ final class TransactionController extends ChangeNotifier {
     }
   }
 
+  Future<(List<CustomerAddress>, bool)> _readAddressWriteback(
+    List<CustomerAddress> fallback, {
+    String? savedID,
+    String? removedID,
+  }) async {
+    try {
+      final current = await _remote.addresses();
+      if (savedID != null && !current.any((e) => e.id == savedID) ||
+          removedID != null && current.any((e) => e.id == removedID)) {
+        throw const FormatException('Address readback is stale.');
+      }
+      return (current, true);
+    } catch (_) {
+      return (fallback, false);
+    }
+  }
+
   Future<bool> saveAddress({
     CustomerAddress? current,
     required CustomerAddressDraft draft,
   }) async {
+    if (!accountIsCurrent || _addressCommandPending) return false;
+    _addressCommandPending = true;
+    ++_addressGeneration;
+    notifyListeners();
     try {
       final value = current == null
           ? await _remote.createAddress(draft)
           : await _remote.updateAddress(current, draft);
-      final addresses =
-          [..._state.addresses.where((item) => item.id != value.id), value]
-            ..sort((left, right) {
-              if (left.isDefault != right.isDefault) {
-                return left.isDefault ? -1 : 1;
-              }
-              return left.label.compareTo(right.label);
-            });
+      if (!accountIsCurrent) return false;
+      final fallback = [
+        ..._state.addresses.where((e) => e.id != value.id),
+        value,
+      ];
+      final (addresses, fresh) = await _readAddressWriteback(
+        fallback,
+        savedID: value.id,
+      );
+      if (!accountIsCurrent) return false;
       _set(
-        TransactionState(
-          status: TransactionStatus.ready,
-          addresses: addresses,
-          slots: _state.slots,
-          wallet: _state.wallet,
-          quote: _state.quote,
+        _addressState(
+          fresh ? TransactionStatus.ready : TransactionStatus.failure,
+          addresses,
+          message: fresh
+              ? null
+              : 'Address saved. Refresh to see the latest list.',
         ),
       );
       return true;
     } catch (_) {
+      if (!accountIsCurrent) return false;
       _set(
-        TransactionState(
-          status: TransactionStatus.failure,
-          addresses: _state.addresses,
-          slots: _state.slots,
-          wallet: _state.wallet,
-          message:
-              'The address could not be saved. Check serviceability and try again.',
+        _addressState(
+          TransactionStatus.failure,
+          _state.addresses,
+          message: 'The address could not be saved. Refresh and try again.',
         ),
       );
       return false;
+    } finally {
+      _addressCommandPending = false;
+      if (accountIsCurrent) notifyListeners();
     }
   }
 
   Future<bool> deleteAddress(CustomerAddress value) async {
+    if (!accountIsCurrent || _addressCommandPending) return false;
+    _addressCommandPending = true;
+    ++_addressGeneration;
+    notifyListeners();
     try {
       await _remote.deleteAddress(value);
+      if (!accountIsCurrent) return false;
+      final fallback = _state.addresses.where((e) => e.id != value.id).toList();
+      final (addresses, fresh) = await _readAddressWriteback(
+        fallback,
+        removedID: value.id,
+      );
+      if (!accountIsCurrent) return false;
       _set(
-        TransactionState(
-          status: TransactionStatus.ready,
-          addresses: _state.addresses
-              .where((item) => item.id != value.id)
-              .toList(growable: false),
-          slots: _state.slots,
-          wallet: _state.wallet,
+        _addressState(
+          fresh ? TransactionStatus.ready : TransactionStatus.failure,
+          addresses,
+          message: fresh
+              ? null
+              : 'Address removed. Refresh to see the latest list.',
         ),
       );
       return true;
     } catch (_) {
+      if (!accountIsCurrent) return false;
       _set(
-        TransactionState(
-          status: TransactionStatus.failure,
-          addresses: _state.addresses,
-          slots: _state.slots,
-          wallet: _state.wallet,
+        _addressState(
+          TransactionStatus.failure,
+          _state.addresses,
           message: 'The address changed. Refresh and try again.',
         ),
       );
       return false;
+    } finally {
+      _addressCommandPending = false;
+      if (accountIsCurrent) notifyListeners();
     }
   }
 
@@ -1433,7 +1528,17 @@ final class TransactionController extends ChangeNotifier {
     }
   }
 
+  @override
+  void dispose() {
+    _disposed = true;
+    ++_addressGeneration;
+    _state = const TransactionState(status: TransactionStatus.idle);
+    _walletExperience = null;
+    super.dispose();
+  }
+
   void _set(TransactionState value) {
+    if (!accountIsCurrent) return;
     _state = value;
     notifyListeners();
   }

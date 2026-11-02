@@ -365,6 +365,12 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
   String _paymentMethod = 'WALLET';
 
   @override
+  void initState() {
+    super.initState();
+    _paymentMethod = widget.cart.paymentMethods.firstOrNull ?? '';
+  }
+
+  @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Review food order')),
     body: SafeArea(
@@ -385,19 +391,33 @@ class _FoodCheckoutScreenState extends State<FoodCheckoutScreen> {
           Text('Pricing ${widget.cart.pricingVersion}'),
           Text('Valid until ${widget.cart.expiresAt.toLocal()}'),
           const SizedBox(height: Planext4uSpacing.x4),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'WALLET', label: Text('Wallet')),
-              ButtonSegment(value: 'COD', label: Text('Cash')),
-            ],
-            selected: {_paymentMethod},
-            onSelectionChanged: (value) =>
-                setState(() => _paymentMethod = value.single),
-          ),
+          if (widget.cart.paymentMethods.isEmpty)
+            const Text("No supported payment method is currently available."),
+          if (widget.cart.paymentMethods.isNotEmpty)
+            SegmentedButton<String>(
+              segments: [
+                for (final method in widget.cart.paymentMethods)
+                  ButtonSegment(
+                    value: method,
+                    label: Text(
+                      method == 'WALLET'
+                          ? 'Wallet'
+                          : method == 'RAZORPAY'
+                          ? 'Razorpay'
+                          : 'Paystack',
+                    ),
+                  ),
+              ],
+              selected: {_paymentMethod},
+              onSelectionChanged: (value) =>
+                  setState(() => _paymentMethod = value.single),
+            ),
           const SizedBox(height: Planext4uSpacing.x5),
           FilledButton.icon(
             key: const ValueKey('place-food-order'),
-            onPressed: _place,
+            onPressed: widget.cart.paymentMethods.contains(_paymentMethod)
+                ? _place
+                : null,
             icon: const Icon(Icons.lock_outline),
             label: Text('Place order • ${widget.cart.total.display()}'),
           ),

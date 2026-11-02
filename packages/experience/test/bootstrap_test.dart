@@ -1,9 +1,91 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 
 void main() {
+  test(
+    'audience-derived rails are visible live and excluded from persisted JSON',
+    () {
+      final live = BootstrapConfig.fromJson(audienceBootstrapJson());
+      expect(live.homeSections, hasLength(2));
+      expect(live.homeSections.last.requiresLiveAudience, isTrue);
+      final restored = BootstrapConfig.fromJson(live.toJson());
+      expect(restored.homeSections, hasLength(1));
+      expect(restored.homeSections.single.id, 'hero');
+      expect(live.toJson().toString(), isNot(contains('private-collection')));
+    },
+  );
+
+  test(
+    'audience content never reaches an offline cache or stale fallback',
+    () async {
+      final cache = MemoryBootstrapCache();
+      final remote = QueuedAudienceBootstrapRemote();
+      final controller = BootstrapController(
+        remote: remote,
+        cache: cache,
+        platform: MobilePlatform.android,
+        appVersion: '1.0.0',
+        locale: 'en',
+      );
+      final first = controller.load();
+      remote.pending.single.complete(
+        BootstrapConfig.fromJson(audienceBootstrapJson()),
+      );
+      await first;
+      expect(controller.state.config.homeSections, hasLength(2));
+      expect(cache.value!.homeSections, hasLength(1));
+      // Even a previously supplied in-memory cache must be filtered on fallback.
+      cache.value = BootstrapConfig.fromJson(audienceBootstrapJson());
+      final second = controller.load();
+      expect(controller.state.config.homeSections, hasLength(1));
+      remote.pending.last.completeError(StateError('offline'));
+      await second;
+      expect(controller.state.status, BootstrapStatus.offline);
+      expect(controller.state.config.homeSections, hasLength(1));
+      controller.dispose();
+    },
+  );
+
+  test(
+    'a superseded response cannot restore audience content after a new read',
+    () async {
+      final remote = QueuedAudienceBootstrapRemote();
+      final controller = BootstrapController(
+        remote: remote,
+        cache: MemoryBootstrapCache(),
+        platform: MobilePlatform.android,
+        appVersion: '1.0.0',
+        locale: 'en',
+      );
+      final old = controller.load();
+      final current = controller.load();
+      remote.pending.last.complete(BootstrapConfig.fromJson(bootstrapJson()));
+      await current;
+      remote.pending.first.complete(
+        BootstrapConfig.fromJson(audienceBootstrapJson()),
+      );
+      await old;
+      expect(controller.state.status, BootstrapStatus.ready);
+      expect(controller.state.config.homeSections, hasLength(1));
+      controller.dispose();
+    },
+  );
+
+  test(
+    'malformed audience metadata cannot silently become a public cache entry',
+    () {
+      final json = audienceBootstrapJson();
+      final page =
+          (json['pages']! as List<Object?>).single! as Map<String, Object?>;
+      page['audience_groups'] = 'untrusted';
+      expect(() => BootstrapConfig.fromJson(json), throwsFormatException);
+    },
+  );
+
   test(
     'bootstrap decodes gates, defaults unknown flags off and orders shell data',
     () {
@@ -380,4 +462,43 @@ final class FailingBootstrapRemote implements BootstrapRemote {
     required String appVersion,
     required String locale,
   }) async => throw StateError('offline');
+}
+
+Map<String, Object?> audienceBootstrapJson() => {
+  ...bootstrapJson(),
+  'pages': [
+    {
+      'id': 'customer-home',
+      'enabled': true,
+      'audience_groups': ['c0685b62-abdb-4696-aed0-6977d2ac8dc5'],
+      'blocks': [
+        {
+          'id': 'private-services',
+          'kind': 'SERVICE_RAIL',
+          'enabled': true,
+          'priority': 1,
+          'title_key': 'home.services',
+          'content': {
+            'collection_id': 'private-collection',
+            'title': 'Current member services',
+            'maximum_items': 8,
+          },
+        },
+      ],
+    },
+  ],
+};
+
+final class QueuedAudienceBootstrapRemote implements BootstrapRemote {
+  final pending = <Completer<BootstrapConfig>>[];
+  @override
+  Future<BootstrapConfig> fetch({
+    required MobilePlatform platform,
+    required String appVersion,
+    required String locale,
+  }) {
+    final response = Completer<BootstrapConfig>();
+    pending.add(response);
+    return response.future;
+  }
 }

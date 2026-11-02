@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:planext4u_api_client/planext4u_api_client.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:planext4u_config/planext4u_config.dart';
 import 'package:planext4u_core/planext4u_core.dart';
@@ -16,75 +17,19 @@ import 'package:planext4u_storage/planext4u_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'pod_capture.dart';
+import 'private_onboarding.dart';
 
 Future<void> main() async {
   final startup = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
-  FirebaseAuth? auth;
-  try {
-    await Firebase.initializeApp();
-    auth = FirebaseAuth.instance;
-  } catch (_) {
-    // The runtime shows an actionable configuration state outside development.
-  }
   final config = AppConfig.fromCompileTime();
-  final identity = AppIdentity.forBuild(
-    application: Planext4uApplication.rider,
-    environment: config.environment,
-  );
   final observability = _observability(config.environment);
   _installRuntimeErrorBoundary(observability.runtimeMetrics);
-  final commands = _EncryptedRiderCommandStore();
-  final push = auth == null
-      ? null
-      : RolePushLifecycle.firebase(
-          role: AppRole.rider,
-          allowedHost: config.deepLinkHost,
-          allowedScheme: identity.customScheme,
-        );
   runApp(
-    RoleApplicationRuntime<RiderOperationsController>(
+    PublicStartupGate(
       apiBaseUrl: config.apiBaseUrl,
-      applicationRole: AppRole.rider,
-      environmentLabel: config.environmentLabel,
-      development: config.environment == AppEnvironment.development,
-      developmentProviderToken: 'synthetic-rider',
-      apiDiagnostics: observability.apiDiagnostics,
-      emailProvider: auth == null ? null : _FirebaseEmailProvider(auth),
-      phoneProvider: auth == null ? null : _FirebasePhoneProvider(auth),
-      onAuthenticatedSession: push?.start,
-      onSessionEnded: push?.end,
-      controllerFactory: (client) => RiderOperationsController(
-        RiderOperationsApi(client),
-        commandStore: commands,
-        locationTracker: GeolocatorRiderLocationTracker(),
-      ),
-      authenticatedBuilder:
-          (
-            context,
-            controller,
-            roles,
-            signOut,
-            identityProfile,
-            sessionManagement,
-            notificationPreferences,
-            support,
-            appearancePreferences,
-            accountPrivacy,
-          ) => RiderApp(
-            config: config,
-            controller: controller,
-            grantedRoles: roles,
-            identityProfileController: identityProfile,
-            sessionManagementController: sessionManagement,
-            notificationPreferencesController: notificationPreferences,
-            supportController: support,
-            appearancePreferencesController: appearancePreferences,
-            accountPrivacyController: accountPrivacy,
-            onNavigate: RiderMapsLauncher.open,
-            podPhotoSource: ImagePickerRiderPodPhotoSource(),
-            onSignOut: signOut,
-          ),
+      role: 'rider',
+      initialize: () => _initializeRiderRuntime(config, observability),
     ),
   );
   WidgetsBinding.instance.addPostFrameCallback(
@@ -92,6 +37,142 @@ Future<void> main() async {
       startup.elapsed,
       application: 'rider',
     ),
+  );
+}
+
+Future<Widget> _initializeRiderRuntime(
+  AppConfig config,
+  MobileObservability observability,
+) async {
+  FirebaseAuth? auth;
+  try {
+    await Firebase.initializeApp();
+    auth = FirebaseAuth.instance;
+  } catch (_) {
+    // The runtime shows an actionable configuration state outside development.
+  }
+  final identity = AppIdentity.forBuild(
+    application: Planext4uApplication.rider,
+    environment: config.environment,
+  );
+  PrivateMediaUploader? privateUploader;
+  HostedBankLinkClient? bankLinks;
+  final push = auth == null
+      ? null
+      : RolePushLifecycle.firebase(
+          role: AppRole.rider,
+          allowedHost: config.deepLinkHost,
+          allowedScheme: identity.customScheme,
+        );
+  return RoleApplicationRuntime<RiderOperationsController>(
+    apiBaseUrl: config.apiBaseUrl,
+    applicationRole: AppRole.rider,
+    environmentLabel: config.environmentLabel,
+    development: config.environment == AppEnvironment.development,
+    developmentProviderToken: 'synthetic-rider',
+    apiDiagnostics: observability.apiDiagnostics,
+    emailProvider: auth == null ? null : _FirebaseEmailProvider(auth),
+    phoneProvider: auth == null ? null : _FirebasePhoneProvider(auth),
+    accountLinkingProvider: auth == null
+        ? null
+        : FirebaseAccountLinkingProvider(auth),
+    onAuthenticatedSession: push?.start,
+    onDeviceSettingsReturn: push?.refreshAuthorization,
+    onConsentControllerReady: (controller, consents) =>
+        controller.bindDeliveryConsents(consents),
+    onSessionEnded: (unregister) async {
+      bankLinks?.dispose();
+      bankLinks = null;
+      privateUploader?.dispose();
+      privateUploader = null;
+      await push?.end(unregister);
+    },
+    controllerFactory: (client) {
+      bankLinks?.dispose();
+      final bankOrigin = config.bankLinkLaunchOrigin;
+      bankLinks = bankOrigin == null
+          ? null
+          : HostedBankLinkClient(
+              client: client,
+              applicationRole: 'rider',
+              allowedOrigins: {bankOrigin},
+              allowDevelopmentHttp:
+                  config.environment == AppEnvironment.development,
+            );
+      privateUploader?.dispose();
+      final origin = config.privateUploadOrigin;
+      privateUploader = origin == null
+          ? null
+          : PrivateMediaUploader(
+              client: client,
+              allowedOrigins: {origin},
+              allowDevelopmentHttp:
+                  config.environment == AppEnvironment.development,
+            );
+      return RiderOperationsController(
+        RiderOperationsApi(client),
+        commandStore: EncryptedRiderCommandStore(),
+        locationTracker: GeolocatorRiderLocationTracker(),
+        deliveryPolicyLoader: () async {
+          final config = await BootstrapApi(client).fetch(
+            platform: Platform.isIOS
+                ? MobilePlatform.ios
+                : MobilePlatform.android,
+            appVersion: const String.fromEnvironment(
+              'APP_VERSION',
+              defaultValue: '0.1.0',
+            ),
+            locale: 'en',
+          );
+          return config.consentPolicies
+              .where(
+                (policy) =>
+                    policy.purpose == ConsentPurpose.locationDelivery.wireValue,
+              )
+              .firstOrNull;
+        },
+      )..bankLinks = bankLinks;
+    },
+    onAccountScopeReady: (controller, tenantId, country, identityId) {
+      controller.documentProgress = EncryptedPrivateOnboardingProgressStore(
+        tenantId: tenantId,
+        country: country,
+        identityId: identityId,
+        applicationRole: 'rider',
+      );
+      controller.onboardingProgress = EncryptedRiderOnboardingProgressStore(
+        tenantId: tenantId,
+        country: country,
+        identityId: identityId,
+      );
+    },
+    authenticatedBuilder:
+        (
+          context,
+          controller,
+          roles,
+          signOut,
+          identityProfile,
+          sessionManagement,
+          notificationPreferences,
+          support,
+          appearancePreferences,
+          accountPrivacy,
+        ) => RiderApp(
+          config: config,
+          controller: controller,
+          privateMediaUploader: privateUploader,
+          grantedRoles: roles,
+          identityProfileController: identityProfile,
+          sessionManagementController: sessionManagement,
+          notificationPreferencesController: notificationPreferences,
+          supportController: support,
+          appearancePreferencesController: appearancePreferences,
+          accountPrivacyController: accountPrivacy,
+          onNavigate: RiderMapsLauncher.open,
+          podPhotoSource: ImagePickerRiderPodPhotoSource(),
+          onSignOut: signOut,
+        ),
   );
 }
 
@@ -142,8 +223,9 @@ final class GeolocatorRiderLocationTracker implements RiderLocationTracker {
 
   @override
   Future<void> start(
-    Future<void> Function(RiderTrackedPosition position) onPosition,
-  ) async {
+    Future<void> Function(RiderTrackedPosition position) onPosition, {
+    void Function(Object error)? onError,
+  }) async {
     if (_positions != null) return;
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw const RiderLocationException(
@@ -201,9 +283,13 @@ final class GeolocatorRiderLocationTracker implements RiderLocationTracker {
                 accuracyMeters: position.accuracy,
                 capturedAt: position.timestamp,
               ),
-            ).catchError((_) {}),
+            ).catchError((Object error) {
+              onError?.call(error);
+            }),
           ),
-          onError: (_) {},
+          onError: (Object error) {
+            onError?.call(error);
+          },
         );
   }
 
@@ -248,6 +334,7 @@ class RiderApp extends StatelessWidget {
     this.podEvidenceUploader,
     this.locale,
     this.onboardingProvider,
+    this.privateMediaUploader,
     this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
@@ -270,6 +357,7 @@ class RiderApp extends StatelessWidget {
   final RiderPodEvidenceUploader? podEvidenceUploader;
   final Locale? locale;
   final RiderOnboardingProvider? onboardingProvider;
+  final PrivateMediaUploader? privateMediaUploader;
   final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
@@ -302,7 +390,13 @@ class RiderApp extends StatelessWidget {
         dataSaver: appearance.dataSaver,
         forceReducedMotion: appearance.reduceMotion,
         minimumTextScale: appearance.textScale.minimumScale,
-        child: child ?? const SizedBox.shrink(),
+        child: LocalAppLockGate(
+          controller: accountPrivacyController?.appLock,
+          child: PublishedEducationGate(
+            controller: identityProfileController?.education,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
       ),
       home: AuthenticatedRoleShell(
         applicationRole: AppRole.rider,
@@ -316,7 +410,30 @@ class RiderApp extends StatelessWidget {
             : (context, destination) => RiderOperationsView(
                 controller: controller!,
                 destination: destination,
-                onboardingProvider: onboardingProvider,
+                onboardingProvider:
+                    onboardingProvider ??
+                    (privateMediaUploader == null
+                        ? null
+                        : NativeRiderOnboardingProvider(
+                            uploader: privateMediaUploader!,
+                            progress: controller!.documentProgress,
+                            bankLinks: controller!.bankLinks,
+                            verifyBank: controller!.bankLinks == null
+                                ? null
+                                : () => showHostedBankLinkDialog(
+                                    context,
+                                    client: controller!.bankLinks!,
+                                    launch: (url) => launchUrl(
+                                      url,
+                                      mode: LaunchMode.externalApplication,
+                                    ),
+                                  ),
+                            capture: (kind) => captureNativeRiderDocument(
+                              context,
+                              kind,
+                              isActive: () => privateMediaUploader!.isActive,
+                            ),
+                          )),
                 onNavigate: onNavigate,
                 onCapturePhoto: onCapturePhoto ?? podCapture?.capturePhoto,
                 onCaptureSignature:
@@ -335,28 +452,59 @@ class RiderApp extends StatelessWidget {
   }
 }
 
-final class _EncryptedRiderCommandStore implements RiderCommandStore {
-  _EncryptedRiderCommandStore()
-    : _store = EncryptedRecordStore(
-        records: FileBinaryRecordStore(namespace: 'rider-offline-v1'),
-        keyProvider: PlatformCacheKeyProvider(
-          namespace: 'planext4u.rider.offline.v1',
-        ),
-        namespace: 'rider-offline-v1',
-      );
+final class EncryptedRiderCommandStore
+    implements RiderCommandStore, ScopedRiderCommandStore {
+  EncryptedRiderCommandStore({EncryptedRecordStore? store})
+    : _store =
+          store ??
+          EncryptedRecordStore(
+            records: FileBinaryRecordStore(namespace: 'rider-offline-v1'),
+            keyProvider: PlatformCacheKeyProvider(
+              namespace: 'planext4u.rider.offline.v1',
+            ),
+            namespace: 'rider-offline-v1',
+          );
 
-  static const _key = 'commands';
-  final EncryptedRecordStore _store;
+  String? _scope;
+  String get _key => _scope == null
+      ? throw StateError('Sign in before reading rider recovery data.')
+      : 'commands-$_scope';
 
   @override
-  Future<void> enqueue(RiderOfflineCommand command) async {
-    final commands = await pending();
-    if (commands.any((value) => value.commandId == command.commandId)) return;
-    await replace([...commands, command]);
+  Future<void> bind(String profileId) async {
+    if (!RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(profileId)) {
+      throw const FormatException('The rider recovery scope is invalid.');
+    }
+    if (_scope != null && _scope != profileId) {
+      throw StateError(
+        'Start a new rider session before switching recovery accounts.',
+      );
+    }
+    _scope = profileId;
+  }
+
+  final EncryptedRecordStore _store;
+  static final Map<String, Future<void>> _writes = {};
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final key = _key;
+    final next = (_writes[key] ?? Future<void>.value()).then((_) => action());
+    _writes[key] = next.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    return next;
   }
 
   @override
-  Future<List<RiderOfflineCommand>> pending() async {
+  Future<void> enqueue(RiderOfflineCommand command) => _serialized(() async {
+    final commands = await _read();
+    if (commands.any((value) => value.commandId == command.commandId)) return;
+    await _replace([...commands, command]);
+  });
+
+  @override
+  Future<List<RiderOfflineCommand>> pending() => _serialized(_read);
+  Future<List<RiderOfflineCommand>> _read() async {
     final result = await _store.get<List<RiderOfflineCommand>>(_key, (value) {
       if (value is! List<Object?>) {
         throw const FormatException('Rider command queue is invalid.');
@@ -381,11 +529,19 @@ final class _EncryptedRiderCommandStore implements RiderCommandStore {
           })
           .toList(growable: false);
     });
+    if (result.freshness == CacheFreshness.expired ||
+        result.freshness == CacheFreshness.corrupt) {
+      throw StateError(
+        'Stored offline actions could not be recovered. Refresh tasks before continuing.',
+      );
+    }
     return result.value ?? const [];
   }
 
   @override
-  Future<void> replace(List<RiderOfflineCommand> commands) async {
+  Future<void> replace(List<RiderOfflineCommand> commands) =>
+      _serialized(() => _replace(commands));
+  Future<void> _replace(List<RiderOfflineCommand> commands) async {
     if (commands.length > RiderCommandQueuePolicy.maxCommands) {
       throw StateError('Rider offline command queue is full.');
     }
@@ -409,9 +565,25 @@ final class _EncryptedRiderCommandStore implements RiderCommandStore {
 }
 
 final class _FirebaseEmailProvider
-    implements EmailIdentityProvider, PasswordRecoveryProvider {
+    implements
+        EmailIdentityProvider,
+        PasswordRecoveryProvider,
+        EmailRegistrationProvider {
   const _FirebaseEmailProvider(this._auth);
   final FirebaseAuth _auth;
+  @override
+  Future<ProviderAssertion> register({
+    required String email,
+    required String secret,
+  }) async {
+    final result = await _auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: secret,
+    );
+    await result.user?.sendEmailVerification();
+    return _firebaseAssertion(result.user);
+  }
+
   @override
   Future<ProviderAssertion> authenticate({
     required String email,

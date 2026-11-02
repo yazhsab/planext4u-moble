@@ -5,6 +5,8 @@ import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 
 import 'identity_profile.dart';
+import 'account_security_screen.dart';
+import 'profile_occupation_screen.dart';
 
 final class IdentityProfileScreen extends StatefulWidget {
   const IdentityProfileScreen({required this.controller, super.key});
@@ -212,6 +214,44 @@ class _IdentityProfileScreenState extends State<IdentityProfileScreen> {
                 subtitle: Text(current.profile.phone ?? 'Not configured'),
               ),
               const SizedBox(height: Planext4uSpacing.x3),
+              if (widget.controller.occupations case final occupations?)
+                ListTile(
+                  key: const ValueKey('profile-occupation'),
+                  leading: const Icon(Icons.work_outline),
+                  title: Text(_locale == 'ta' ? 'தொழில்' : 'Occupation'),
+                  subtitle: Text(
+                    _locale == 'ta'
+                        ? 'உங்கள் தொழிலைத் தேர்ந்தெடுக்கவும் அல்லது மாற்றவும்'
+                        : 'Choose or update your occupation',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ProfileOccupationScreen(controller: occupations),
+                      ),
+                    );
+                  },
+                ),
+              if (widget.controller.accountSecurity case final security?)
+                ListTile(
+                  leading: const Icon(Icons.manage_accounts_outlined),
+                  title: const Text('Sign-in methods'),
+                  subtitle: const Text(
+                    'Verify your account and add another sign-in method',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            AccountSecurityScreen(controller: security),
+                      ),
+                    );
+                    if (mounted) await widget.controller.load();
+                  },
+                ),
               FilledButton.icon(
                 key: const ValueKey('save-identity-profile'),
                 onPressed: canSave ? _save : null,

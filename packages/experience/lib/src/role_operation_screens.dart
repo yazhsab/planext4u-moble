@@ -16,6 +16,8 @@ import 'identity_profile_screen.dart';
 import 'notification_preferences.dart';
 import 'notification_preferences_screen.dart';
 import 'role_operations.dart';
+import 'onboarding_progress.dart';
+import 'private_onboarding_progress.dart';
 import 'role_shell.dart';
 import 'session_management_screen.dart';
 import 'support.dart';
@@ -27,6 +29,14 @@ typedef RiderSignatureEvidenceUpload =
 typedef RiderNavigationAction = Future<void> Function(RiderTask task);
 
 enum _RiderTaskView { offers, active, history }
+
+RecoverableOnboardingDocuments? _recoverableDocuments(Object? provider) {
+  if (provider is RecoverableOnboardingDocuments &&
+      provider.retainsDocumentProgress) {
+    return provider;
+  }
+  return null;
+}
 
 final class VendorOperationsView extends StatefulWidget {
   const VendorOperationsView({
@@ -70,6 +80,7 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
   String _catalogKind = 'SERVICE';
   bool _onboardingBusy = false;
   String? _onboardingMessage;
+  int _onboardingGeneration = 0;
 
   @override
   void initState() {
@@ -87,6 +98,9 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
   void didUpdateWidget(VendorOperationsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
+      ++_onboardingGeneration;
+      _onboardingBusy = false;
+      _onboardingMessage = null;
       oldWidget.controller.removeListener(_changed);
       widget.controller.addListener(_changed);
     }
@@ -98,6 +112,7 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
 
   @override
   void dispose() {
+    ++_onboardingGeneration;
     widget.controller.removeListener(_changed);
     _catalogName.dispose();
     _catalogDescription.dispose();
@@ -1029,6 +1044,18 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
           application.status,
           application.verified,
         ),
+        if (application.status == 'REJECTED' &&
+            application.allowedActions.contains('RESUBMIT_DOCUMENTS')) ...[
+          const SizedBox(height: Planext4uSpacing.x3),
+          _VendorReworkCard(
+            key: ValueKey(
+              'vendor-rework-${application.id}-${application.revision}',
+            ),
+            controller: widget.controller,
+            application: application,
+            provider: widget.onboardingProvider,
+          ),
+        ],
         const SizedBox(height: Planext4uSpacing.x4),
         Semantics(
           label: '$completedSteps of 4 onboarding steps saved',
@@ -1096,25 +1123,35 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
         _step(
           '1. Private documents and OCR review',
           application.documents.isEmpty
-              ? widget.onboardingProvider == null
+              ? !_vendorDocumentsAvailable(widget.onboardingProvider)
                     ? 'Private document provider is not configured.'
                     : 'Ready for secure document collection.'
               : '${application.documents.length} uploaded',
           completed: application.documents.isNotEmpty,
           action:
               application.allowedActions.contains('SUBMIT_DOCUMENTS') &&
-                  widget.onboardingProvider != null &&
+                  _vendorDocumentsAvailable(widget.onboardingProvider) &&
                   !_onboardingBusy
               ? _collectVendorDocuments
               : null,
-          actionLabel: application.documents.isEmpty ? 'Verify' : 'Resubmit',
+          actionLabel: 'Verify',
         ),
         if (application.allowedActions.contains('SUBMIT_DOCUMENTS') &&
-            widget.onboardingProvider == null)
+            !_vendorDocumentsAvailable(widget.onboardingProvider))
           const _OnboardingProviderUnavailable(
             key: ValueKey('vendor-document-provider-unavailable'),
             capability: 'Document and KYC verification',
           ),
+        if (_vendorDocumentRecovery != null) ...[
+          const Text(
+            'Private document progress is encrypted on this device for 7 days. Continue verification to recheck saved uploads. Submitted evidence follows the verification retention policy.',
+          ),
+          TextButton(
+            key: const ValueKey('vendor-discard-private-document-progress'),
+            onPressed: _onboardingBusy ? null : _discardVendorDocumentProgress,
+            child: const Text('Clear saved document progress'),
+          ),
+        ],
         if (application.documentSummaries.isNotEmpty)
           for (final document in application.documentSummaries)
             Card(
@@ -1176,13 +1213,13 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
         _step(
           '4. Tokenized bank account',
           application.bankStatus == 'NOT_CONFIGURED' &&
-                  widget.onboardingProvider == null
+                  !_vendorBankAvailable(widget.onboardingProvider)
               ? 'Bank-tokenization provider is not configured.'
               : application.bankStatus.replaceAll('_', ' '),
           completed: application.bankStatus != 'NOT_CONFIGURED',
           action:
               application.allowedActions.contains('SUBMIT_BANK') &&
-                  widget.onboardingProvider != null &&
+                  _vendorBankAvailable(widget.onboardingProvider) &&
                   !_onboardingBusy
               ? _tokenizeVendorBank
               : null,
@@ -1191,7 +1228,7 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
               : 'Resubmit',
         ),
         if (application.allowedActions.contains('SUBMIT_BANK') &&
-            widget.onboardingProvider == null)
+            !_vendorBankAvailable(widget.onboardingProvider))
           const _OnboardingProviderUnavailable(
             key: ValueKey('vendor-bank-provider-unavailable'),
             capability: 'Bank account tokenization',
@@ -1310,42 +1347,100 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
   Future<void> _collectVendorDocuments() async {
     final provider = widget.onboardingProvider;
     if (provider == null) return;
+    final controller = widget.controller;
     await _runOnboarding(() async {
+      final generation = _onboardingGeneration;
       final documents = await provider.collectDocuments();
-      await widget.controller.submitOnboardingDocuments(documents);
+      if (!mounted ||
+          widget.controller != controller ||
+          generation != _onboardingGeneration) {
+        if (_recoverableDocuments(provider) == null &&
+            provider is VendorDocumentCleanup) {
+          try {
+            await (provider as VendorDocumentCleanup)
+                .discardUnsubmittedDocuments(documents);
+          } catch (_) {
+            // The owning server still controls retention when cleanup fails.
+          }
+        }
+        return;
+      }
+      final ids = documents.map((value) => value.assetId).toSet();
+      final recovery = _recoverableDocuments(provider);
+      await recovery?.prepareDocumentSubmission(ids);
+      if (!mounted ||
+          widget.controller != controller ||
+          generation != _onboardingGeneration) {
+        return;
+      }
+      await controller.submitOnboardingDocuments(documents);
+      if (controller.state.status == OperationsStatus.ready) {
+        try {
+          await recovery?.forgetSubmittedDocuments(ids);
+        } catch (_) {
+          if (mounted &&
+              widget.controller == controller &&
+              generation == _onboardingGeneration) {
+            _onboardingMessage =
+                'Documents submitted for review. Saved progress cleanup is pending; refresh before collecting replacements.';
+          }
+        }
+      }
     }, 'Documents submitted for private OCR and KYC review.');
+  }
+
+  RecoverableOnboardingDocuments? get _vendorDocumentRecovery {
+    return _recoverableDocuments(widget.onboardingProvider);
+  }
+
+  Future<void> _discardVendorDocumentProgress() async {
+    final recovery = _vendorDocumentRecovery;
+    if (recovery == null) return;
+    await _runOnboarding(
+      recovery.discardSavedDocuments,
+      'Saved document progress cleared. Refresh the current application before collecting replacement documents.',
+    );
   }
 
   Future<void> _tokenizeVendorBank() async {
     final provider = widget.onboardingProvider;
     if (provider == null) return;
+    final controller = widget.controller;
     await _runOnboarding(() async {
+      final generation = _onboardingGeneration;
       final bank = await provider.tokenizeBankAccount();
-      await widget.controller.configureOnboardingBank(bank);
+      if (!mounted ||
+          widget.controller != controller ||
+          generation != _onboardingGeneration) {
+        return;
+      }
+      await controller.configureOnboardingBank(bank);
     }, 'Tokenized bank details submitted for verification.');
   }
 
   Future<void> _configureVendorZones() async {
+    final controller = widget.controller;
     final zone = await showDialog<Map<String, Object?>>(
       context: context,
       builder: (_) =>
           _VendorZoneDialog(policyVersion: widget.zonePolicyVersion),
     );
-    if (zone == null || !mounted) return;
+    if (zone == null || !mounted || widget.controller != controller) return;
     await _runOnboarding(
-      () => widget.controller.configureZones([zone]),
+      () => controller.configureZones([zone]),
       'Service zone saved.',
     );
   }
 
   Future<void> _scheduleVendorFieldVisit() async {
+    final controller = widget.controller;
     final visit = await showDialog<VendorFieldVisitDraft>(
       context: context,
       builder: (_) => const _VendorFieldVisitDialog(),
     );
-    if (visit == null || !mounted) return;
+    if (visit == null || !mounted || widget.controller != controller) return;
     await _runOnboarding(
-      () => widget.controller.scheduleFieldVisit(visit),
+      () => controller.scheduleFieldVisit(visit),
       'Field visit scheduled.',
     );
   }
@@ -1354,22 +1449,27 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
     Future<void> Function() action,
     String successMessage,
   ) async {
+    if (_onboardingBusy) return;
+    final generation = ++_onboardingGeneration;
     setState(() {
       _onboardingBusy = true;
       _onboardingMessage = null;
     });
     try {
       await action();
-      if (!mounted) return;
-      if (widget.controller.state.status == OperationsStatus.ready) {
+      if (!mounted || generation != _onboardingGeneration) return;
+      if (widget.controller.state.status == OperationsStatus.ready &&
+          _onboardingMessage == null) {
         _onboardingMessage = successMessage;
       }
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _onboardingGeneration) return;
       _onboardingMessage =
           'The onboarding provider did not return a safe, complete result.';
     } finally {
-      if (mounted) setState(() => _onboardingBusy = false);
+      if (mounted && generation == _onboardingGeneration) {
+        setState(() => _onboardingBusy = false);
+      }
     }
   }
 
@@ -1422,6 +1522,16 @@ class _VendorOperationsViewState extends State<VendorOperationsView> {
     ),
   );
 }
+
+bool _vendorDocumentsAvailable(VendorOnboardingProvider? provider) =>
+    provider != null &&
+    (provider is! VendorOnboardingCapabilities ||
+        (provider as VendorOnboardingCapabilities).canCollectDocuments);
+
+bool _vendorBankAvailable(VendorOnboardingProvider? provider) =>
+    provider != null &&
+    (provider is! VendorOnboardingCapabilities ||
+        (provider as VendorOnboardingCapabilities).canTokenizeBankAccount);
 
 final class _OnboardingProviderUnavailable extends StatelessWidget {
   const _OnboardingProviderUnavailable({required this.capability, super.key});
@@ -1708,6 +1818,505 @@ class _VendorFieldVisitDialogState extends State<_VendorFieldVisitDialog> {
   }
 }
 
+final class _VendorReworkCard extends StatefulWidget {
+  const _VendorReworkCard({
+    super.key,
+    required this.controller,
+    required this.application,
+    required this.provider,
+  });
+
+  final VendorOperationsController controller;
+  final VendorApplication application;
+  final VendorOnboardingProvider? provider;
+
+  @override
+  State<_VendorReworkCard> createState() => _VendorReworkCardState();
+}
+
+class _VendorReworkCardState extends State<_VendorReworkCard> {
+  final _form = GlobalKey<FormState>();
+  late final TextEditingController _businessName;
+  late final TextEditingController _businessType;
+  late final TextEditingController _contactName;
+  List<VendorOnboardingDocument> _documents = const [];
+  bool _busy = false;
+  bool _submissionStarted = false;
+  bool _restoring = false;
+  int _generation = 0;
+  int _formIntent = 0;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    _businessName = TextEditingController(
+      text: widget.application.businessName,
+    );
+    _businessType = TextEditingController(
+      text: widget.application.businessType,
+    );
+    _contactName = TextEditingController(text: widget.application.contactName);
+    for (final field in [_businessName, _businessType, _contactName]) {
+      field.addListener(_saveProgress);
+    }
+    _restoreProgress();
+  }
+
+  Future<void> _restoreProgress() async {
+    final store = widget.controller.onboardingProgress;
+    if (store == null) return;
+    final generation = _generation;
+    _restoring = _busy = true;
+    try {
+      final saved = await store.read();
+      if (!mounted || generation != _generation) return;
+      if (saved != null) {
+        if (saved.applicationId == widget.application.id &&
+            saved.applicationRevision == widget.application.revision) {
+          _businessName.text = saved.businessName;
+          _businessType.text = saved.businessType;
+          _contactName.text = saved.contactName;
+          _message =
+              'Saved correction form restored. Review private documents before submitting.';
+        } else {
+          _message =
+              'A saved form belongs to another application review. Current server details are shown.';
+        }
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message =
+            'Saved correction form could not be read. Re-enter the fields.';
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _restoring = _busy = false);
+      }
+    }
+  }
+
+  void _saveProgress() {
+    final store = widget.controller.onboardingProgress;
+    if (_restoring || _submissionStarted || store == null) return;
+    final generation = _generation;
+    final intent = ++_formIntent;
+    final value = VendorOnboardingProgress(
+      businessName: _businessName.text,
+      businessType: _businessType.text,
+      contactName: _contactName.text,
+      applicationId: widget.application.id,
+      applicationRevision: widget.application.revision,
+    );
+    unawaited(
+      Future.sync(() => store.save(value)).catchError((Object _) {
+        if (mounted && generation == _generation && intent == _formIntent) {
+          setState(
+            () => _message =
+                'This form change could not be saved. Keep the app open or retry.',
+          );
+        }
+      }),
+    );
+  }
+
+  Future<void> _discardFormProgress() async {
+    final store = widget.controller.onboardingProgress;
+    if (store == null || _busy) return;
+    final generation = _generation;
+    setState(() => _busy = true);
+    try {
+      await store.clear();
+      if (!mounted || generation != _generation) return;
+      _restoring = true;
+      _businessName.text = widget.application.businessName;
+      _businessType.text = widget.application.businessType;
+      _contactName.text = widget.application.contactName;
+      _message = 'Saved form deleted. Current application details restored.';
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message = 'Saved form could not be deleted. Retry.';
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _restoring = _busy = false);
+      }
+    }
+  }
+
+  RecoverableOnboardingDocuments? get _recovery =>
+      _recoverableDocuments(widget.provider);
+
+  @override
+  void didUpdateWidget(covariant _VendorReworkCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller &&
+        oldWidget.application.id == widget.application.id &&
+        oldWidget.application.revision == widget.application.revision) {
+      return;
+    }
+    ++_generation;
+    if (!_submissionStarted &&
+        _documents.isNotEmpty &&
+        _recoverableDocuments(oldWidget.provider) == null &&
+        oldWidget.provider is VendorDocumentCleanup) {
+      unawaited(
+        (oldWidget.provider! as VendorDocumentCleanup)
+            .discardUnsubmittedDocuments(_documents),
+      );
+    }
+    _documents = const [];
+    _submissionStarted = false;
+    _busy = false;
+    _restoring = true;
+    _businessName.text = widget.application.businessName;
+    _businessType.text = widget.application.businessType;
+    _contactName.text = widget.application.contactName;
+    _restoring = false;
+    _message = null;
+    _restoreProgress();
+  }
+
+  @override
+  void dispose() {
+    ++_generation;
+    if (!_submissionStarted && _documents.isNotEmpty && _recovery == null) {
+      final provider = widget.provider;
+      if (provider is VendorDocumentCleanup) {
+        unawaited(
+          (provider as VendorDocumentCleanup).discardUnsubmittedDocuments(
+            _documents,
+          ),
+        );
+      }
+    }
+    _businessName.dispose();
+    _businessType.dispose();
+    _contactName.dispose();
+    super.dispose();
+  }
+
+  String _copy(BuildContext context, String english, String tamil) =>
+      Localizations.localeOf(context).languageCode == 'ta' ? tamil : english;
+
+  @override
+  Widget build(BuildContext context) {
+    final reason =
+        widget.application.timeline.reversed
+            .where((event) => event.reason?.trim().isNotEmpty == true)
+            .map((event) => event.reason!)
+            .firstOrNull ??
+        widget.application.documentSummaries
+            .where(
+              (document) => document.reviewReason?.trim().isNotEmpty == true,
+            )
+            .map((document) => document.reviewReason!)
+            .firstOrNull;
+    final providerReady = _vendorDocumentsAvailable(widget.provider);
+    return Planext4uSectionCard(
+      title: _copy(
+        context,
+        'Correct rejected application',
+        'நிராகரிக்கப்பட்ட விண்ணப்பத்தைத் திருத்தவும்',
+      ),
+      subtitle: _copy(
+        context,
+        'Update business details and submit fresh private documents together. The application returns to review.',
+        'வணிக விவரங்களைத் திருத்தி புதிய தனிப்பட்ட ஆவணங்களை ஒன்றாகச் சமர்ப்பிக்கவும். விண்ணப்பம் மீண்டும் சரிபார்க்கப்படும்.',
+      ),
+      child: Form(
+        key: _form,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (reason != null)
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  '${_copy(context, 'Review reason', 'சரிபார்ப்பு காரணம்')}: $reason',
+                  key: const ValueKey('vendor-rework-reason'),
+                ),
+              ),
+            if (widget.controller.onboardingProgress != null) ...[
+              Text(
+                _copy(
+                  context,
+                  'Business form fields are encrypted on this device for 7 days. Private documents have separate progress.',
+                  'வணிகப் படிவ விவரங்கள் இந்தச் சாதனத்தில் 7 நாட்கள் குறியாக்கம் செய்யப்படும். தனிப்பட்ட ஆவணங்களுக்கு தனி முன்னேற்றம் உள்ளது.',
+                ),
+              ),
+              TextButton(
+                key: const ValueKey('vendor-rework-discard-form'),
+                onPressed: _busy ? null : _discardFormProgress,
+                child: Text(
+                  _copy(
+                    context,
+                    'Delete saved form',
+                    'சேமித்த படிவத்தை அழிக்கவும்',
+                  ),
+                ),
+              ),
+            ],
+            if (!providerReady)
+              const _OnboardingProviderUnavailable(
+                key: ValueKey('vendor-rework-provider-unavailable'),
+                capability: 'Document and KYC verification',
+              ),
+            if (_message != null)
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  _message!,
+                  key: const ValueKey('vendor-rework-message'),
+                ),
+              ),
+            TextFormField(
+              key: const ValueKey('vendor-rework-business-name'),
+              controller: _businessName,
+              enabled: !_busy,
+              maxLength: 120,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: _copy(context, 'Business name', 'வணிகத்தின் பெயர்'),
+              ),
+              validator: (value) => (value?.trim().length ?? 0) < 3
+                  ? _copy(
+                      context,
+                      'Enter a business name.',
+                      'வணிகத்தின் பெயரை உள்ளிடவும்.',
+                    )
+                  : null,
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-rework-business-type'),
+              controller: _businessType,
+              enabled: !_busy,
+              maxLength: 120,
+              decoration: InputDecoration(
+                labelText: _copy(context, 'Business type', 'வணிக வகை'),
+              ),
+              validator: (value) => (value?.trim().length ?? 0) < 3
+                  ? _copy(
+                      context,
+                      'Enter a business type.',
+                      'வணிக வகையை உள்ளிடவும்.',
+                    )
+                  : null,
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-rework-contact-name'),
+              controller: _contactName,
+              enabled: !_busy,
+              maxLength: 120,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: _copy(context, 'Primary contact', 'முதன்மை தொடர்பு'),
+              ),
+              validator: (value) => (value?.trim().length ?? 0) < 3
+                  ? _copy(
+                      context,
+                      'Enter a contact name.',
+                      'தொடர்பு பெயரை உள்ளிடவும்.',
+                    )
+                  : null,
+            ),
+            Text(
+              _documents.isEmpty
+                  ? _copy(
+                      context,
+                      'Fresh business and owner documents are required.',
+                      'புதிய வணிக மற்றும் உரிமையாளர் ஆவணங்கள் தேவை.',
+                    )
+                  : _copy(
+                      context,
+                      '${_documents.length} private documents ready. Uploading does not approve KYC.',
+                      '${_documents.length} தனிப்பட்ட ஆவணங்கள் தயார். பதிவேற்றம் KYC ஒப்புதல் அல்ல.',
+                    ),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('vendor-rework-collect-documents'),
+              onPressed: !providerReady || _busy ? null : _collectDocuments,
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: Text(
+                _copy(
+                  context,
+                  'Continue private documents',
+                  'தனிப்பட்ட ஆவணங்களைத் தொடரவும்',
+                ),
+              ),
+            ),
+            if (_recovery != null) ...[
+              Text(
+                _copy(
+                  context,
+                  'Private document progress is encrypted for 7 days. It is rechecked after restart. Clear it before collecting replacement evidence.',
+                  'தனிப்பட்ட ஆவண முன்னேற்றம் 7 நாட்கள் குறியாக்கம் செய்யப்படுகிறது. மறுதொடக்கத்திற்குப் பின் மீண்டும் சரிபார்க்கப்படும். மாற்று ஆவணங்களுக்கு முன் அதை அழிக்கவும்.',
+                ),
+              ),
+              TextButton(
+                key: const ValueKey('vendor-rework-discard-documents'),
+                onPressed: _busy ? null : _discardDocuments,
+                child: Text(
+                  _copy(
+                    context,
+                    'Clear saved document progress',
+                    'சேமித்த ஆவண முன்னேற்றத்தை அழிக்கவும்',
+                  ),
+                ),
+              ),
+            ],
+            FilledButton.icon(
+              key: const ValueKey('vendor-rework-submit'),
+              onPressed: !providerReady || _busy || _documents.isEmpty
+                  ? null
+                  : _submit,
+              icon: _busy
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.verified_user_outlined),
+              label: Text(
+                _copy(
+                  context,
+                  'Submit corrections for review',
+                  'திருத்தங்களைச் சரிபார்ப்புக்கு சமர்ப்பிக்கவும்',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _collectDocuments() async {
+    final provider = widget.provider;
+    if (provider == null || _busy) return;
+    final generation = ++_generation;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final documents = await provider.collectDocuments();
+      if (!mounted || generation != _generation) {
+        if (_recovery == null && provider is VendorDocumentCleanup) {
+          await (provider as VendorDocumentCleanup).discardUnsubmittedDocuments(
+            documents,
+          );
+        }
+        return;
+      }
+      final previous = _documents;
+      _documents = documents;
+      if (_recovery == null &&
+          provider is VendorDocumentCleanup &&
+          !_submissionStarted) {
+        await (provider as VendorDocumentCleanup).discardUnsubmittedDocuments(
+          previous,
+        );
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message = _copy(
+          context,
+          'Documents were not collected. Retry with a clear photo and an active connection.',
+          'ஆவணங்களைச் சேகரிக்க முடியவில்லை. தெளிவான படத்துடனும் இணைய இணைப்புடனும் மீண்டும் முயற்சிக்கவும்.',
+        );
+      }
+    } finally {
+      if (mounted && generation == _generation) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _discardDocuments() async {
+    final recovery = _recovery;
+    if (recovery == null || _busy) return;
+    final generation = ++_generation;
+    setState(() => _busy = true);
+    try {
+      await recovery.discardSavedDocuments();
+      if (!mounted || generation != _generation) return;
+      _documents = const [];
+      _submissionStarted = false;
+      _message = _copy(
+        context,
+        'Saved documents cleared. Refresh the application before collecting replacements.',
+        'சேமித்த ஆவணங்கள் அழிக்கப்பட்டன. மாற்று ஆவணங்களுக்கு முன் விண்ணப்பத்தைப் புதுப்பிக்கவும்.',
+      );
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message = _copy(
+          context,
+          'Saved documents could not be cleared. Retry with an active connection.',
+          'சேமித்த ஆவணங்களை அழிக்க முடியவில்லை. இணைய இணைப்புடன் மீண்டும் முயற்சிக்கவும்.',
+        );
+      }
+    } finally {
+      if (mounted && generation == _generation) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_busy || !(_form.currentState?.validate() ?? false)) return;
+    final generation = _generation;
+    final controller = widget.controller;
+    final recovery = _recovery;
+    final documents = List<VendorOnboardingDocument>.of(_documents);
+    final ids = documents.map((document) => document.assetId).toSet();
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await recovery?.prepareDocumentSubmission(ids);
+      if (!mounted || generation != _generation) return;
+      _submissionStarted = true;
+      await controller.resubmitApplication(
+        businessName: _businessName.text,
+        businessType: _businessType.text,
+        contactName: _contactName.text,
+        documents: documents.map((document) => document.toJson()).toList(),
+      );
+      var cleanupPending = false;
+      if (controller.state.status == OperationsStatus.ready) {
+        try {
+          await recovery?.forgetSubmittedDocuments(ids);
+        } catch (_) {
+          cleanupPending = true;
+        }
+      }
+      if (!mounted || generation != _generation) return;
+      if (controller.state.status != OperationsStatus.ready) {
+        _message = _copy(
+          context,
+          'Submission could not be confirmed. Refresh the application before retrying.',
+          'சமர்ப்பிப்பை உறுதிப்படுத்த முடியவில்லை. மீண்டும் முயற்சிக்கும் முன் விண்ணப்பத்தைப் புதுப்பிக்கவும்.',
+        );
+        return;
+      }
+      if (cleanupPending) {
+        _message = _copy(
+          context,
+          'Corrections submitted. Saved progress cleanup is pending.',
+          'திருத்தங்கள் சமர்ப்பிக்கப்பட்டன. சேமித்த முன்னேற்றத்தை அழிப்பது நிலுவையில் உள்ளது.',
+        );
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message = _copy(
+          context,
+          'The private provider did not return a safe, complete result. Refresh the application.',
+          'தனிப்பட்ட வழங்குநரிடமிருந்து பாதுகாப்பான முழுமையான முடிவு கிடைக்கவில்லை. விண்ணப்பத்தைப் புதுப்பிக்கவும்.',
+        );
+      }
+    } finally {
+      if (mounted && generation == _generation) setState(() => _busy = false);
+    }
+  }
+}
+
 final class _VendorRegistrationCard extends StatefulWidget {
   const _VendorRegistrationCard({required this.controller});
   final VendorOperationsController controller;
@@ -1717,11 +2326,124 @@ final class _VendorRegistrationCard extends StatefulWidget {
 }
 
 class _VendorRegistrationCardState extends State<_VendorRegistrationCard> {
-  final _business = TextEditingController(text: 'Planext4u Local Services');
-  final _contact = TextEditingController(text: 'Business owner');
+  final _form = GlobalKey<FormState>();
+  final _business = TextEditingController();
+  final _businessType = TextEditingController();
+  final _contact = TextEditingController();
+  bool _busy = false;
+  bool _restoring = false;
+  bool _submissionStarted = false;
+  int _generation = 0;
+  int _formIntent = 0;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    for (final field in [_business, _businessType, _contact]) {
+      field.addListener(_saveProgress);
+    }
+    _restoreProgress();
+  }
+
+  Future<void> _restoreProgress() async {
+    final store = widget.controller.onboardingProgress;
+    if (store == null) return;
+    final generation = _generation;
+    _restoring = _busy = true;
+    try {
+      final saved = await store.read();
+      if (!mounted || generation != _generation) return;
+      if (saved != null) {
+        if (saved.applicationId.isEmpty && saved.applicationRevision == 0) {
+          _business.text = saved.businessName;
+          _businessType.text = saved.businessType;
+          _contact.text = saved.contactName;
+          _message = 'Your saved business form was restored.';
+        } else {
+          _message =
+              'Saved corrections belong to an existing application and were not restored.';
+        }
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message =
+            'Saved business form could not be read. Re-enter the fields.';
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _restoring = _busy = false);
+      }
+    }
+  }
+
+  void _saveProgress() {
+    final store = widget.controller.onboardingProgress;
+    if (_restoring || _submissionStarted || store == null) return;
+    final generation = _generation;
+    final intent = ++_formIntent;
+    final value = VendorOnboardingProgress(
+      businessName: _business.text,
+      businessType: _businessType.text,
+      contactName: _contact.text,
+    );
+    unawaited(
+      Future.sync(() => store.save(value)).catchError((Object _) {
+        if (mounted && generation == _generation && intent == _formIntent) {
+          setState(
+            () => _message =
+                'This form change could not be saved. Keep the app open or retry.',
+          );
+        }
+      }),
+    );
+  }
+
+  Future<void> _discardProgress() async {
+    final store = widget.controller.onboardingProgress;
+    if (store == null || _busy) return;
+    final generation = _generation;
+    setState(() => _busy = true);
+    try {
+      await store.clear();
+      if (!mounted || generation != _generation) return;
+      _restoring = true;
+      _business.clear();
+      _businessType.clear();
+      _contact.clear();
+      _message = 'Saved business form deleted.';
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message = 'Saved business form could not be deleted. Retry.';
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _restoring = _busy = false);
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _VendorRegistrationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    ++_generation;
+    _busy = false;
+    _submissionStarted = false;
+    _restoring = true;
+    _business.clear();
+    _businessType.clear();
+    _contact.clear();
+    _restoring = false;
+    _message = null;
+    _restoreProgress();
+  }
+
   @override
   void dispose() {
+    ++_generation;
     _business.dispose();
+    _businessType.dispose();
     _contact.dispose();
     super.dispose();
   }
@@ -1730,51 +2452,114 @@ class _VendorRegistrationCardState extends State<_VendorRegistrationCard> {
   Widget build(BuildContext context) => Card(
     child: Padding(
       padding: const EdgeInsets.all(Planext4uSpacing.x4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Register your business',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: Planext4uSpacing.x1),
-          const Text(
-            'Step 1 of 4. Each completed onboarding step is stored by the server with a revision.',
-          ),
-          const SizedBox(height: Planext4uSpacing.x3),
-          TextField(
-            key: const ValueKey('vendor-business-name'),
-            controller: _business,
-            decoration: const InputDecoration(labelText: 'Business name'),
-          ),
-          TextField(
-            controller: _contact,
-            decoration: const InputDecoration(labelText: 'Contact name'),
-          ),
-          const SizedBox(height: Planext4uSpacing.x3),
-          FilledButton(
-            key: const ValueKey('vendor-register'),
-            onPressed: () => widget.controller.register(
-              businessName: _business.text.trim(),
-              businessType: 'Local services',
-              contactName: _contact.text.trim(),
+      child: Form(
+        key: _form,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Register your business',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            child: const Text('Start verified onboarding'),
-          ),
-        ],
+            const SizedBox(height: Planext4uSpacing.x1),
+            const Text(
+              'Step 1 of 4. Each completed onboarding step is stored by the server with a revision.',
+            ),
+            const SizedBox(height: Planext4uSpacing.x3),
+            if (widget.controller.onboardingProgress != null) ...[
+              const Text(
+                'Business form fields are encrypted on this device for 7 days until registration. No document or bank details are stored here.',
+              ),
+              TextButton(
+                key: const ValueKey('vendor-discard-onboarding-progress'),
+                onPressed: _busy ? null : _discardProgress,
+                child: const Text('Delete saved form'),
+              ),
+            ],
+            if (_message != null)
+              Semantics(liveRegion: true, child: Text(_message!)),
+            TextFormField(
+              key: const ValueKey('vendor-business-name'),
+              controller: _business,
+              enabled: !_busy,
+              maxLength: 120,
+              decoration: const InputDecoration(labelText: 'Business name'),
+              validator: (value) => (value?.trim().length ?? 0) < 3
+                  ? 'Enter a business name.'
+                  : null,
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-business-type'),
+              controller: _businessType,
+              enabled: !_busy,
+              maxLength: 120,
+              decoration: const InputDecoration(labelText: 'Business type'),
+              validator: (value) => (value?.trim().length ?? 0) < 3
+                  ? 'Enter a business type.'
+                  : null,
+            ),
+            TextFormField(
+              key: const ValueKey('vendor-contact-name'),
+              controller: _contact,
+              enabled: !_busy,
+              maxLength: 120,
+              decoration: const InputDecoration(labelText: 'Contact name'),
+              validator: (value) => (value?.trim().length ?? 0) < 3
+                  ? 'Enter a contact name.'
+                  : null,
+            ),
+            const SizedBox(height: Planext4uSpacing.x3),
+            FilledButton(
+              key: const ValueKey('vendor-register'),
+              onPressed: _busy ? null : _submit,
+              child: const Text('Start verified onboarding'),
+            ),
+          ],
+        ),
       ),
     ),
   );
+
+  Future<void> _submit() async {
+    if (_busy || !(_form.currentState?.validate() ?? false)) return;
+    final controller = widget.controller;
+    final generation = _generation;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    _submissionStarted = true;
+    await controller.register(
+      businessName: _business.text.trim(),
+      businessType: _businessType.text.trim(),
+      contactName: _contact.text.trim(),
+    );
+    if (!mounted ||
+        generation != _generation ||
+        widget.controller != controller) {
+      return;
+    }
+    setState(() {
+      _busy = false;
+      if (controller.state.status != OperationsStatus.ready) {
+        _message =
+            'Registration could not be confirmed. Refresh before retrying.';
+      }
+    });
+  }
 }
 
 final class _RiderRegistrationCard extends StatefulWidget {
   const _RiderRegistrationCard({
+    super.key,
     required this.controller,
     required this.provider,
+    this.rework,
   });
 
   final RiderOperationsController controller;
   final RiderOnboardingProvider? provider;
+  final RiderProfile? rework;
 
   @override
   State<_RiderRegistrationCard> createState() => _RiderRegistrationCardState();
@@ -1789,9 +2574,186 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
   bool _dutyLocationConsent = false;
   bool _busy = false;
   String? _message;
+  List<RiderDocumentDraft> _documents = const [];
+  int _generation = 0;
+  bool _submissionStarted = false;
+  bool _restoring = false;
+  int _formIntent = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final current = widget.rework;
+    if (current != null) {
+      _fullName.text = current.fullName;
+      _vehicleNumber.text = current.vehicleNumber;
+      _zones.text = current.zones.join(', ');
+      _vehicleType = current.vehicleType == 'BIKE'
+          ? 'MOTORBIKE'
+          : current.vehicleType;
+    }
+    for (final field in [_fullName, _vehicleNumber, _zones]) {
+      field.addListener(_saveProgress);
+    }
+    _restoreProgress();
+  }
+
+  Future<void> _restoreProgress() async {
+    final store = widget.controller.onboardingProgress;
+    if (store == null) return;
+    final generation = _generation;
+    _restoring = _busy = true;
+    try {
+      final saved = await store.read();
+      if (!mounted || generation != _generation) return;
+      if (saved != null) {
+        final current = widget.rework;
+        final matchesApplication = current == null
+            ? saved.applicationId.isEmpty && saved.applicationRevision == 0
+            : saved.applicationId == current.id &&
+                  saved.applicationRevision == current.revision;
+        if (matchesApplication) {
+          _fullName.text = saved.fullName;
+          _vehicleNumber.text = saved.vehicleNumber;
+          _zones.text = saved.postalCodes;
+          _vehicleType = saved.vehicleType;
+          _message =
+              'Your saved form is restored. Continue private documents and review consent again before submitting.';
+        } else {
+          _message =
+              'A saved form belongs to another application review. Current server details are shown; you can delete the older saved form.';
+        }
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message =
+            'Saved form progress could not be read. You can re-enter the form.';
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() {
+          _restoring = _busy = false;
+        });
+      }
+    }
+  }
+
+  void _saveProgress() {
+    final store = widget.controller.onboardingProgress;
+    if (_restoring || store == null || _submissionStarted) return;
+    final generation = _generation;
+    final intent = ++_formIntent;
+    final value = RiderOnboardingProgress(
+      fullName: _fullName.text,
+      vehicleType: _vehicleType,
+      vehicleNumber: _vehicleNumber.text,
+      postalCodes: _zones.text,
+      applicationId: widget.rework?.id ?? '',
+      applicationRevision: widget.rework?.revision ?? 0,
+    );
+    unawaited(
+      Future.sync(() => store.save(value)).catchError((Object _) {
+        if (mounted && generation == _generation && intent == _formIntent) {
+          setState(
+            () => _message =
+                'This form change could not be saved. Keep the app open or retry before leaving.',
+          );
+        }
+      }),
+    );
+  }
+
+  Future<void> _discardProgress() async {
+    final store = widget.controller.onboardingProgress;
+    if (store == null || _busy) return;
+    final generation = _generation;
+    setState(() => _busy = true);
+    try {
+      await store.clear();
+      if (!mounted || generation != _generation) return;
+      _restoring = true;
+      final current = widget.rework;
+      _fullName.text = current?.fullName ?? '';
+      _vehicleNumber.text = current?.vehicleNumber ?? '';
+      _zones.text = current?.zones.join(', ') ?? '';
+      _vehicleType = current == null
+          ? 'MOTORBIKE'
+          : current.vehicleType == 'BIKE'
+          ? 'MOTORBIKE'
+          : current.vehicleType;
+      _dutyLocationConsent = false;
+      _message = 'Saved form deleted.';
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message = 'Saved form could not be deleted. Retry.';
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() {
+          _restoring = _busy = false;
+        });
+      }
+    }
+  }
+
+  RiderDocumentOnboardingProvider? get _documentsProvider =>
+      widget.provider is RiderDocumentOnboardingProvider
+      ? widget.provider! as RiderDocumentOnboardingProvider
+      : null;
+
+  RecoverableOnboardingDocuments? get _documentRecovery {
+    return _recoverableDocuments(widget.provider);
+  }
+
+  Future<void> _discardDocumentProgress() async {
+    final recovery = _documentRecovery;
+    if (recovery == null || _busy) return;
+    final generation = ++_generation;
+    setState(() => _busy = true);
+    try {
+      await recovery.discardSavedDocuments();
+      if (!mounted || generation != _generation) return;
+      _documents = const [];
+      _submissionStarted = false;
+      _message =
+          'Saved document progress cleared. Refresh the current application before collecting replacements.';
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message =
+            'Saved document progress could not be cleared. Retry with an active connection.';
+      }
+    } finally {
+      if (mounted && generation == _generation) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _RiderRegistrationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      ++_generation;
+      _documents = const [];
+      _submissionStarted = false;
+      _busy = false;
+      _restoring = true;
+      _fullName.clear();
+      _vehicleNumber.clear();
+      _zones.clear();
+      _vehicleType = 'MOTORBIKE';
+      _dutyLocationConsent = false;
+      _restoring = false;
+      _restoreProgress();
+    }
+  }
 
   @override
   void dispose() {
+    ++_generation;
+    // Once submission starts its result may be ambiguous. Never delete evidence
+    // that the server might already have attached to an application.
+    if (!_submissionStarted && _documents.isNotEmpty) {
+      unawaited(_documentsProvider?.discardUnsubmittedDocuments(_documents));
+    }
     _fullName.dispose();
     _vehicleNumber.dispose();
     _zones.dispose();
@@ -1807,14 +2769,71 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
         const Planext4uSectionHeader(
           title: 'Rider onboarding',
           subtitle:
-              'KYC files and bank details stay with approved private providers. Only opaque references are sent to Planext4u.',
+              'Your documents are stored privately for verification. Bank details are handled by the bank verification provider.',
         ),
+        if (widget.rework case final RiderProfile current) ...[
+          Text(
+            'Corrections requested: ${current.reviewReason}',
+            key: const ValueKey('rider-rework-reason'),
+          ),
+          const Text(
+            'Upload corrected evidence and review consent again. Your application will return to independent review.',
+          ),
+        ],
         const SizedBox(height: Planext4uSpacing.x3),
+        if (widget.controller.onboardingProgress != null) ...[
+          const Text(
+            'Form fields are encrypted on this device for 7 days. Review consent again before submitting.',
+          ),
+          TextButton(
+            key: const ValueKey('rider-discard-onboarding-progress'),
+            onPressed: _busy ? null : _discardProgress,
+            child: const Text('Delete saved form'),
+          ),
+        ],
         if (widget.provider == null)
           const _OnboardingProviderUnavailable(
             key: ValueKey('rider-register-provider-unavailable'),
             capability: 'Rider KYC and bank verification',
           ),
+        if (_documentsProvider
+            case final RiderDocumentOnboardingProvider provider) ...[
+          if (!provider.canTokenizeBankAccount)
+            const _OnboardingProviderUnavailable(
+              capability: 'Bank verification',
+            ),
+          Text(
+            _documents.isEmpty
+                ? 'Step 1: privately upload your required documents.'
+                : (_documentRecovery != null
+                      ? '${_documents.length} private documents checked for this registration. Progress can be continued after restart. Uploading does not approve KYC.'
+                      : '${_documents.length} private documents ready for this registration screen. Uploading does not approve KYC. Unsubmitted documents are not saved after leaving this screen.'),
+          ),
+          OutlinedButton.icon(
+            key: const ValueKey('rider-collect-documents'),
+            onPressed: _busy || !provider.canCollectDocuments
+                ? null
+                : _collectDocuments,
+            icon: const Icon(Icons.document_scanner_outlined),
+            label: Text(
+              _documents.isEmpty
+                  ? (_documentRecovery != null
+                        ? 'Continue private documents'
+                        : 'Upload identity and vehicle documents')
+                  : 'Replace documents',
+            ),
+          ),
+          if (_documentRecovery != null) ...[
+            const Text(
+              'Private document progress is encrypted for 7 days and rechecked with the server when you continue. Clear saved progress before changing vehicle type. Submitted evidence follows the verification retention policy.',
+            ),
+            TextButton(
+              key: const ValueKey('rider-discard-private-document-progress'),
+              onPressed: _busy ? null : _discardDocumentProgress,
+              child: const Text('Clear saved document progress'),
+            ),
+          ],
+        ],
         if (_message != null)
           Semantics(
             liveRegion: true,
@@ -1852,6 +2871,15 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
               ? null
               : (value) {
                   if (value != null) setState(() => _vehicleType = value);
+                  ++_generation;
+                  final previous = _documents;
+                  _documents = const [];
+                  _saveProgress();
+                  if (!_submissionStarted) {
+                    unawaited(
+                      _documentsProvider?.discardUnsubmittedDocuments(previous),
+                    );
+                  }
                 },
         ),
         const SizedBox(height: Planext4uSpacing.x2),
@@ -1871,6 +2899,7 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
         TextFormField(
           key: const ValueKey('rider-registration-zones'),
           controller: _zones,
+          maxLength: 240,
           enabled: !_busy,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
@@ -1905,7 +2934,14 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
         const SizedBox(height: Planext4uSpacing.x2),
         FilledButton.icon(
           key: const ValueKey('rider-submit-registration'),
-          onPressed: widget.provider == null || _busy ? null : _submit,
+          onPressed:
+              widget.provider == null ||
+                  _busy ||
+                  (_documentsProvider != null &&
+                      (!_documentsProvider!.canTokenizeBankAccount ||
+                          _documents.isEmpty))
+              ? null
+              : _submit,
           icon: _busy
               ? const SizedBox.square(
                   dimension: 18,
@@ -1918,6 +2954,37 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
     ),
   );
 
+  Future<void> _collectDocuments() async {
+    final provider = _documentsProvider;
+    if (_busy || provider == null) return;
+    final generation = ++_generation;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final documents = await provider.collectDocuments(
+        vehicleType: _vehicleType,
+      );
+      if (!mounted || generation != _generation) {
+        await provider.discardUnsubmittedDocuments(documents);
+        return;
+      }
+      final previous = _documents;
+      _documents = documents;
+      if (!_submissionStarted) {
+        await provider.discardUnsubmittedDocuments(previous);
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        _message =
+            'Documents were not collected. Retry with a clear photo and an active connection.';
+      }
+    } finally {
+      if (mounted && generation == _generation) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _submit() async {
     if (!(_form.currentState?.validate() ?? false)) return;
     if (!_dutyLocationConsent) {
@@ -1928,15 +2995,30 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
     }
     final provider = widget.provider;
     if (provider == null) return;
+    final generation = _generation;
+    final controller = widget.controller;
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
-      final evidence = await provider.collectEvidence(
-        vehicleType: _vehicleType,
-      );
-      await widget.controller.register(
+      final staged = _documentsProvider;
+      final evidence = staged == null
+          ? await provider.collectEvidence(vehicleType: _vehicleType)
+          : RiderOnboardingEvidence(
+              documents: _documents,
+              bankReference: await staged.tokenizeBankAccount(),
+            );
+      if (!mounted || generation != _generation) return;
+      final ids = evidence.documents.map((value) => value.assetId).toSet();
+      final recovery = _documentRecovery;
+      await recovery?.prepareDocumentSubmission(ids);
+      if (!mounted || generation != _generation) return;
+      _submissionStarted = true;
+      final submit = widget.rework == null
+          ? controller.register
+          : controller.resubmit;
+      await submit(
         RiderRegistrationDraft(
           fullName: _fullName.text,
           vehicleType: _vehicleType,
@@ -1947,16 +3029,28 @@ class _RiderRegistrationCardState extends State<_RiderRegistrationCard> {
           dutyLocationConsent: _dutyLocationConsent,
         ),
       );
-      if (!mounted) return;
-      if (widget.controller.state.status != OperationsStatus.ready) {
-        _message = 'Registration was not accepted. Review and try again.';
+      var cleanupPending = false;
+      if (controller.state.status == OperationsStatus.ready) {
+        try {
+          await recovery?.forgetSubmittedDocuments(ids);
+        } catch (_) {
+          cleanupPending = true;
+        }
+      }
+      if (!mounted || generation != _generation) return;
+      if (controller.state.status != OperationsStatus.ready) {
+        _message =
+            'Submission could not be confirmed. Refresh the application before retrying.';
+      } else if (cleanupPending) {
+        _message =
+            'Registration submitted. Saved progress cleanup is pending; refresh the current application before collecting replacements.';
       }
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       _message =
           'The onboarding provider did not return a safe, complete result.';
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && generation == _generation) setState(() => _busy = false);
     }
   }
 
@@ -2123,6 +3217,16 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
         provider: widget.onboardingProvider,
       );
     }
+    if (profile.status == 'SUSPENDED' &&
+        profile.reworkAllowed &&
+        profile.allowedActions.contains('RESUBMIT_APPLICATION')) {
+      return _RiderRegistrationCard(
+        key: ValueKey('rider-rework-${profile.id}-${profile.revision}'),
+        controller: widget.controller,
+        provider: widget.onboardingProvider,
+        rework: profile,
+      );
+    }
     if (profile.status != 'APPROVED') {
       return Planext4uStatePanel(
         state: Planext4uViewState.empty,
@@ -2164,20 +3268,35 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
           key: const ValueKey('rider-duty-toggle'),
           onPressed: active
               ? widget.controller.endDuty
-              : widget.controller.startDuty,
+              : widget.controller.deliveryLocationAllowed
+              ? widget.controller.startDuty
+              : null,
           child: Text(active ? 'End duty' : 'Start duty'),
         ),
-        if (active)
-          OutlinedButton.icon(
-            onPressed: state.locationStatus == RiderLocationStatus.tracking
-                ? () => widget.controller.updateLocation(
-                    latitude: 13.0827,
-                    longitude: 80.2707,
-                    accuracyMeters: 8,
-                  )
-                : null,
-            icon: const Icon(Icons.my_location),
-            label: const Text('Share live location while on task'),
+        if (widget.controller.deliveryPrivacyEnforced &&
+            !widget.controller.deliveryPolicyAvailable)
+          const Text(
+            'Duty-location privacy rules are unavailable. Refresh when connected before starting location sharing.',
+          ),
+        if (widget.controller.deliveryPrivacyEnforced &&
+            widget.controller.deliveryPolicyAvailable &&
+            !widget.controller.deliveryLocationAllowed) ...[
+          const Text(
+            'Your device shares location while duty is active to assign deliveries and protect the route. Sharing stops when you end duty or withdraw this choice.',
+          ),
+          OutlinedButton(
+            onPressed: state.status == OperationsStatus.submitting
+                ? null
+                : widget.controller.allowDeliveryLocation,
+            child: const Text('Allow duty location'),
+          ),
+        ],
+        if (active &&
+            widget.controller.deliveryLocationAllowed &&
+            state.locationStatus != RiderLocationStatus.tracking)
+          OutlinedButton(
+            onPressed: widget.controller.load,
+            child: const Text('Resume duty location'),
           ),
         const SizedBox(height: Planext4uSpacing.x3),
         Text(
@@ -2189,6 +3308,15 @@ class _RiderOperationsViewState extends State<RiderOperationsView> {
   }
 
   Widget _locationReadiness(RiderOperationsState state) {
+    if (widget.controller.deliveryPrivacyEnforced &&
+        !widget.controller.deliveryLocationAllowed) {
+      return const Planext4uStatePanel(
+        state: Planext4uViewState.permissionDenied,
+        title: 'Duty location paused',
+        message:
+            'Review your duty-location privacy choice below before sharing location.',
+      );
+    }
     final issue = switch (state.locationStatus) {
       RiderLocationStatus.serviceDisabled => (
         'Location services are off',

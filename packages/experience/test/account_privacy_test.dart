@@ -17,6 +17,38 @@ void main() {
     expect(remote.exportCalls, 2);
   });
 
+  test(
+    'non-scheduled deletion response cannot create a recovery state',
+    () async {
+      final remote = _AccountPrivacyRemote()
+        ..deletionResult = AccountDeletionRequest(
+          id: 'deletion-1',
+          status: 'CANCELLED',
+          requestedAt: DateTime.utc(2026, 10, 25),
+          effectiveAt: DateTime.utc(2026, 11, 24),
+        );
+      final controller = AccountPrivacyController(remote);
+      expect(
+        await controller.requestAccountDeletion('No longer needed'),
+        isNull,
+      );
+      expect(controller.state.status, AccountPrivacyStatus.failure);
+      expect(
+        controller.state.message,
+        'Your account deletion request could not be scheduled.',
+      );
+      remote.deletionResult = AccountDeletionRequest(
+        id: '../other-account',
+        status: 'SCHEDULED',
+        requestedAt: DateTime.utc(2026, 10, 25),
+        effectiveAt: DateTime.utc(2026, 11, 24),
+      );
+      expect(await controller.requestAccountDeletion('Retry'), isNull);
+      expect(controller.state.status, AccountPrivacyStatus.failure);
+      controller.dispose();
+    },
+  );
+
   testWidgets(
     'privacy screen exports and requires exact deletion confirmation',
     (tester) async {
@@ -49,6 +81,7 @@ void main() {
         find.byKey(const ValueKey('request-account-deletion')),
         250,
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('request-account-deletion')));
       await tester.pumpAndSettle();
       final confirmButton = find.byKey(
@@ -113,6 +146,7 @@ final class _AccountPrivacyRemote implements AccountPrivacyRemote {
   bool fail = false;
   int exportCalls = 0;
   final List<String> deletionReasons = [];
+  AccountDeletionRequest? deletionResult;
 
   @override
   Future<AccountDataExport> exportAccountData() async {
@@ -130,11 +164,12 @@ final class _AccountPrivacyRemote implements AccountPrivacyRemote {
   Future<AccountDeletionRequest> requestAccountDeletion(String reason) async {
     if (fail) throw StateError('offline');
     deletionReasons.add(reason);
-    return AccountDeletionRequest(
-      id: 'deletion-request-001',
-      status: 'SCHEDULED',
-      requestedAt: DateTime.utc(2026, 9, 1),
-      effectiveAt: DateTime.utc(2026, 10, 1),
-    );
+    return deletionResult ??
+        AccountDeletionRequest(
+          id: 'deletion-request-001',
+          status: 'SCHEDULED',
+          requestedAt: DateTime.utc(2026, 9, 1),
+          effectiveAt: DateTime.utc(2026, 10, 1),
+        );
   }
 }

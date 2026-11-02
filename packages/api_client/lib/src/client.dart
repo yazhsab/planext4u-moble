@@ -330,6 +330,11 @@ final class ApiClient {
         'Request resolved outside the configured API origin.',
       );
     }
+    // Uri.replace(queryParameters: {}) adds a trailing '?'. Strict owning
+    // endpoints distinguish that forced query from a command with no query.
+    if (request.query.isEmpty) {
+      return resolved;
+    }
     return resolved.replace(
       queryParameters: {
         for (final entry in request.query.entries) entry.key: entry.value,

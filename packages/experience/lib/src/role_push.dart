@@ -6,6 +6,7 @@ import 'package:planext4u_api_client/planext4u_api_client.dart';
 import 'package:planext4u_core/planext4u_core.dart';
 
 abstract interface class RolePushMessaging {
+  /// Reads existing OS authorization. Never opens a permission prompt.
   Future<bool> authorize();
   Future<String?> token();
   Stream<String> get tokenRefreshes;
@@ -20,7 +21,7 @@ final class FirebaseRolePushMessaging implements RolePushMessaging {
 
   @override
   Future<bool> authorize() async {
-    final settings = await _messaging.requestPermission(provisional: true);
+    final settings = await _messaging.getNotificationSettings();
     return settings.authorizationStatus == AuthorizationStatus.authorized ||
         settings.authorizationStatus == AuthorizationStatus.provisional;
   }
@@ -91,7 +92,7 @@ final class RolePushDeviceApi implements RolePushDeviceRemote {
 
 enum RolePushRegistrationStatus {
   idle,
-  requestingPermission,
+  checkingPermission,
   denied,
   registering,
   registered,
@@ -126,16 +127,25 @@ final class RolePushRegistration {
   StreamSubscription<String>? _tokens;
   StreamSubscription<Map<String, String>>? _interactions;
   bool _started = false;
+  bool _closed = false;
   bool _authorized = false;
   bool _initialInteractionHandled = false;
   String? _lastToken;
+  String? _registeredToken;
+  int _registeredPermissionEpoch = -1;
+  int _permissionEpoch = 0;
+  int _tokenRevision = 0;
   RolePushRegistrationStatus _status = RolePushRegistrationStatus.idle;
+  int _epoch = 0;
+  Future<void>? _retryInFlight;
+  Future<void> _writes = Future.value();
 
   RolePushRegistrationStatus get status => _status;
 
   Future<void> start() async {
-    if (_started) return;
+    if (_started || _closed) return;
     _started = true;
+    _epoch++;
     _interactions = _messaging.interactions.listen(
       _handleInteraction,
       onError: (_) {},
@@ -143,26 +153,74 @@ final class RolePushRegistration {
     await retry();
   }
 
-  Future<void> retry() async {
+  Future<void> retry() {
+    if (_closed) return Future<void>.value();
     if (!_started) return start();
+    final active = _retryInFlight;
+    if (active != null) return active;
+    final operation = _retry(_epoch);
+    _retryInFlight = operation;
+    return operation.whenComplete(() {
+      if (identical(_retryInFlight, operation)) _retryInFlight = null;
+    });
+  }
+
+  /// A settings return must not be lost behind an earlier in-flight check.
+  Future<void> refreshAuthorization() async {
+    if (!_started || _closed) return;
+    final epoch = _epoch;
+    await _retryInFlight;
+    if (_current(epoch)) await retry();
+  }
+
+  bool _current(int epoch) => _started && !_closed && _epoch == epoch;
+
+  Future<void> _retry(int epoch) async {
+    final permissionEpoch = ++_permissionEpoch;
+    var removalAttempted = false;
+    // Pause token callbacks while Android's current grant is unknown.
+    _authorized = false;
+    _lastToken = null;
     try {
       if (!_initialInteractionHandled) {
         _initialInteractionHandled = true;
-        _handleInteraction(await _messaging.initialInteraction());
+        final initial = await _messaging.initialInteraction();
+        if (!_current(epoch)) return;
+        _handleInteraction(initial);
       }
+      _setStatus(RolePushRegistrationStatus.checkingPermission);
+      final authorized = await _messaging.authorize();
+      if (!_current(epoch) || permissionEpoch != _permissionEpoch) return;
+      _authorized = authorized;
       if (!_authorized) {
-        _setStatus(RolePushRegistrationStatus.requestingPermission);
-        _authorized = await _messaging.authorize();
-      }
-      if (!_authorized) {
+        removalAttempted = true;
+        await _removeRegistration(epoch, permissionEpoch);
+        if (!_current(epoch) || permissionEpoch != _permissionEpoch) return;
         _setStatus(RolePushRegistrationStatus.denied);
         return;
       }
-      _tokens ??= _messaging.tokenRefreshes.listen((value) {
-        _lastToken = value;
-        unawaited(_registerSafely(value));
-      }, onError: (_) => _setStatus(RolePushRegistrationStatus.unavailable));
-      final current = _lastToken ?? await _messaging.token();
+      _tokens ??= _messaging.tokenRefreshes.listen(
+        (value) {
+          if (!_current(epoch) || !_authorized) return;
+          _tokenRevision++;
+          _lastToken = value;
+          unawaited(_registerSafely(value));
+        },
+        onError: (_) {
+          if (_current(epoch) && _authorized) {
+            _setStatus(RolePushRegistrationStatus.unavailable);
+          }
+        },
+      );
+      final tokenRevision = _tokenRevision;
+      final fetched = await _messaging.token();
+      if (!_current(epoch) ||
+          permissionEpoch != _permissionEpoch ||
+          !_authorized) {
+        return;
+      }
+      // A newer stream event wins over an older in-flight getToken result.
+      final current = tokenRevision == _tokenRevision ? fetched : _lastToken;
       if (current == null || current.isEmpty) {
         _setStatus(RolePushRegistrationStatus.unavailable);
         return;
@@ -170,22 +228,83 @@ final class RolePushRegistration {
       _lastToken = current;
       await _registerSafely(current);
     } catch (_) {
-      _setStatus(RolePushRegistrationStatus.unavailable);
+      if (_current(epoch) && permissionEpoch == _permissionEpoch) {
+        _authorized = false;
+        try {
+          if (!removalAttempted) {
+            await _removeRegistration(epoch, permissionEpoch);
+          }
+        } catch (_) {
+          /* Retry keeps cleanup available. */
+        }
+        if (_current(epoch) && permissionEpoch == _permissionEpoch) {
+          _setStatus(RolePushRegistrationStatus.unavailable);
+        }
+      }
       // Push is optional. Authentication and operational queues remain usable
       // when Firebase, APNS or the notification service is unavailable.
     }
   }
 
-  Future<void> _registerSafely(String token) async {
-    _setStatus(RolePushRegistrationStatus.registering);
-    try {
-      await _remote.register(token: token, platform: platform, locale: locale);
-      _setStatus(RolePushRegistrationStatus.registered);
-    } catch (_) {
-      _setStatus(RolePushRegistrationStatus.unavailable);
-      // Explicit retry, token refresh and the next authenticated launch are
-      // safe recovery paths.
-    }
+  Future<void> _registerSafely(String token) {
+    final epoch = _epoch;
+    final permissionEpoch = _permissionEpoch;
+    final operation = _writes.then((_) async {
+      if (!_current(epoch) ||
+          permissionEpoch != _permissionEpoch ||
+          !_authorized) {
+        return;
+      }
+      if (_registeredToken == token &&
+          _registeredPermissionEpoch == permissionEpoch) {
+        _setStatus(RolePushRegistrationStatus.registered);
+        return;
+      }
+      _setStatus(RolePushRegistrationStatus.registering);
+      try {
+        await _remote.register(
+          token: token,
+          platform: platform,
+          locale: locale,
+        );
+        if (_current(epoch) &&
+            permissionEpoch == _permissionEpoch &&
+            _authorized) {
+          _registeredToken = token;
+          _registeredPermissionEpoch = permissionEpoch;
+          _setStatus(RolePushRegistrationStatus.registered);
+        }
+      } catch (_) {
+        if (_current(epoch) &&
+            permissionEpoch == _permissionEpoch &&
+            _authorized) {
+          _setStatus(RolePushRegistrationStatus.unavailable);
+        }
+      }
+    });
+    _writes = operation;
+    return operation;
+  }
+
+  Future<void> _removeRegistration(int epoch, int permissionEpoch) async {
+    final tokens = _tokens;
+    _tokens = null;
+    _lastToken = null;
+    await tokens?.cancel();
+    final removal = _writes.then((_) async {
+      if (!_current(epoch) || permissionEpoch != _permissionEpoch) return;
+      await _remote.unregister();
+      if (_current(epoch) && permissionEpoch == _permissionEpoch) {
+        _registeredToken = null;
+        _registeredPermissionEpoch = -1;
+      }
+    });
+    // A failed removal is visible to retry(), but does not poison later writes.
+    _writes = removal.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    await removal;
   }
 
   void _setStatus(RolePushRegistrationStatus value) {
@@ -195,6 +314,7 @@ final class RolePushRegistration {
   }
 
   void _handleInteraction(Map<String, String>? data) {
+    if (!_started) return;
     final raw = data?['deep_link'];
     final uri = raw == null ? null : Uri.tryParse(raw);
     if (uri == null ||
@@ -210,17 +330,27 @@ final class RolePushRegistration {
   }
 
   Future<void> dispose({bool unregister = false}) async {
-    await _tokens?.cancel();
-    await _interactions?.cancel();
+    _closed = true;
+    _started = false;
+    _epoch++;
+    _permissionEpoch++;
+    _retryInFlight = null;
+    final tokens = _tokens;
+    final interactions = _interactions;
     _tokens = null;
     _interactions = null;
-    _started = false;
     _authorized = false;
     _initialInteractionHandled = false;
     _lastToken = null;
+    _registeredToken = null;
+    _registeredPermissionEpoch = -1;
     _setStatus(RolePushRegistrationStatus.idle);
+    await tokens?.cancel();
+    await interactions?.cancel();
     if (!unregister) return;
     try {
+      // Finish any already issued registration before removing the device.
+      await _writes;
       await _remote.unregister();
     } catch (_) {
       // Server-side session revocation remains authoritative.
@@ -258,8 +388,14 @@ final class RolePushLifecycle {
   final String allowedScheme;
   final void Function(Uri uri)? onDeepLink;
   RolePushRegistration? _registration;
+  int _generation = 0;
 
   Future<void> start(ApiClient client) async {
+    final generation = ++_generation;
+    final previous = _registration;
+    _registration = null;
+    await previous?.dispose();
+    if (generation != _generation) return;
     final registration = RolePushRegistration(
       messaging: _messaging,
       remote: RolePushDeviceApi(client),
@@ -271,12 +407,19 @@ final class RolePushLifecycle {
     );
     _registration = registration;
     await registration.start();
+    if (generation != _generation) await registration.dispose();
   }
 
   Future<void> end(bool unregister) async {
-    await _registration?.dispose(unregister: unregister);
+    _generation++;
+    final previous = _registration;
     _registration = null;
+    await previous?.dispose(unregister: unregister);
   }
+
+  Future<void> retry() => _registration?.retry() ?? Future<void>.value();
+  Future<void> refreshAuthorization() =>
+      _registration?.refreshAuthorization() ?? Future<void>.value();
 }
 
 bool isSafeRoleDeepLink(
@@ -286,7 +429,8 @@ bool isSafeRoleDeepLink(
   String? allowedScheme,
 }) {
   final path = uri.path.isEmpty ? '/' : uri.path;
-  if (!(path == '/${role.name}' || path.startsWith('/${role.name}/'))) {
+  final prefix = role == AppRole.customer ? '/app' : '/${role.name}';
+  if (!(path == prefix || path.startsWith('$prefix/'))) {
     return false;
   }
   if (!uri.isAbsolute) return true;

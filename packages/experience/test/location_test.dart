@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +28,44 @@ void main() {
     expect(controller.state.status, LocationStatus.consentRequired);
     expect(platform.serviceChecks, 0);
   });
+
+  for (final outcome in ['success', 'offline', 'failure']) {
+    test(
+      'late $outcome serviceability response cannot retain location after withdrawal',
+      () async {
+        var granted = true;
+        final remote = _DeferredServiceability();
+        final controller = LocationController(
+          platform: FakeLocationPlatform(current),
+          remote: remote,
+          hasConsent: () => granted,
+        );
+        final pending = controller.selectManual(current);
+        granted = false;
+        if (outcome == 'success') {
+          remote.result.complete(
+            const ServiceabilityDecision(
+              serviceable: true,
+              reasonCode: 'SERVICEABLE',
+              zoneId: 'zone-chennai',
+              locality: 'Chennai',
+            ),
+          );
+        } else if (outcome == 'offline') {
+          remote.result.completeError(
+            const ApiTransportFailure(correlationId: 'late-privacy'),
+          );
+        } else {
+          remote.result.completeError(StateError('unavailable'));
+        }
+        await pending;
+        expect(controller.state.status, LocationStatus.consentRequired);
+        expect(controller.state.location, isNull);
+        expect(controller.state.decision, isNull);
+        controller.dispose();
+      },
+    );
+  }
 
   test('permission deny, retry and permanent deny are explicit', () async {
     final platform = FakeLocationPlatform(current)
@@ -220,4 +260,11 @@ final class FakeServiceabilityRemote implements ServiceabilityRemote {
       locality: serviceable ? 'Chennai' : null,
     );
   }
+}
+
+final class _DeferredServiceability implements ServiceabilityRemote {
+  final result = Completer<ServiceabilityDecision>();
+  @override
+  Future<ServiceabilityDecision> check(ServiceLocation location) =>
+      result.future;
 }

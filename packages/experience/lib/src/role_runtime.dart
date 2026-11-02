@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:planext4u_api_client/planext4u_api_client.dart';
@@ -7,12 +8,20 @@ import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
 
 import 'account_privacy.dart';
+import 'consent.dart';
+import 'consent_journal.dart';
+import 'account_lifecycle.dart';
 import 'appearance_preferences.dart';
+import 'first_run.dart';
 import 'identity_profile.dart';
 import 'localization.dart';
 import 'notification_preferences.dart';
 import 'phase5.dart';
+import 'role_bound_session.dart';
 import 'support.dart';
+import 'account_security.dart';
+import 'published_education.dart';
+import 'local_app_lock.dart';
 
 typedef AuthenticatedRoleBuilder<T extends ChangeNotifier> =
     Widget Function(
@@ -41,9 +50,13 @@ final class RoleApplicationRuntime<T extends ChangeNotifier>
     this.apiDiagnostics = const NoopApiDiagnostics(),
     this.emailProvider,
     this.phoneProvider,
+    this.accountLinkingProvider,
     this.installIdStore,
     this.onAuthenticatedSession,
     this.onSessionEnded,
+    this.onDeviceSettingsReturn,
+    this.onConsentControllerReady,
+    this.onAccountScopeReady,
     super.key,
   });
 
@@ -57,9 +70,20 @@ final class RoleApplicationRuntime<T extends ChangeNotifier>
   final ApiDiagnostics apiDiagnostics;
   final EmailIdentityProvider? emailProvider;
   final PhoneOtpProvider? phoneProvider;
+  final AccountLinkingProvider? accountLinkingProvider;
   final InstallIdStore? installIdStore;
   final Future<void> Function(ApiClient client)? onAuthenticatedSession;
   final Future<void> Function(bool unregister)? onSessionEnded;
+  final Future<void> Function()? onDeviceSettingsReturn;
+  final void Function(T controller, ConsentController consents)?
+  onConsentControllerReady;
+  final void Function(
+    T controller,
+    String tenantId,
+    String country,
+    String identityId,
+  )?
+  onAccountScopeReady;
 
   @override
   State<RoleApplicationRuntime<T>> createState() =>
@@ -67,11 +91,13 @@ final class RoleApplicationRuntime<T extends ChangeNotifier>
 }
 
 class _RoleApplicationRuntimeState<T extends ChangeNotifier>
-    extends State<RoleApplicationRuntime<T>> {
+    extends State<RoleApplicationRuntime<T>>
+    with WidgetsBindingObserver {
   final IoApiTransport _transport = IoApiTransport();
   IdentitySessionController? _session;
   StreamSubscription<IdentitySessionState>? _subscription;
   T? _controller;
+  String? _controllerScope;
   IdentityProfileController? _identityProfile;
   IdentitySessionManagementController? _sessionManagement;
   NotificationPreferencesController? _notificationPreferences;
@@ -83,6 +109,7 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_initialize());
   }
 
@@ -115,7 +142,17 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
         country: 'IN',
       );
       _session = session;
-      _subscription = session.states.listen((_) {
+      _subscription = session.states.listen((state) {
+        if (state.authentication == null &&
+            const {
+              IdentitySessionStatus.signedOut,
+              IdentitySessionStatus.expired,
+              IdentitySessionStatus.roleDenied,
+            }.contains(state.status)) {
+          _disposeRoleControllers();
+          final endSession = widget.onSessionEnded;
+          if (endSession != null) unawaited(endSession(false));
+        }
         if (mounted) setState(() {});
       });
       await session.initialize();
@@ -131,17 +168,56 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
   }
 
   void _buildController(IdentitySessionController session) {
-    if (_controller != null) return;
+    String? scope() {
+      final auth = session.state.authentication;
+      return auth == null
+          ? null
+          : '${auth.tenantId}:${auth.country}:${auth.identityId}:${auth.session.id}';
+    }
+
+    final expectedScope = scope();
+    if (expectedScope == null) return;
+    if (_controller != null && _controllerScope == expectedScope) return;
+    _disposeRoleControllers();
+    _controllerScope = expectedScope;
     final client = ApiClient(
       baseUrl: widget.apiBaseUrl,
       transport: _transport,
-      authSession: session,
+      authSession: RoleBoundApiSession(
+        delegate: session,
+        expectedScope: expectedScope,
+        currentScope: scope,
+      ),
       diagnostics: widget.apiDiagnostics,
     );
     _controller = widget.controllerFactory(client);
+    final authentication = session.state.authentication!;
+    widget.onAccountScopeReady?.call(
+      _controller!,
+      authentication.tenantId,
+      authentication.country,
+      authentication.identityId,
+    );
     _identityProfile = IdentityProfileController(
       expectedRole: widget.applicationRole,
       remote: IdentityProfileApi(client),
+      education: PublishedEducationController(
+        remote: PublishedEducationApi(client),
+        role: widget.applicationRole.name,
+        scope: jsonEncode([
+          session.state.authentication!.tenantId,
+          session.state.authentication!.country,
+          session.state.authentication!.identityId,
+        ]),
+        scopeIsCurrent: () => mounted && scope() == expectedScope,
+      ),
+      accountSecurity: widget.accountLinkingProvider == null
+          ? null
+          : AccountSecurityController(
+              remote: AccountSecurityApi(client),
+              provider: widget.accountLinkingProvider!,
+              scopeIsCurrent: () => mounted && scope() == expectedScope,
+            ),
     );
     _sessionManagement = IdentitySessionManagementController(
       IdentitySessionManagementApi(client),
@@ -153,7 +229,34 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
       role: widget.applicationRole,
       remote: SupportApi(client),
     );
-    _accountPrivacy = AccountPrivacyController(Phase5Api(client));
+    _accountPrivacy = AccountPrivacyController(
+      Phase5Api(client),
+      appLock: LocalAppLockController(
+        store: SecureLocalAppLockStore(
+          tenantId: session.state.authentication!.tenantId,
+          country: session.state.authentication!.country,
+          identityId: session.state.authentication!.identityId,
+        ),
+        signInAgain: _signOut,
+        freshServerSignIn: session.hasFreshInteractiveAuthentication,
+      ),
+      consents: ConsentController(
+        ConsentApi(client),
+        journal: SecureConsentJournal(
+          tenantId: session.state.authentication!.tenantId,
+          country: session.state.authentication!.country,
+          identityId: session.state.authentication!.identityId,
+        ),
+      ),
+      lifecycle: AccountLifecycleController(
+        AccountLifecycleApi(client),
+        onDeactivated: _signOut,
+      ),
+    );
+    widget.onConsentControllerReady?.call(
+      _controller!,
+      _accountPrivacy!.consents!,
+    );
     final hook = widget.onAuthenticatedSession;
     if (hook != null) unawaited(hook(client));
   }
@@ -167,8 +270,17 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
   }
 
   Future<void> _signOut() async {
-    await widget.onSessionEnded?.call(true);
+    try {
+      await widget.onSessionEnded?.call(true);
+    } catch (_) {
+      /* Session revocation and local cleanup still run. */
+    }
     await _session?.signOut();
+    _disposeRoleControllers();
+    if (mounted) setState(() {});
+  }
+
+  void _disposeRoleControllers() {
     _controller?.dispose();
     _identityProfile?.dispose();
     _sessionManagement?.dispose();
@@ -181,21 +293,33 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
     _notificationPreferences = null;
     _support = null;
     _accountPrivacy = null;
-    if (mounted) setState(() {});
+    _controllerScope = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _session?.state.authentication != null) {
+      unawaited(_refreshDeviceSettings());
+    }
+  }
+
+  Future<void> _refreshDeviceSettings() async {
+    try {
+      await widget.onDeviceSettingsReturn?.call();
+    } catch (_) {
+      /* Push remains optional. */
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     final endSession = widget.onSessionEnded;
     if (endSession != null) unawaited(endSession(false));
     unawaited(_subscription?.cancel());
     unawaited(_session?.dispose());
-    _controller?.dispose();
-    _identityProfile?.dispose();
-    _sessionManagement?.dispose();
-    _notificationPreferences?.dispose();
-    _support?.dispose();
-    _accountPrivacy?.dispose();
+    _disposeRoleControllers();
     _appearancePreferences?.dispose();
     _transport.close(force: true);
     super.dispose();
@@ -239,14 +363,20 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
       ),
       home: session == null
           ? _RoleRuntimeState(failure: _failure)
-          : _RoleSignInScreen(
-              session: session,
-              role: widget.applicationRole,
-              development: widget.development,
-              developmentProviderToken: widget.developmentProviderToken,
-              emailProvider: widget.emailProvider,
-              phoneProvider: widget.phoneProvider,
-              onAuthenticated: _authenticated,
+          : FirstRunGate(
+              config: FirstRunConfig.forRole(widget.applicationRole.name),
+              store: EncryptedFirstRunStore.platform(
+                widget.applicationRole.name,
+              ),
+              child: _RoleSignInScreen(
+                session: session,
+                role: widget.applicationRole,
+                development: widget.development,
+                developmentProviderToken: widget.developmentProviderToken,
+                emailProvider: widget.emailProvider,
+                phoneProvider: widget.phoneProvider,
+                onAuthenticated: _authenticated,
+              ),
             ),
     );
   }
@@ -296,6 +426,7 @@ class _RoleSignInScreenState extends State<_RoleSignInScreen> {
   final _email = TextEditingController();
   final _secret = TextEditingController();
   bool _busy = false;
+  bool _recoverAccount = false;
   String? _message;
 
   @override
@@ -308,19 +439,29 @@ class _RoleSignInScreenState extends State<_RoleSignInScreen> {
   Future<void> _run(
     EmailIdentityProvider provider,
     String email,
-    String secret,
-  ) async {
+    String secret, {
+    bool register = false,
+  }) async {
     if (_busy) return;
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
-      await widget.session.signInWithEmail(
-        provider: provider,
-        email: email,
-        secret: secret,
-      );
+      if (register && provider is EmailRegistrationProvider) {
+        await widget.session.registerWithEmail(
+          provider: provider as EmailRegistrationProvider,
+          email: email,
+          secret: secret,
+        );
+      } else {
+        await widget.session.signInWithEmail(
+          provider: provider,
+          email: email,
+          secret: secret,
+          recoverAccount: _recoverAccount,
+        );
+      }
       await widget.onAuthenticated();
     } catch (_) {
       if (mounted) {
@@ -344,6 +485,16 @@ class _RoleSignInScreenState extends State<_RoleSignInScreen> {
           Text(
             'Secure ${widget.role.label.toLowerCase()} workspace',
             style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          CheckboxListTile(
+            value: _recoverAccount,
+            onChanged: _busy
+                ? null
+                : (value) => setState(() => _recoverAccount = value ?? false),
+            title: const Text('Recover my deactivated account'),
+            subtitle: const Text(
+              'Requires a fresh provider sign-in. Security restrictions and overdue deletion cannot be cancelled here.',
+            ),
           ),
           const SizedBox(height: Planext4uSpacing.x4),
           if (widget.emailProvider != null) ...[
@@ -379,6 +530,20 @@ class _RoleSignInScreenState extends State<_RoleSignInScreen> {
                 emailController: _email,
                 provider: provider,
               ),
+            if (widget.emailProvider is EmailRegistrationProvider)
+              OutlinedButton(
+                onPressed: _busy || _recoverAccount
+                    ? null
+                    : () => _run(
+                        widget.emailProvider!,
+                        _email.text.trim(),
+                        _secret.text,
+                        register: true,
+                      ),
+                child: Text(
+                  'Create ${widget.role.label.toLowerCase()} account',
+                ),
+              ),
           ] else
             const Planext4uStatePanel(
               state: Planext4uViewState.error,
@@ -395,6 +560,7 @@ class _RoleSignInScreenState extends State<_RoleSignInScreen> {
                   provider: widget.phoneProvider!,
                   challengeId: challengeId,
                   code: code,
+                  recoverAccount: _recoverAccount,
                 );
                 await widget.onAuthenticated();
               },

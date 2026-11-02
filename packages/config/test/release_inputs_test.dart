@@ -8,11 +8,41 @@ Map<String, String> validInputs() => {
   'RELEASE_VERSION': '1.2.3',
   'RELEASE_BUILD_NUMBER': '42',
   'RELEASE_API_BASE_URL': 'https://api.planext4u.net',
+  'RELEASE_BANK_LINK_LAUNCH_ORIGIN': 'https://bank.planext4u.net',
   'IOS_DEVELOPMENT_TEAM': 'ABCDEFGHIJ',
   'MOBILE_SIGNING_ROTATION_APPROVED': 'true',
 };
 
 void main() {
+  test(
+    'vendor and rider releases require an approved bank origin without exposing values',
+    () {
+      for (final role in ['vendor', 'rider']) {
+        for (final origin in [
+          '',
+          'http://bank.planext4u.net',
+          'https://bank.example.test',
+          'https://secret@bank.planext4u.net',
+          'https://bank.planext4u.net/path',
+          'https://bank.planext4u.net?secret=private',
+        ]) {
+          final errors = validateReleaseInputs(
+            validInputs()
+              ..['RELEASE_APP'] = role
+              ..['RELEASE_BANK_LINK_LAUNCH_ORIGIN'] = origin,
+          );
+          expect(errors.join(), contains('RELEASE_BANK_LINK_LAUNCH_ORIGIN'));
+          expect(errors.join(), isNot(contains('secret=private')));
+        }
+      }
+      expect(
+        validateReleaseInputs(
+          validInputs()..remove('RELEASE_BANK_LINK_LAUNCH_ORIGIN'),
+        ),
+        isEmpty,
+      );
+    },
+  );
   test('all roles accept structurally valid protected inputs', () {
     for (final role in ['customer', 'vendor', 'rider']) {
       expect(

@@ -2,6 +2,43 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:planext4u_config/planext4u_config.dart';
 
 void main() {
+  test('private uploads require an explicit trusted production origin', () {
+    final production = AppConfig.parse(
+      rawEnvironment: 'production',
+      rawApiBaseUrl: 'https://api.example',
+    );
+    expect(production.privateUploadOrigin, isNull);
+    expect(
+      AppConfig.fromPublicDefines({
+        'APP_ENV': 'production',
+        'API_BASE_URL': 'https://api.example',
+        'PRIVATE_UPLOAD_ORIGIN': 'https://uploads.example',
+      }).privateUploadOrigin,
+      Uri.parse('https://uploads.example'),
+    );
+    for (final origin in [
+      'http://uploads.example',
+      'https://uploads.example/path',
+      'https://user:secret@uploads.example',
+    ]) {
+      expect(
+        () => AppConfig.parse(
+          rawEnvironment: 'production',
+          rawApiBaseUrl: 'https://api.example',
+          rawPrivateUploadOrigin: origin,
+        ),
+        throwsFormatException,
+      );
+    }
+    expect(
+      () => AppConfig.parse(
+        rawEnvironment: 'development',
+        rawApiBaseUrl: 'http://localhost:8082',
+        rawPrivateUploadOrigin: 'http://remote.example',
+      ),
+      throwsFormatException,
+    );
+  });
   test('accepts local HTTP only for development', () {
     final config = AppConfig.parse(
       rawEnvironment: 'dev',

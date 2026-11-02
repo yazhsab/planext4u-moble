@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -23,9 +24,30 @@ final class PlatformCacheKeyProvider implements CacheKeyProvider {
   final FlutterSecureStorage _storage;
   final String _keyName;
   final AesGcm _algorithm;
+  static final Map<String, Future<void>> _keyOperations = {};
+
+  Future<T> _serialize<T>(Future<T> Function() operation) {
+    final previous = _keyOperations[_keyName] ?? Future<void>.value();
+    final result = previous.then((_) => operation());
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    _keyOperations[_keyName] = tail;
+    unawaited(
+      tail.whenComplete(() {
+        if (identical(_keyOperations[_keyName], tail)) {
+          _keyOperations.remove(_keyName);
+        }
+      }),
+    );
+    return result;
+  }
 
   @override
-  Future<SecretKey> getOrCreate() async {
+  Future<SecretKey> getOrCreate() => _serialize(_getOrCreate);
+
+  Future<SecretKey> _getOrCreate() async {
     final encoded = await _storage.read(key: _keyName);
     if (encoded != null) {
       try {
@@ -33,7 +55,9 @@ final class PlatformCacheKeyProvider implements CacheKeyProvider {
         if (bytes.length != 32) throw const FormatException('Invalid key.');
         return SecretKey(bytes);
       } catch (_) {
-        await destroy();
+        // Already inside the key's serialized operation. Queuing destroy()
+        // here would wait for this operation to finish and deadlock recovery.
+        await _storage.delete(key: _keyName);
       }
     }
     final key = await _algorithm.newSecretKey();
@@ -43,7 +67,7 @@ final class PlatformCacheKeyProvider implements CacheKeyProvider {
   }
 
   @override
-  Future<void> destroy() => _storage.delete(key: _keyName);
+  Future<void> destroy() => _serialize(() => _storage.delete(key: _keyName));
 }
 
 final class MemoryCacheKeyProvider implements CacheKeyProvider {
@@ -80,6 +104,29 @@ final class FileBinaryRecordStore implements BinaryRecordStore {
 
   final String namespace;
   final Future<Directory> Function() _directory;
+  static final Map<String, Future<void>> _fileTails = {};
+
+  // Queue at invocation time, before resolving the platform directory. Separate
+  // instances must not share a pending file or resurrect a record after a
+  // subsequently requested delete/clear. Namespaces remain independent.
+  Future<T> _serialize<T>(Future<T> Function() operation) {
+    final result = (_fileTails[namespace] ?? Future<void>.value()).then(
+      (_) => operation(),
+    );
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _fileTails[namespace] = tail;
+    unawaited(
+      tail.whenComplete(() {
+        if (identical(_fileTails[namespace], tail)) {
+          _fileTails.remove(namespace);
+        }
+      }),
+    );
+    return result;
+  }
 
   Future<Directory> _root() async {
     final support = await _directory();
@@ -89,34 +136,43 @@ final class FileBinaryRecordStore implements BinaryRecordStore {
   }
 
   @override
-  Future<Uint8List?> read(String key) async {
+  Future<Uint8List?> read(String key) => _serialize(() async {
     final file = await _file(key);
     if (!await file.exists()) return null;
     return file.readAsBytes();
+  });
+
+  @override
+  Future<void> writeAtomic(String key, Uint8List value) {
+    // The caller may reuse/clear its sensitive buffer while the write waits.
+    final frozen = Uint8List.fromList(value);
+    return _serialize(() async {
+      try {
+        final file = await _file(key);
+        final temporary = File('${file.path}.pending');
+        await temporary.writeAsBytes(frozen, flush: true);
+        // Same-directory native replacement preserves the committed file if
+        // the final rename fails. Never delete the acknowledged record first.
+        await temporary.rename(file.path);
+      } finally {
+        frozen.fillRange(0, frozen.length, 0);
+      }
+    });
   }
 
   @override
-  Future<void> writeAtomic(String key, Uint8List value) async {
-    final file = await _file(key);
-    final temporary = File('${file.path}.pending');
-    await temporary.writeAsBytes(value, flush: true);
-    if (await file.exists()) await file.delete();
-    await temporary.rename(file.path);
-  }
-
-  @override
-  Future<void> delete(String key) async {
+  Future<void> delete(String key) => _serialize(() async {
     final file = await _file(key);
     if (await file.exists()) await file.delete();
     final temporary = File('${file.path}.pending');
     if (await temporary.exists()) await temporary.delete();
-  }
+  });
 
   @override
-  Future<void> clear() async {
+  Future<void> clear() => _serialize(() async {
     final root = await _root();
     if (await root.exists()) await root.delete(recursive: true);
-  }
+  });
 
   Future<File> _file(String key) async {
     if (!_safeKey.hasMatch(key)) {

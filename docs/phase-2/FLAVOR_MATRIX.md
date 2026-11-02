@@ -49,8 +49,14 @@ flutter build ios \
   --dart-define=APP_ENV=staging
 ```
 
-Only the allow-listed public keys `APP_ENV`, `API_BASE_URL`, `WEB_BASE_URL` and
-`DEEP_LINK_HOST` may be supplied. Tokens, API keys, provider configuration,
+Only the allow-listed public keys `APP_ENV`, `API_BASE_URL`, `WEB_BASE_URL`,
+`DEEP_LINK_HOST` and `PRIVATE_UPLOAD_ORIGIN` may be supplied. The upload value
+is one public root origin, signed by the media service before it reaches the
+client. Staging/production require HTTPS and leave document capture unavailable
+until this origin is configured. Local development defaults to
+`http://127.0.0.1:9000`; the dedicated Android verification harness reverses
+only that port on its own test AVD. Never rewrite a signed upload URL's host.
+Tokens, API keys, provider configuration,
 client secrets and signing credentials are recoverable from app binaries and
 must use platform secret/configuration systems instead.
 

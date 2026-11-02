@@ -13,6 +13,7 @@ dependencies:
   firebase_core: ^4.14.0
   flutter:
     sdk: flutter
+  image_picker: ^1.2.3
   planext4u_api_client: ^0.1.0
   planext4u_config: ^0.1.0
   planext4u_core: ^0.1.0
@@ -20,6 +21,8 @@ dependencies:
   planext4u_experience: ^0.1.0
   planext4u_identity: ^0.1.0
   planext4u_observability: ^0.1.0
+  planext4u_storage: ^0.1.0
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   integration_test:

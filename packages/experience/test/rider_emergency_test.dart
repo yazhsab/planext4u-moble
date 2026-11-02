@@ -273,8 +273,9 @@ final class _EmergencyTracker implements RiderLocationTracker {
 
   @override
   Future<void> start(
-    Future<void> Function(RiderTrackedPosition position) onPosition,
-  ) async {
+    Future<void> Function(RiderTrackedPosition position) onPosition, {
+    void Function(Object error)? onError,
+  }) async {
     callback = onPosition;
   }
 

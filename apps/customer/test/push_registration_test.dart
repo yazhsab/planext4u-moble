@@ -1,9 +1,45 @@
 import 'dart:async';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:planext4u_customer/push_registration.dart';
 
 void main() {
+  test(
+    'Customer Firebase startup reads the existing grant without a system prompt',
+    () async {
+      final messaging = _FirebaseMessaging();
+      final provider = FirebasePushMessaging(messaging);
+      expect(await provider.authorize(), true);
+      messaging.status = AuthorizationStatus.denied;
+      expect(await provider.authorize(), false);
+      expect(messaging.reads, 2);
+      expect(messaging.requests, 0);
+    },
+  );
+  test(
+    'a late permission result cannot register a signed-out customer',
+    () async {
+      final messaging = _PushMessaging()..permission = Completer<bool>();
+      final remote = _PushRemote();
+      final registration = CustomerPushRegistration(
+        messaging: messaging,
+        remote: remote,
+        platform: 'ANDROID',
+        locale: 'en',
+        onDeepLink: (_) {},
+      );
+      final start = registration.start();
+      await Future<void>.delayed(Duration.zero);
+      await registration.dispose(unregister: true);
+      messaging.permission!.complete(true);
+      await start;
+      expect(remote.tokens, isEmpty);
+      expect(remote.unregistered, isTrue);
+      expect(registration.status, PushRegistrationStatus.idle);
+      await messaging.dispose();
+    },
+  );
   test('registers, rotates token, deep-links safely and unregisters', () async {
     final messaging = _PushMessaging();
     final remote = _PushRemote();
@@ -119,17 +155,41 @@ void main() {
   });
 }
 
+final class _FirebaseMessaging extends Fake implements FirebaseMessaging {
+  int reads = 0;
+  int requests = 0;
+  AuthorizationStatus status = AuthorizationStatus.authorized;
+  @override
+  Future<NotificationSettings> getNotificationSettings() async {
+    reads++;
+    return _Settings(status);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #requestPermission) requests++;
+    return super.noSuchMethod(invocation);
+  }
+}
+
+final class _Settings extends Fake implements NotificationSettings {
+  _Settings(this.authorizationStatus);
+  @override
+  final AuthorizationStatus authorizationStatus;
+}
+
 final class _PushMessaging implements PushMessaging {
   final tokenController = StreamController<String>.broadcast();
   final interactionController =
       StreamController<Map<String, String>>.broadcast();
   bool authorized = true;
+  Completer<bool>? permission;
   Map<String, String>? initial = const {
     'deep_link': 'https://planext4u.net/app/orders/order-001',
   };
 
   @override
-  Future<bool> authorize() async => authorized;
+  Future<bool> authorize() => permission?.future ?? Future.value(authorized);
   @override
   Future<String?> token() async => 'fcm_token_initial_00000000000001';
   @override

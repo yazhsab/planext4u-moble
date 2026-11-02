@@ -457,10 +457,10 @@ void main() {
     await controller.load();
     await controller.refreshTasks();
     final offer = controller.state.offers.single;
-    await controller.accept(offer);
+    await controller.pickup(offer);
     expect(controller.state.status, OperationsStatus.offline);
     expect(controller.state.pendingCommands, 1);
-    expect((await store.pending()).single.kind, 'ACCEPT');
+    expect((await store.pending()).single.kind, 'PICKUP');
     await controller.recoverOffline();
     expect(controller.state.pendingCommands, 0);
     expect(remote.recoveredSequences, [1]);
@@ -472,18 +472,62 @@ void main() {
       const RiderOfflineCommand(
         deviceSequence: 41,
         commandId: 'mobile-persisted-00000041',
-        kind: 'ACCEPT',
+        kind: 'PICKUP',
         taskId: 'task-001',
         revision: 1,
       ),
     );
     final remote = _RiderRemote();
+    final old = remote.profileValue;
+    remote.profileValue = RiderProfile(
+      id: old.id,
+      revision: old.revision,
+      status: old.status,
+      fullName: old.fullName,
+      vehicleNumber: old.vehicleNumber,
+      bankStatus: old.bankStatus,
+      zones: old.zones,
+      maxConcurrent: old.maxConcurrent,
+      allowedActions: old.allowedActions,
+      lastCommandSequence: 40,
+    );
+    final controller = RiderOperationsController(remote, commandStore: store);
+    await controller.load();
+    await controller.refreshTasks();
+    await controller.pickup(controller.state.offers.single);
+    final pending = await store.pending();
+    expect(pending.map((value) => value.deviceSequence), [41, 42]);
+  });
+
+  test('empty ACK queue restart continues from the server sequence', () async {
+    final remote = _RiderRemote();
+    final store = MemoryRiderCommandStore();
+    var controller = RiderOperationsController(remote, commandStore: store);
+    await controller.load();
+    await controller.refreshTasks();
+    await controller.pickup(controller.state.offers.single);
+    await controller.recoverOffline();
+    expect(await store.pending(), isEmpty);
+    controller.dispose();
+    remote.failAccept = true;
+    controller = RiderOperationsController(remote, commandStore: store);
+    await controller.load();
+    await controller.refreshTasks();
+    await controller.pickup(controller.state.offers.single);
+    expect((await store.pending()).single.deviceSequence, 2);
+    controller.dispose();
+  });
+
+  test('unsupported offline acceptance is visible and never queued', () async {
+    final remote = _RiderRemote();
+    final store = MemoryRiderCommandStore();
     final controller = RiderOperationsController(remote, commandStore: store);
     await controller.load();
     await controller.refreshTasks();
     await controller.accept(controller.state.offers.single);
-    final pending = await store.pending();
-    expect(pending.map((value) => value.deviceSequence), [41, 42]);
+    expect(await store.pending(), isEmpty);
+    expect(controller.state.message, contains('needs a connection'));
+    controller.dispose();
   });
 
   test('rider offline queue rejects invalid and unbounded commands', () async {
@@ -517,6 +561,131 @@ void main() {
     await expectLater(store.replace(commands), throwsStateError);
   });
 
+  test(
+    'delivery withdrawal stops duty GPS and drops queued callbacks and manual locations',
+    () async {
+      final consentRemote = _DeliveryConsents()..hold = Completer<void>();
+      final consent = ConsentController(consentRemote);
+      final remote = _RiderRemote()..locationGate = Completer<void>();
+      final tracker = _RiderTracker();
+      final controller = RiderOperationsController(
+        remote,
+        locationTracker: tracker,
+        deliveryPolicyLoader: () async => _deliveryPolicy,
+      );
+      controller.bindDeliveryConsents(consent);
+      await controller.load();
+      await controller.startDuty();
+      expect(tracker.started, true);
+      final point = RiderTrackedPosition(
+        latitude: 13.0827,
+        longitude: 80.2707,
+        accuracyMeters: 8,
+        capturedAt: DateTime.now().toUtc(),
+      );
+      final first = tracker.emit(point);
+      await Future<void>.delayed(Duration.zero);
+      final queued = tracker.emit(point);
+      final pending = consent.setConsent(
+        purpose: ConsentPurpose.locationDelivery,
+        granted: false,
+        policyVersion: 'delivery-v1',
+      );
+      expect(tracker.started, false);
+      await controller.updateLocation(
+        latitude: 13.0827,
+        longitude: 80.2707,
+        accuracyMeters: 8,
+      );
+      remote.locationGate!.complete();
+      await Future.wait([first, queued]);
+      expect(
+        remote.locations,
+        hasLength(1),
+      ); // Only the call already sent before withdrawal.
+      consentRemote.hold!.complete();
+      await pending;
+      controller.dispose();
+      consent.dispose();
+    },
+  );
+
+  test(
+    'current published delivery policy and explicit grant are required before native duty',
+    () async {
+      final consentRemote = _DeliveryConsents()..version = 'delivery-old';
+      final consents = ConsentController(consentRemote);
+      final tracker = _RiderTracker();
+      final remote = _RiderRemote();
+      final controller = RiderOperationsController(
+        remote,
+        locationTracker: tracker,
+        deliveryPolicyLoader: () async => _deliveryPolicy,
+      );
+      controller.bindDeliveryConsents(consents);
+      await controller.load();
+      await controller.startDuty();
+      expect(tracker.started, false);
+      expect(controller.deliveryLocationAllowed, false);
+      await controller.allowDeliveryLocation();
+      expect(controller.deliveryLocationAllowed, true);
+      await controller.startDuty();
+      expect(tracker.started, true);
+      expect(consentRemote.version, 'delivery-v1');
+      controller.dispose();
+      consents.dispose();
+    },
+  );
+
+  test(
+    'missing published delivery policy fails closed without preventing profile inspection',
+    () async {
+      final consents = ConsentController(_DeliveryConsents());
+      final tracker = _RiderTracker();
+      final controller = RiderOperationsController(
+        _RiderRemote(),
+        locationTracker: tracker,
+        deliveryPolicyLoader: () async => null,
+      );
+      controller.bindDeliveryConsents(consents);
+      await controller.load();
+      expect(controller.state.profile, isNotNull);
+      await controller.startDuty();
+      expect(tracker.started, false);
+      expect(controller.deliveryPolicyAvailable, false);
+      controller.dispose();
+      consents.dispose();
+    },
+  );
+
+  test(
+    'withdrawal during device permission completion cannot start late tracking',
+    () async {
+      final consents = ConsentController(_DeliveryConsents());
+      final tracker = _RiderTracker()..startGate = Completer<void>();
+      final controller = RiderOperationsController(
+        _RiderRemote(),
+        locationTracker: tracker,
+        deliveryPolicyLoader: () async => _deliveryPolicy,
+      );
+      controller.bindDeliveryConsents(consents);
+      await controller.load();
+      final start = controller.startDuty();
+      await Future<void>.delayed(Duration.zero);
+      await consents.setConsent(
+        purpose: ConsentPurpose.locationDelivery,
+        granted: false,
+        policyVersion: 'delivery-v1',
+      );
+      tracker.startGate!.complete();
+      await start;
+      expect(tracker.started, false);
+      expect(controller.deliveryLocationAllowed, false);
+      controller.dispose();
+      consents.dispose();
+    },
+  );
+
   test('rider duty owns a bounded location tracking lifecycle', () async {
     final remote = _RiderRemote();
     final tracker = _RiderTracker();
@@ -532,13 +701,107 @@ void main() {
         latitude: 13.0827,
         longitude: 80.2707,
         accuracyMeters: 12,
-        capturedAt: DateTime.utc(2026, 8, 28, 12),
+        capturedAt: DateTime.now().toUtc(),
       ),
     );
     expect(remote.locations, hasLength(1));
     expect(remote.locations.single.sequence, 1);
     await controller.endDuty();
     expect(tracker.started, isFalse);
+    controller.dispose();
+  });
+
+  test(
+    'active duty restart restores location sequence and surfaces stale tracking',
+    () async {
+      final remote = _RiderRemote();
+      final old = remote.profileValue;
+      remote.profileValue = RiderProfile(
+        id: old.id,
+        revision: old.revision,
+        status: old.status,
+        fullName: old.fullName,
+        vehicleNumber: old.vehicleNumber,
+        bankStatus: old.bankStatus,
+        zones: old.zones,
+        maxConcurrent: old.maxConcurrent,
+        allowedActions: old.allowedActions,
+        lastLocationSequence: 76,
+      );
+      remote.activeDuty = RiderDuty(
+        id: 'active-duty',
+        revision: 1,
+        status: 'ACTIVE',
+        zoneId: '600001',
+        activeTasks: 0,
+        lastSeenAt: DateTime.now().toUtc(),
+      );
+      final tracker = _RiderTracker();
+      final controller = RiderOperationsController(
+        remote,
+        locationTracker: tracker,
+      );
+      await controller.load();
+      expect(tracker.started, isTrue);
+      await tracker.emit(
+        RiderTrackedPosition(
+          latitude: 13.08,
+          longitude: 80.27,
+          accuracyMeters: 8,
+          capturedAt: DateTime.now().toUtc(),
+        ),
+      );
+      expect(remote.locations.single.sequence, 77);
+      await tracker.emit(
+        RiderTrackedPosition(
+          latitude: 13.08,
+          longitude: 80.27,
+          accuracyMeters: 8,
+          capturedAt: DateTime.now().toUtc().subtract(
+            const Duration(minutes: 20),
+          ),
+        ),
+      );
+      expect(controller.state.locationStatus, RiderLocationStatus.unavailable);
+      expect(controller.state.message, contains('could not be shared'));
+      expect(remote.locations, hasLength(1));
+      controller.dispose();
+    },
+  );
+
+  test('tracking failure is visible and resumes after reconnect', () async {
+    final remote = _RiderRemote();
+    final tracker = _RiderTracker();
+    final controller = RiderOperationsController(
+      remote,
+      locationTracker: tracker,
+    );
+    await controller.load();
+    await controller.startDuty();
+    remote.failLocation = true;
+    await tracker.emit(
+      RiderTrackedPosition(
+        latitude: 13.08,
+        longitude: 80.27,
+        accuracyMeters: 8,
+        capturedAt: DateTime.now().toUtc(),
+      ),
+    );
+    expect(controller.state.status, OperationsStatus.offline);
+    expect(controller.state.locationStatus, RiderLocationStatus.unavailable);
+    expect(controller.state.message, contains('could not be shared'));
+    remote.failLocation = false;
+    await controller.recoverOffline();
+    await tracker.emit(
+      RiderTrackedPosition(
+        latitude: 13.08,
+        longitude: 80.27,
+        accuracyMeters: 8,
+        capturedAt: DateTime.now().toUtc(),
+      ),
+    );
+    expect(controller.state.locationStatus, RiderLocationStatus.tracking);
+    expect(remote.locations.single.sequence, 2);
     controller.dispose();
   });
 
@@ -710,6 +973,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-business-name')),
+        'Planext4u Local Services',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-business-type')),
+        'Local services',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('vendor-contact-name')),
+        'Business owner',
+      );
       await tester.tap(find.byKey(const ValueKey('vendor-register')));
       await tester.pumpAndSettle();
       final verify = find.widgetWithText(TextButton, 'Verify');
@@ -769,7 +1044,7 @@ void main() {
     },
   );
 
-  testWidgets('vendor onboarding supports document resubmission', (
+  testWidgets('vendor onboarding supports full application correction', (
     tester,
   ) async {
     final remote = _VendorRemote()
@@ -778,13 +1053,15 @@ void main() {
         revision: 4,
         status: 'REJECTED',
         businessName: 'Resubmit Services',
+        businessType: 'Home services',
+        contactName: 'Original owner',
         documents: [
           {'kind': 'OWNER_IDENTITY', 'ocr_status': 'REJECTED'},
         ],
         zoneCount: 0,
         bankStatus: 'NOT_CONFIGURED',
         verified: false,
-        allowedActions: {'SUBMIT_DOCUMENTS'},
+        allowedActions: {'RESUBMIT_DOCUMENTS'},
       );
     final controller = VendorOperationsController(remote);
     final provider = _VendorOnboardingProvider();
@@ -806,12 +1083,23 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final resubmit = find.widgetWithText(TextButton, 'Resubmit');
+    await tester.enterText(
+      find.byKey(const ValueKey('vendor-rework-contact-name')),
+      'Corrected owner',
+    );
+    final collect = find.byKey(
+      const ValueKey('vendor-rework-collect-documents'),
+    );
+    await tester.ensureVisible(collect);
+    await tester.tap(collect);
+    await tester.pumpAndSettle();
+    final resubmit = find.byKey(const ValueKey('vendor-rework-submit'));
     await tester.ensureVisible(resubmit);
     await tester.tap(resubmit);
     await tester.pumpAndSettle();
     expect(provider.documentCalls, 1);
     expect(controller.state.application?.status, 'DOCUMENTS_SUBMITTED');
+    expect(controller.state.application?.contactName, 'Corrected owner');
   });
 
   testWidgets('onboarding provider absence is explicit and fail closed', (
@@ -880,6 +1168,210 @@ void main() {
     expect(submit.onPressed, isNull);
   });
 
+  testWidgets(
+    'rider document step works at large text while an unavailable bank blocks submission',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = RiderOperationsController(
+        _RiderRemote()..firstTime = true,
+      );
+      final provider = _StagedRiderProvider();
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: RiderOperationsView(
+              controller: controller,
+              onboardingProvider: provider,
+              destination: const RoleDestination(
+                id: 'duty',
+                label: 'Duty',
+                icon: Icons.toggle_on_outlined,
+                capability: RoleCapability.riderDuty,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final collect = find.byKey(const ValueKey('rider-collect-documents'));
+      await tester.ensureVisible(collect);
+      await tester.pumpAndSettle();
+      await tester.tap(collect);
+      await tester.pumpAndSettle();
+      expect(provider.collections, 1);
+      expect(find.textContaining('4 private documents ready'), findsOneWidget);
+      final submit = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('rider-submit-registration')),
+      );
+      expect(submit.onPressed, isNull);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(provider.discarded, hasLength(4));
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'native duty privacy explains its current choice before enabling duty at large text',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final consents = ConsentController(_DeliveryConsents()..granted = false);
+      final controller = RiderOperationsController(
+        _RiderRemote(),
+        deliveryPolicyLoader: () async => _deliveryPolicy,
+      );
+      controller.bindDeliveryConsents(consents);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: RiderOperationsView(
+              controller: controller,
+              destination: const RoleDestination(
+                id: 'duty',
+                label: 'Duty',
+                icon: Icons.toggle_on_outlined,
+                capability: RoleCapability.riderDuty,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('rider-duty-toggle')),
+            )
+            .onPressed,
+        isNull,
+      );
+      final allow = find.text('Allow duty location');
+      await tester.ensureVisible(allow);
+      await tester.pumpAndSettle();
+      await tester.tap(allow);
+      await tester.pumpAndSettle();
+      expect(controller.deliveryLocationAllowed, isTrue);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('rider-duty-toggle')),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.text('Share live location while on task'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      consents.dispose();
+    },
+  );
+
+  testWidgets(
+    'normal rider form restores without restoring document or consent authority',
+    (tester) async {
+      final progress = _ProgressStore();
+      Future<RiderOperationsController> open() async {
+        final controller = RiderOperationsController(
+          _RiderRemote()..firstTime = true,
+        )..onboardingProgress = progress;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: RiderOperationsView(
+                key: UniqueKey(),
+                controller: controller,
+                onboardingProvider: _StagedRiderProvider(),
+                destination: const RoleDestination(
+                  id: 'duty',
+                  label: 'Duty',
+                  icon: Icons.toggle_on_outlined,
+                  capability: RoleCapability.riderDuty,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        return controller;
+      }
+
+      final first = await open();
+      await tester.enterText(
+        find.byKey(const ValueKey('rider-registration-name')),
+        'Saved Rider',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('rider-registration-vehicle-number')),
+        'TN01AB1234',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('rider-registration-zones')),
+        '600001',
+      );
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+      first.dispose();
+      final second = await open();
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('rider-registration-name')),
+            )
+            .controller
+            ?.text,
+        'Saved Rider',
+      );
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const ValueKey('rider-duty-location-consent')),
+            )
+            .value,
+        isFalse,
+      );
+      expect(find.textContaining('saved form is restored'), findsOneWidget);
+      final discard = find.byKey(
+        const ValueKey('rider-discard-onboarding-progress'),
+      );
+      await tester.ensureVisible(discard);
+      await tester.tap(discard);
+      await tester.pumpAndSettle();
+      expect(progress.value, isNull);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('rider-registration-name')),
+            )
+            .controller
+            ?.text,
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      second.dispose();
+    },
+  );
+
   testWidgets('rider onboarding submits provider references and duty consent', (
     tester,
   ) async {
@@ -925,6 +1417,137 @@ void main() {
     expect(remote.registrationPayload, isNot(contains('account_number')));
     expect(find.text('Verification in progress'), findsOneWidget);
   });
+
+  for (final cleanupFails in [false, true]) {
+    testWidgets(
+      cleanupFails
+          ? 'cleanup outage preserves acknowledged rider registration'
+          : 'document progress cleanup follows replacement of the registration form',
+      (tester) async {
+        final remote = _RiderRemote()..firstTime = true;
+        final controller = RiderOperationsController(remote);
+        final provider = _RiderOnboardingProvider(
+          retainsDocumentProgress: true,
+          failCleanup: cleanupFails,
+        );
+        remote.onRegister = () {
+          expect(provider.preparationCalls, 1);
+          expect(provider.preparedIds, hasLength(4));
+        };
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: RiderOperationsView(
+                controller: controller,
+                onboardingProvider: provider,
+                destination: const RoleDestination(
+                  id: 'duty',
+                  label: 'Duty',
+                  icon: Icons.toggle_on_outlined,
+                  capability: RoleCapability.riderDuty,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('rider-registration-name')),
+          'Verified Rider',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('rider-registration-vehicle-number')),
+          'TN01AB1234',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('rider-registration-zones')),
+          '600001',
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('rider-duty-location-consent')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('rider-submit-registration')),
+        );
+        await tester.pumpAndSettle();
+        expect(remote.registrationPayload, isNotNull);
+        expect(provider.forgetCalls, 1);
+        expect(provider.preparedIds, cleanupFails ? isNotEmpty : isEmpty);
+        expect(find.text('Verification in progress'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('rider-submit-registration')),
+          findsNothing,
+        );
+      },
+    );
+  }
+
+  testWidgets(
+    'late vendor documents cannot be submitted through a replacement account controller',
+    (tester) async {
+      VendorApplication application(String name) => VendorApplication(
+        id: 'vendor-$name',
+        revision: 1,
+        status: 'REGISTERED',
+        businessName: name,
+        documents: const [],
+        zoneCount: 0,
+        bankStatus: 'NOT_CONFIGURED',
+        verified: false,
+        allowedActions: const {'SUBMIT_DOCUMENTS'},
+      );
+      final firstRemote = _VendorRemote()..value = application('First account');
+      final secondRemote = _VendorRemote()
+        ..value = application('Second account');
+      final first = VendorOperationsController(firstRemote),
+          second = VendorOperationsController(secondRemote);
+      await first.loadAll();
+      await second.loadAll();
+      final provider = _VendorOnboardingProvider()
+        ..documentGate = Completer<List<VendorOnboardingDocument>>();
+      Widget view(VendorOperationsController controller) => MaterialApp(
+        home: Scaffold(
+          body: VendorOperationsView(
+            controller: controller,
+            onboardingProvider: provider,
+            destination: const RoleDestination(
+              id: 'profile',
+              label: 'Profile',
+              icon: Icons.person_outline,
+              capability: RoleCapability.profile,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(view(first));
+      await tester.pumpAndSettle();
+      final verify = find.widgetWithText(TextButton, 'Verify');
+      await tester.ensureVisible(verify);
+      await tester.tap(verify);
+      await tester.pump();
+      expect(provider.documentCalls, 1);
+      await tester.pumpWidget(view(second));
+      await tester.pumpAndSettle();
+      provider.documentGate!.complete(const [
+        VendorOnboardingDocument(
+          kind: 'OWNER_IDENTITY',
+          assetId: 'asset-first-owner',
+        ),
+        VendorOnboardingDocument(
+          kind: 'BUSINESS_REGISTRATION',
+          assetId: 'asset-first-business',
+        ),
+      ]);
+      await tester.pumpAndSettle();
+      expect(firstRemote.revisions, isEmpty);
+      expect(secondRemote.revisions, isEmpty);
+      expect(second.state.application?.status, 'REGISTERED');
+      expect(provider.discarded.map((value) => value.assetId), [
+        'asset-first-owner',
+        'asset-first-business',
+      ]);
+    },
+  );
 
   testWidgets('rider assignments separate active work from history', (
     tester,
@@ -1176,13 +1799,19 @@ final class _FoodRemote implements FoodRemote {
   Future<List<FoodOrder>> orders() async => [orderValue];
 }
 
-final class _VendorOnboardingProvider implements VendorOnboardingProvider {
+final class _VendorOnboardingProvider
+    implements VendorOnboardingProvider, VendorDocumentCleanup {
   int documentCalls = 0;
   int bankCalls = 0;
+  final discarded = <VendorOnboardingDocument>[];
+  Completer<List<VendorOnboardingDocument>>? documentGate;
 
   @override
   Future<List<VendorOnboardingDocument>> collectDocuments() async {
     documentCalls += 1;
+    if (documentGate != null) {
+      return documentGate!.future;
+    }
     return const [
       VendorOnboardingDocument(
         kind: 'BUSINESS_REGISTRATION',
@@ -1205,10 +1834,94 @@ final class _VendorOnboardingProvider implements VendorOnboardingProvider {
       ifsc: 'HDFC0001234',
     );
   }
+
+  @override
+  Future<void> discardUnsubmittedDocuments(
+    List<VendorOnboardingDocument> documents,
+  ) async => discarded.addAll(documents);
 }
 
-final class _RiderOnboardingProvider implements RiderOnboardingProvider {
+final class _ProgressStore implements RiderOnboardingProgressStore {
+  RiderOnboardingProgress? value;
+  @override
+  Future<RiderOnboardingProgress?> read() async => value;
+  @override
+  Future<void> save(RiderOnboardingProgress progress) async {
+    value = progress;
+  }
+
+  @override
+  Future<void> clear() async {
+    value = null;
+  }
+}
+
+final class _StagedRiderProvider implements RiderDocumentOnboardingProvider {
+  int collections = 0;
+  final discarded = <RiderDocumentDraft>[];
+  @override
+  bool get canCollectDocuments => true;
+  @override
+  bool get canTokenizeBankAccount => false;
+  @override
+  Future<List<RiderDocumentDraft>> collectDocuments({
+    required String vehicleType,
+  }) async {
+    ++collections;
+    return [
+      for (final kind in [
+        'IDENTITY',
+        'DRIVER_LICENSE',
+        'VEHICLE_REGISTRATION',
+        'INSURANCE',
+      ])
+        RiderDocumentDraft(kind: kind, assetId: 'asset-$kind'),
+    ];
+  }
+
+  @override
+  Future<void> discardUnsubmittedDocuments(
+    List<RiderDocumentDraft> documents,
+  ) async => discarded.addAll(documents);
+  @override
+  Future<String> tokenizeBankAccount() async => throw StateError('Unavailable');
+  @override
+  Future<RiderOnboardingEvidence> collectEvidence({
+    required String vehicleType,
+  }) async => throw StateError('Use staged documents');
+}
+
+final class _RiderOnboardingProvider
+    implements RiderOnboardingProvider, RecoverableOnboardingDocuments {
+  _RiderOnboardingProvider({
+    this.retainsDocumentProgress = false,
+    this.failCleanup = false,
+  });
   int calls = 0;
+  @override
+  final bool retainsDocumentProgress;
+  final bool failCleanup;
+  int preparationCalls = 0, forgetCalls = 0;
+  Set<String> preparedIds = {};
+  @override
+  Future<void> prepareDocumentSubmission(Set<String> assetIds) async {
+    preparationCalls++;
+    preparedIds = Set.unmodifiable(assetIds);
+  }
+
+  @override
+  Future<void> forgetSubmittedDocuments(Set<String> assetIds) async {
+    forgetCalls++;
+    if (failCleanup) {
+      throw StateError('Synthetic progress cleanup outage');
+    }
+    preparedIds = {};
+  }
+
+  @override
+  Future<void> discardSavedDocuments() async {
+    preparedIds = {};
+  }
 
   @override
   Future<RiderOnboardingEvidence> collectEvidence({
@@ -1239,7 +1952,8 @@ final class _RiderOnboardingProvider implements RiderOnboardingProvider {
   }
 }
 
-final class _VendorRemote implements VendorOperationsRemote {
+final class _VendorRemote
+    implements VendorOperationsRemote, VendorReworkRemote {
   VendorApplication? value;
   VendorFieldVisitDraft? lastVisit;
   final List<int> revisions = [];
@@ -1288,6 +2002,30 @@ final class _VendorRemote implements VendorOperationsRemote {
   ) async {
     revisions.add(revision);
     return value = _next(status: 'DOCUMENTS_SUBMITTED', documents: documents);
+  }
+
+  @override
+  Future<VendorApplication> resubmitApplication(
+    int revision, {
+    required String businessName,
+    required String businessType,
+    required String contactName,
+    required List<Map<String, Object?>> documents,
+  }) async {
+    revisions.add(revision);
+    return value = VendorApplication(
+      id: value!.id,
+      revision: revision + 1,
+      status: 'DOCUMENTS_SUBMITTED',
+      businessName: businessName,
+      businessType: businessType,
+      contactName: contactName,
+      documents: documents,
+      zoneCount: 0,
+      bankStatus: 'NOT_CONFIGURED',
+      verified: false,
+      allowedActions: const {'SCHEDULE_FIELD_VISIT'},
+    );
   }
 
   @override
@@ -1437,13 +2175,16 @@ final class _VendorRemote implements VendorOperationsRemote {
 }
 
 final class _RiderRemote implements RiderOperationsRemote {
+  VoidCallback? onRegister;
   bool failAccept = true;
+  bool failLocation = false;
   bool firstTime = false;
   Map<String, Object?>? registrationPayload;
   final List<int> recoveredSequences = [];
   final List<RiderLocationCommand> locations = [];
+  Completer<void>? locationGate;
   RiderDuty? activeDuty;
-  final profileValue = const RiderProfile(
+  var profileValue = const RiderProfile(
     id: 'rider-profile-001',
     revision: 2,
     status: 'APPROVED',
@@ -1480,6 +2221,7 @@ final class _RiderRemote implements RiderOperationsRemote {
 
   @override
   Future<RiderProfile> register(Map<String, Object?> value) async {
+    onRegister?.call();
     registrationPayload = value;
     return RiderProfile(
       id: 'rider-registration-001',
@@ -1495,7 +2237,8 @@ final class _RiderRemote implements RiderOperationsRemote {
   }
 
   @override
-  Future<RiderDuty> duty() async => throw StateError('off duty');
+  Future<RiderDuty> duty() async =>
+      activeDuty ?? (throw StateError('off duty'));
   @override
   Future<RiderDuty> startDuty(String zoneId) async => activeDuty = RiderDuty(
     id: 'duty-001',
@@ -1528,10 +2271,33 @@ final class _RiderRemote implements RiderOperationsRemote {
   }
 
   @override
+  Future<RiderTask> pickup(RiderTask task) async {
+    if (failAccept) {
+      failAccept = false;
+      throw const ApiTransportFailure(correlationId: 'offline-pickup-test');
+    }
+    return task;
+  }
+
+  @override
   Future<List<Map<String, Object?>>> recover(
     List<RiderOfflineCommand> commands,
   ) async {
     recoveredSequences.addAll(commands.map((value) => value.deviceSequence));
+    final old = profileValue;
+    profileValue = RiderProfile(
+      id: old.id,
+      revision: old.revision,
+      status: old.status,
+      fullName: old.fullName,
+      vehicleNumber: old.vehicleNumber,
+      bankStatus: old.bankStatus,
+      zones: old.zones,
+      maxConcurrent: old.maxConcurrent,
+      allowedActions: old.allowedActions,
+      lastCommandSequence: commands.last.deviceSequence,
+      lastLocationSequence: old.lastLocationSequence,
+    );
     return [
       for (final command in commands)
         {'command_id': command.commandId, 'status': 'APPLIED'},
@@ -1540,6 +2306,10 @@ final class _RiderRemote implements RiderOperationsRemote {
 
   @override
   Future<void> updateLocation(RiderLocationCommand command) async {
+    if (failLocation) {
+      throw const ApiTransportFailure(correlationId: 'location-offline-test');
+    }
+    await locationGate?.future;
     locations.add(command);
   }
 
@@ -1551,6 +2321,7 @@ final class _RiderTracker implements RiderLocationTracker {
   _RiderTracker({this.startError});
 
   final RiderLocationException? startError;
+  Completer<void>? startGate;
   Future<void> Function(RiderTrackedPosition)? _onPosition;
   bool get started => _onPosition != null;
   bool appSettingsOpened = false;
@@ -1568,9 +2339,11 @@ final class _RiderTracker implements RiderLocationTracker {
 
   @override
   Future<void> start(
-    Future<void> Function(RiderTrackedPosition position) onPosition,
-  ) async {
+    Future<void> Function(RiderTrackedPosition position) onPosition, {
+    void Function(Object error)? onError,
+  }) async {
     if (startError != null) throw startError!;
+    await startGate?.future;
     _onPosition = onPosition;
   }
 
@@ -1581,6 +2354,40 @@ final class _RiderTracker implements RiderLocationTracker {
   @override
   Future<void> stop() async {
     _onPosition = null;
+  }
+}
+
+const _deliveryPolicy = ConsentPolicy(
+  purpose: 'LOCATION_DELIVERY',
+  policyVersion: 'delivery-v1',
+  required: true,
+);
+
+final class _DeliveryConsents implements ConsentRemote {
+  bool granted = true;
+  String version = 'delivery-v1';
+  Completer<void>? hold;
+  ConsentEvidence evidence() => ConsentEvidence(
+    evidenceId: 'delivery-evidence',
+    purpose: ConsentPurpose.locationDelivery,
+    granted: granted,
+    policyVersion: version,
+    recordedAt: DateTime.now().toUtc(),
+    version: 1,
+  );
+  @override
+  Future<List<ConsentEvidence>> list() async => [evidence()];
+  @override
+  Future<ConsentEvidence> record({
+    int? expectedVersion,
+    required ConsentPurpose purpose,
+    required bool granted,
+    required String policyVersion,
+  }) async {
+    await hold?.future;
+    this.granted = granted;
+    version = policyVersion;
+    return evidence();
   }
 }
 

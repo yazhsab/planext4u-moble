@@ -4,75 +4,28 @@ import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:planext4u_api_client/planext4u_api_client.dart';
 import 'package:planext4u_config/planext4u_config.dart';
 import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_design_system/planext4u_design_system.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 import 'package:planext4u_identity/planext4u_identity.dart';
 import 'package:planext4u_observability/planext4u_observability.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import 'private_onboarding.dart';
 
 Future<void> main() async {
   final startup = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
-  FirebaseAuth? auth;
-  try {
-    await Firebase.initializeApp();
-    auth = FirebaseAuth.instance;
-  } catch (_) {
-    // The runtime shows an actionable configuration state outside development.
-  }
   final config = AppConfig.fromCompileTime();
-  final identity = AppIdentity.forBuild(
-    application: Planext4uApplication.vendor,
-    environment: config.environment,
-  );
   final observability = _observability(config.environment);
   _installRuntimeErrorBoundary(observability.runtimeMetrics);
-  final push = auth == null
-      ? null
-      : RolePushLifecycle.firebase(
-          role: AppRole.vendor,
-          allowedHost: config.deepLinkHost,
-          allowedScheme: identity.customScheme,
-        );
   runApp(
-    RoleApplicationRuntime<VendorOperationsController>(
+    PublicStartupGate(
       apiBaseUrl: config.apiBaseUrl,
-      applicationRole: AppRole.vendor,
-      environmentLabel: config.environmentLabel,
-      development: config.environment == AppEnvironment.development,
-      developmentProviderToken: 'synthetic-vendor',
-      apiDiagnostics: observability.apiDiagnostics,
-      emailProvider: auth == null ? null : _FirebaseEmailProvider(auth),
-      phoneProvider: auth == null ? null : _FirebasePhoneProvider(auth),
-      onAuthenticatedSession: push?.start,
-      onSessionEnded: push?.end,
-      controllerFactory: (client) =>
-          VendorOperationsController(VendorOperationsApi(client)),
-      authenticatedBuilder:
-          (
-            context,
-            controller,
-            roles,
-            signOut,
-            identityProfile,
-            sessionManagement,
-            notificationPreferences,
-            support,
-            appearancePreferences,
-            accountPrivacy,
-          ) => VendorApp(
-            config: config,
-            controller: controller,
-            grantedRoles: roles,
-            identityProfileController: identityProfile,
-            sessionManagementController: sessionManagement,
-            notificationPreferencesController: notificationPreferences,
-            supportController: support,
-            appearancePreferencesController: appearancePreferences,
-            accountPrivacyController: accountPrivacy,
-            onSignOut: signOut,
-          ),
+      role: 'vendor',
+      initialize: () => _initializeVendorRuntime(config, observability),
     ),
   );
   WidgetsBinding.instance.addPostFrameCallback(
@@ -80,6 +33,117 @@ Future<void> main() async {
       startup.elapsed,
       application: 'vendor',
     ),
+  );
+}
+
+Future<Widget> _initializeVendorRuntime(
+  AppConfig config,
+  MobileObservability observability,
+) async {
+  FirebaseAuth? auth;
+  try {
+    await Firebase.initializeApp();
+    auth = FirebaseAuth.instance;
+  } catch (_) {
+    // The runtime shows an actionable configuration state outside development.
+  }
+  final identity = AppIdentity.forBuild(
+    application: Planext4uApplication.vendor,
+    environment: config.environment,
+  );
+  PrivateMediaUploader? privateUploader;
+  HostedBankLinkClient? bankLinks;
+  final push = auth == null
+      ? null
+      : RolePushLifecycle.firebase(
+          role: AppRole.vendor,
+          allowedHost: config.deepLinkHost,
+          allowedScheme: identity.customScheme,
+        );
+  return RoleApplicationRuntime<VendorOperationsController>(
+    apiBaseUrl: config.apiBaseUrl,
+    applicationRole: AppRole.vendor,
+    environmentLabel: config.environmentLabel,
+    development: config.environment == AppEnvironment.development,
+    developmentProviderToken: 'synthetic-vendor',
+    apiDiagnostics: observability.apiDiagnostics,
+    emailProvider: auth == null ? null : _FirebaseEmailProvider(auth),
+    phoneProvider: auth == null ? null : _FirebasePhoneProvider(auth),
+    accountLinkingProvider: auth == null
+        ? null
+        : FirebaseAccountLinkingProvider(auth),
+    onAuthenticatedSession: push?.start,
+    onDeviceSettingsReturn: push?.refreshAuthorization,
+    onSessionEnded: (unregister) async {
+      bankLinks?.dispose();
+      bankLinks = null;
+      privateUploader?.dispose();
+      privateUploader = null;
+      await push?.end(unregister);
+    },
+    controllerFactory: (client) {
+      bankLinks?.dispose();
+      final bankOrigin = config.bankLinkLaunchOrigin;
+      bankLinks = bankOrigin == null
+          ? null
+          : HostedBankLinkClient(
+              client: client,
+              applicationRole: 'vendor',
+              allowedOrigins: {bankOrigin},
+              allowDevelopmentHttp:
+                  config.environment == AppEnvironment.development,
+            );
+      privateUploader?.dispose();
+      final origin = config.privateUploadOrigin;
+      privateUploader = origin == null
+          ? null
+          : PrivateMediaUploader(
+              client: client,
+              allowedOrigins: {origin},
+              allowDevelopmentHttp:
+                  config.environment == AppEnvironment.development,
+            );
+      return VendorOperationsController(VendorOperationsApi(client))
+        ..bankLinks = bankLinks;
+    },
+    onAccountScopeReady: (controller, tenantId, country, identityId) {
+      controller.documentProgress = EncryptedPrivateOnboardingProgressStore(
+        tenantId: tenantId,
+        country: country,
+        identityId: identityId,
+        applicationRole: 'vendor',
+      );
+      controller.onboardingProgress = EncryptedVendorOnboardingProgressStore(
+        tenantId: tenantId,
+        country: country,
+        identityId: identityId,
+      );
+    },
+    authenticatedBuilder:
+        (
+          context,
+          controller,
+          roles,
+          signOut,
+          identityProfile,
+          sessionManagement,
+          notificationPreferences,
+          support,
+          appearancePreferences,
+          accountPrivacy,
+        ) => VendorApp(
+          config: config,
+          controller: controller,
+          privateMediaUploader: privateUploader,
+          grantedRoles: roles,
+          identityProfileController: identityProfile,
+          sessionManagementController: sessionManagement,
+          notificationPreferencesController: notificationPreferences,
+          supportController: support,
+          appearancePreferencesController: appearancePreferences,
+          accountPrivacyController: accountPrivacy,
+          onSignOut: signOut,
+        ),
   );
 }
 
@@ -129,6 +193,7 @@ class VendorApp extends StatelessWidget {
     },
     this.locale,
     this.onboardingProvider,
+    this.privateMediaUploader,
     this.identityProfileController,
     this.sessionManagementController,
     this.notificationPreferencesController,
@@ -146,6 +211,7 @@ class VendorApp extends StatelessWidget {
   final Map<String, bool> featureFlags;
   final Locale? locale;
   final VendorOnboardingProvider? onboardingProvider;
+  final PrivateMediaUploader? privateMediaUploader;
   final IdentityProfileController? identityProfileController;
   final IdentitySessionManagementController? sessionManagementController;
   final NotificationPreferencesController? notificationPreferencesController;
@@ -172,7 +238,13 @@ class VendorApp extends StatelessWidget {
         dataSaver: appearance.dataSaver,
         forceReducedMotion: appearance.reduceMotion,
         minimumTextScale: appearance.textScale.minimumScale,
-        child: child ?? const SizedBox.shrink(),
+        child: LocalAppLockGate(
+          controller: accountPrivacyController?.appLock,
+          child: PublishedEducationGate(
+            controller: identityProfileController?.education,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
       ),
       home: AuthenticatedRoleShell(
         applicationRole: AppRole.vendor,
@@ -186,7 +258,30 @@ class VendorApp extends StatelessWidget {
             : (context, destination) => VendorOperationsView(
                 controller: controller!,
                 destination: destination,
-                onboardingProvider: onboardingProvider,
+                onboardingProvider:
+                    onboardingProvider ??
+                    (privateMediaUploader == null
+                        ? null
+                        : NativeVendorOnboardingProvider(
+                            uploader: privateMediaUploader!,
+                            progress: controller!.documentProgress,
+                            bankLinks: controller!.bankLinks,
+                            verifyBank: controller!.bankLinks == null
+                                ? null
+                                : () => showHostedBankLinkDialog(
+                                    context,
+                                    client: controller!.bankLinks!,
+                                    launch: (url) => launchUrl(
+                                      url,
+                                      mode: LaunchMode.externalApplication,
+                                    ),
+                                  ),
+                            capture: (kind) => captureNativeVendorDocument(
+                              context,
+                              kind,
+                              isActive: () => privateMediaUploader!.isActive,
+                            ),
+                          )),
                 identityProfileController: identityProfileController,
                 sessionManagementController: sessionManagementController,
                 notificationPreferencesController:
@@ -202,9 +297,25 @@ class VendorApp extends StatelessWidget {
 }
 
 final class _FirebaseEmailProvider
-    implements EmailIdentityProvider, PasswordRecoveryProvider {
+    implements
+        EmailIdentityProvider,
+        PasswordRecoveryProvider,
+        EmailRegistrationProvider {
   const _FirebaseEmailProvider(this._auth);
   final FirebaseAuth _auth;
+  @override
+  Future<ProviderAssertion> register({
+    required String email,
+    required String secret,
+  }) async {
+    final result = await _auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: secret,
+    );
+    await result.user?.sendEmailVerification();
+    return _firebaseAssertion(result.user);
+  }
+
   @override
   Future<ProviderAssertion> authenticate({
     required String email,

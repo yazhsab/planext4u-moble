@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 const _sourceRepository = 'https://github.com/yazhsab/planext4u-backend';
-const _sourceCommit = 'cdfc28dbaecad124500f93bd63a50a1865bf781e';
+const _sourceCommit = '070fc5d24392f1f4b9485ea51de2fc8481d84f11';
 const _contractPath = 'api/openapi/common.openapi.json';
 const _fixturePath = 'api/fixtures/problem.json';
 const _catalogContractPath = 'api/openapi/catalog.openapi.json';
@@ -503,6 +503,7 @@ void main(List<String> arguments) {
   final provenance = <String, Object>{
     'source_repository': _sourceRepository,
     'source_commit': _sourceCommit,
+    'source_state': 'LOCAL_WORKING_TREE_PHASE_2',
     'contract_path': _contractPath,
     'contract_sha256': contractHash,
     'fixture_path': _fixturePath,

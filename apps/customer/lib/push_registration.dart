@@ -3,15 +3,10 @@ import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:planext4u_api_client/planext4u_api_client.dart';
+import 'package:planext4u_core/planext4u_core.dart';
 import 'package:planext4u_experience/planext4u_experience.dart';
 
-abstract interface class PushMessaging {
-  Future<bool> authorize();
-  Future<String?> token();
-  Stream<String> get tokenRefreshes;
-  Future<Map<String, String>?> initialInteraction();
-  Stream<Map<String, String>> get interactions;
-}
+abstract interface class PushMessaging implements RolePushMessaging {}
 
 final class FirebasePushMessaging implements PushMessaging {
   FirebasePushMessaging(this._messaging);
@@ -19,7 +14,7 @@ final class FirebasePushMessaging implements PushMessaging {
 
   @override
   Future<bool> authorize() async {
-    final settings = await _messaging.requestPermission(provisional: true);
+    final settings = await _messaging.getNotificationSettings();
     return settings.authorizationStatus == AuthorizationStatus.authorized ||
         settings.authorizationStatus == AuthorizationStatus.provisional;
   }
@@ -116,15 +111,10 @@ final class PushDeviceApi implements PushDeviceRemote {
   }
 }
 
-enum PushRegistrationStatus {
-  idle,
-  requestingPermission,
-  denied,
-  registering,
-  registered,
-  unavailable,
-}
+typedef PushRegistrationStatus = RolePushRegistrationStatus;
 
+/// Customer routing adds typed destination validation to the shared,
+/// generation-guarded registration lifecycle used by all three applications.
 final class CustomerPushRegistration {
   CustomerPushRegistration({
     required PushMessaging messaging,
@@ -135,128 +125,47 @@ final class CustomerPushRegistration {
     this.allowedHost = 'planext4u.net',
     this.allowedScheme = 'planext4u-customer',
     this.onStatusChanged,
-  }) : _messaging = messaging,
-       _remote = remote,
-       _platform = platform,
-       _locale = locale,
-       _onDeepLink = onDeepLink;
-
-  final PushMessaging _messaging;
-  final PushDeviceRemote _remote;
-  final String _platform;
-  final String _locale;
-  final void Function(Uri) _onDeepLink;
+  }) {
+    _registration = RolePushRegistration(
+      messaging: messaging,
+      remote: _CustomerPushRemote(remote),
+      role: AppRole.customer,
+      platform: platform,
+      locale: locale,
+      allowedHost: allowedHost,
+      allowedScheme: allowedScheme,
+      onStatusChanged: onStatusChanged,
+      onDeepLink: (uri) {
+        if (CustomerDeepLink.parse(uri) != null) onDeepLink(uri);
+      },
+    );
+  }
   final String allowedHost;
   final String allowedScheme;
-  final void Function(PushRegistrationStatus status)? onStatusChanged;
-  StreamSubscription<String>? _tokens;
-  StreamSubscription<Map<String, String>>? _interactions;
-  bool _started = false;
-  bool _authorized = false;
-  bool _initialInteractionHandled = false;
-  String? _lastToken;
-  PushRegistrationStatus _status = PushRegistrationStatus.idle;
+  final void Function(PushRegistrationStatus)? onStatusChanged;
+  late final RolePushRegistration _registration;
+  PushRegistrationStatus get status => _registration.status;
+  Future<void> start() => _registration.start();
+  Future<void> retry() => _registration.retry();
+  Future<void> refreshAuthorization() => _registration.refreshAuthorization();
+  Future<void> dispose({bool unregister = false}) =>
+      _registration.dispose(unregister: unregister);
+}
 
-  PushRegistrationStatus get status => _status;
-
-  Future<void> start() async {
-    if (_started) return;
-    _started = true;
-    _interactions = _messaging.interactions.listen(
-      _handleInteraction,
-      onError: (_) {},
-    );
-    await retry();
+final class _CustomerPushRemote implements RolePushDeviceRemote {
+  const _CustomerPushRemote(this._remote);
+  final PushDeviceRemote _remote;
+  @override
+  Future<void> register({
+    required String token,
+    required String platform,
+    required String locale,
+  }) async {
+    await _remote.register(token: token, platform: platform, locale: locale);
   }
 
-  Future<void> retry() async {
-    if (!_started) return start();
-    try {
-      if (!_initialInteractionHandled) {
-        _initialInteractionHandled = true;
-        _handleInteraction(await _messaging.initialInteraction());
-      }
-      if (!_authorized) {
-        _setStatus(PushRegistrationStatus.requestingPermission);
-        _authorized = await _messaging.authorize();
-      }
-      if (!_authorized) {
-        _setStatus(PushRegistrationStatus.denied);
-        return;
-      }
-      _tokens ??= _messaging.tokenRefreshes.listen((value) {
-        _lastToken = value;
-        unawaited(_registerSafely(value));
-      }, onError: (_) => _setStatus(PushRegistrationStatus.unavailable));
-      final current = _lastToken ?? await _messaging.token();
-      if (current == null || current.isEmpty) {
-        _setStatus(PushRegistrationStatus.unavailable);
-        return;
-      }
-      _lastToken = current;
-      await _registerSafely(current);
-    } catch (_) {
-      _setStatus(PushRegistrationStatus.unavailable);
-      // Push is an optional delivery channel. Startup and authentication must
-      // remain usable when Firebase or the notification API is unavailable.
-    }
-  }
-
-  Future<void> _registerSafely(String token) async {
-    _setStatus(PushRegistrationStatus.registering);
-    try {
-      await _remote.register(
-        token: token,
-        platform: _platform,
-        locale: _locale,
-      );
-      _setStatus(PushRegistrationStatus.registered);
-    } catch (_) {
-      _setStatus(PushRegistrationStatus.unavailable);
-      // Explicit retry, a token refresh or the next authenticated launch can
-      // retry without exposing the provider token to logs or crash reporting.
-    }
-  }
-
-  void _setStatus(PushRegistrationStatus value) {
-    if (_status == value) return;
-    _status = value;
-    onStatusChanged?.call(value);
-  }
-
-  void _handleInteraction(Map<String, String>? data) {
-    final raw = data?['deep_link'];
-    if (raw == null) return;
-    final uri = Uri.tryParse(raw);
-    if (uri == null || CustomerDeepLink.parse(uri) == null) return;
-    if (uri.isAbsolute &&
-        !((uri.scheme == 'https' &&
-                uri.host.toLowerCase() == allowedHost.toLowerCase()) ||
-            uri.scheme == allowedScheme)) {
-      return;
-    }
-    _onDeepLink(uri);
-  }
-
-  Future<void> dispose({bool unregister = false}) async {
-    await _tokens?.cancel();
-    await _interactions?.cancel();
-    _tokens = null;
-    _interactions = null;
-    _started = false;
-    _authorized = false;
-    _initialInteractionHandled = false;
-    _lastToken = null;
-    _setStatus(PushRegistrationStatus.idle);
-    if (unregister) {
-      try {
-        await _remote.unregister();
-      } catch (_) {
-        // Server-side session revocation remains authoritative if this
-        // best-effort device cleanup cannot reach the notification service.
-      }
-    }
-  }
+  @override
+  Future<void> unregister() => _remote.unregister();
 }
 
 Map<String, String>? _stringData(Map<String, dynamic>? value) {
