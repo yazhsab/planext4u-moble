@@ -362,6 +362,31 @@
         ],
         "type": "object"
       },
+      "RegionalParticipantReviewSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "participant_id", "kind", "revision", "status", "display_name", "category", "updated_at", "actions"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "participant_id": {"type": "string", "format": "uuid"},
+          "kind": {"type": "string", "enum": ["VENDOR"]},
+          "revision": {"type": "integer", "minimum": 1},
+          "status": {"type": "string"},
+          "display_name": {"type": "string"},
+          "category": {"type": "string"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "actions": {"type": "array", "maxItems": 1, "items": {"type": "string", "enum": ["REJECT", "FIELD_CHECK_IN"]}}
+        }
+      },
+      "RegionalParticipantReviewPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 50, "items": {"$ref": "#/components/schemas/RegionalParticipantReviewSummary"}},
+          "next_after": {"type": "string", "format": "uuid"}
+        }
+      },
       "ParticipantReviewPage": {
         "additionalProperties": false,
         "properties": {
@@ -1571,11 +1596,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ParticipantReviewPage"
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/ParticipantReviewPage"},
+                    {"$ref": "#/components/schemas/RegionalParticipantReviewPage"}
+                  ]
                 }
               }
             },
-            "description": "Minimal current-country participant projection"
+            "description": "Country or minimal regional participant projection, selected by current reviewer role"
           },
           "401": {
             "content": {
