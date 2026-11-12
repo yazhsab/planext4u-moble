@@ -423,11 +423,19 @@ final class IdentitySessionController implements ApiAuthSession {
           rotated.identityId != authentication.identityId ||
           rotated.tenantId != authentication.tenantId ||
           rotated.country != authentication.country) {
-        await _clearAt(epoch);
         _emitAt(
           epoch,
           const IdentitySessionState(status: IdentitySessionStatus.roleDenied),
         );
+        try {
+          await _clearAt(epoch);
+        } catch (_) {
+          // Keep the in-memory session denied even if secure storage fails.
+        }
+        await _bestEffortRevoke(rotated.tokens.refreshToken);
+        if (rotated.tokens.refreshToken != authentication.tokens.refreshToken) {
+          await _bestEffortRevoke(authentication.tokens.refreshToken);
+        }
         return false;
       }
       if (!await _saveAt(epoch, rotated)) {

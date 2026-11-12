@@ -274,6 +274,28 @@ void main() {
       expect(await controller.accessToken(), 'access-token-2');
     });
 
+    test('cross-country refresh revokes both token generations', () async {
+      final store = MemorySecureSessionStore();
+      await store.write(authentication(now));
+      final rotated = authentication(
+        now,
+        country: 'NG',
+        refreshToken: 'refresh-token-00000000000000000000000000000002',
+      );
+      final remote = FakeRemote(rotated);
+      final controller = session(remote, store, now);
+      await controller.initialize();
+
+      expect(await controller.refresh(), isFalse);
+      expect(controller.state.status, IdentitySessionStatus.roleDenied);
+      expect(store.hasSession, isFalse);
+      expect(await controller.accessToken(), isNull);
+      expect(remote.revokedTokens, [
+        'refresh-token-00000000000000000000000000000002',
+        'refresh-token-00000000000000000000000000000001',
+      ]);
+    });
+
     test('refresh denial purges local credentials', () async {
       final store = MemorySecureSessionStore();
       await store.write(authentication(now));
