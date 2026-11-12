@@ -49,8 +49,31 @@ void main() {
     expect(config.apiBaseUrl, Uri.parse('http://localhost:8080'));
     expect(config.webBaseUrl, Uri.parse('http://localhost:3000'));
     expect(config.deepLinkHost, 'dev.planext4u.net');
+    expect(config.countryCode, 'IN');
     expect(config.isProduction, isFalse);
   });
+  test(
+    'public country scope is validated before startup and authentication',
+    () {
+      expect(
+        AppConfig.fromPublicDefines({
+          'APP_ENV': 'production',
+          'DEFAULT_COUNTRY_CODE': 'NG',
+        }).countryCode,
+        'NG',
+      );
+      for (final country in ['', 'ng', 'NGA', 'N1', ' NG', 'NG ']) {
+        expect(
+          () => AppConfig.parse(
+            rawEnvironment: 'production',
+            rawApiBaseUrl: '',
+            rawCountryCode: country,
+          ),
+          throwsFormatException,
+        );
+      }
+    },
+  );
 
   test('requires HTTPS outside development', () {
     expect(

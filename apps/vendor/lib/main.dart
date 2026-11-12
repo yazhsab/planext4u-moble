@@ -25,6 +25,7 @@ Future<void> main() async {
     PublicStartupGate(
       apiBaseUrl: config.apiBaseUrl,
       role: 'vendor',
+      country: config.countryCode,
       initialize: () => _initializeVendorRuntime(config, observability),
     ),
   );
@@ -62,6 +63,7 @@ Future<Widget> _initializeVendorRuntime(
         );
   return RoleApplicationRuntime<VendorOperationsController>(
     apiBaseUrl: config.apiBaseUrl,
+    country: config.countryCode,
     applicationRole: AppRole.vendor,
     environmentLabel: config.environmentLabel,
     development: config.environment == AppEnvironment.development,

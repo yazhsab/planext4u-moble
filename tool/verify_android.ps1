@@ -4,6 +4,7 @@ param(
   [Parameter(Mandatory = $true)][string]$AndroidSdk,
   [string]$GradleUserHome,
   [ValidatePattern('^[a-z0-9-]+$')][string]$EvidenceDirectoryName = 'phase0-android',
+  [ValidatePattern('^[A-Z]{2}$')][string]$CountryCode = 'IN',
   [ValidateSet('customer','vendor','rider')][string[]]$Apps = @('customer','vendor','rider'),
   [ValidateSet('development','staging','production')][string[]]$Flavors = @('development','staging','production')
 )
@@ -23,7 +24,7 @@ $previousEnvironment = @{}
 foreach ($key in @('JAVA_HOME','ANDROID_HOME','ANDROID_SDK_ROOT','GRADLE_USER_HOME','PATH')) {
   $previousEnvironment[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
 }
-$report = [ordered]@{check_id='android-build-matrix'; result='IN_PROGRESS'; complete_all_nine=$false; source_revision=''; source_fingerprint=''; results=@()}
+$report = [ordered]@{check_id='android-build-matrix'; result='IN_PROGRESS'; complete_all_nine=$false; country_code=$CountryCode; source_revision=''; source_fingerprint=''; results=@()}
 function Save-BuildReport {
   $report.updated_at = [DateTimeOffset]::UtcNow.ToString('o')
   [IO.File]::WriteAllText((Join-Path $outputDirectory 'report.json'), ($report | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
@@ -58,7 +59,7 @@ try {
       Write-Output "Building $app / $flavor debug APK"
       Push-Location (Join-Path $repository "apps\$app")
       try {
-        & $flutterCommand build apk --debug --no-pub --flavor $flavor "--dart-define=APP_ENV=$flavor" "--dart-define=API_BASE_URL=$($urls[$flavor])" *> $log
+        & $flutterCommand build apk --debug --no-pub --flavor $flavor "--dart-define=APP_ENV=$flavor" "--dart-define=API_BASE_URL=$($urls[$flavor])" "--dart-define=DEFAULT_COUNTRY_CODE=$CountryCode" *> $log
         $entry.exit_code = $LASTEXITCODE
       } finally { Pop-Location }
       $entry.completed_at = [DateTimeOffset]::UtcNow.ToString('o')

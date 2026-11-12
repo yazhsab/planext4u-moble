@@ -8,6 +8,7 @@ Map<String, String> validInputs() => {
   'RELEASE_VERSION': '1.2.3',
   'RELEASE_BUILD_NUMBER': '42',
   'RELEASE_API_BASE_URL': 'https://api.planext4u.net',
+  'RELEASE_COUNTRY_CODE': 'IN',
   'RELEASE_BANK_LINK_LAUNCH_ORIGIN': 'https://bank.planext4u.net',
   'IOS_DEVELOPMENT_TEAM': 'ABCDEFGHIJ',
   'MOBILE_SIGNING_ROTATION_APPROVED': 'true',
@@ -48,6 +49,20 @@ void main() {
       expect(
         validateReleaseInputs(validInputs()..['RELEASE_APP'] = role),
         isEmpty,
+      );
+    }
+  });
+  test('release country is explicit and strictly scoped', () {
+    expect(
+      validateReleaseInputs(validInputs()..['RELEASE_COUNTRY_CODE'] = 'NG'),
+      isEmpty,
+    );
+    for (final country in ['', 'in', 'IND', 'I1', ' IN', 'IN ']) {
+      expect(
+        validateReleaseInputs(
+          validInputs()..['RELEASE_COUNTRY_CODE'] = country,
+        ).join(),
+        contains('RELEASE_COUNTRY_CODE'),
       );
     }
   });

@@ -50,8 +50,13 @@ flutter build ios \
 ```
 
 Only the allow-listed public keys `APP_ENV`, `API_BASE_URL`, `WEB_BASE_URL`,
-`DEEP_LINK_HOST` and `PRIVATE_UPLOAD_ORIGIN` may be supplied. The upload value
-is one public root origin, signed by the media service before it reaches the
+`DEEP_LINK_HOST`, `DEFAULT_COUNTRY_CODE`, `PRIVATE_UPLOAD_ORIGIN` and
+`BANK_LINK_LAUNCH_ORIGIN` may be supplied. `DEFAULT_COUNTRY_CODE` defaults to
+`IN` for the India launch and must be exactly two uppercase letters. The same
+selected country scopes public startup and provider-backed enrollment/recovery
+in all three apps; it does not switch an existing signed-in account or prove a
+second market is operational. The upload value is one public root origin,
+signed by the media service before it reaches the
 client. Staging/production require HTTPS and leave document capture unavailable
 until this origin is configured. Local development defaults to
 `http://127.0.0.1:9000`; the dedicated Android verification harness reverses

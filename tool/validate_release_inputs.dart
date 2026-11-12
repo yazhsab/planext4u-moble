@@ -52,6 +52,9 @@ List<String> validateReleaseInputs(Map<String, String> values) {
   } on FormatException {
     errors.add('RELEASE_API_BASE_URL must be a public HTTPS origin.');
   }
+  if (!RegExp(r'^[A-Z]{2}$').hasMatch(values['RELEASE_COUNTRY_CODE'] ?? '')) {
+    errors.add('RELEASE_COUNTRY_CODE must be two uppercase letters.');
+  }
   if (const {'vendor', 'rider'}.contains(values['RELEASE_APP'])) {
     final raw = values['RELEASE_BANK_LINK_LAUNCH_ORIGIN'] ?? '';
     final uri = Uri.tryParse(raw);

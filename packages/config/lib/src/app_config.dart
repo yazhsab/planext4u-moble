@@ -70,6 +70,7 @@ final class AppConfig {
     required this.apiBaseUrl,
     required this.webBaseUrl,
     required this.deepLinkHost,
+    this.countryCode = 'IN',
     this.privateUploadOrigin,
     this.bankLinkLaunchOrigin,
   });
@@ -79,6 +80,7 @@ final class AppConfig {
     'API_BASE_URL',
     'WEB_BASE_URL',
     'DEEP_LINK_HOST',
+    'DEFAULT_COUNTRY_CODE',
     'PRIVATE_UPLOAD_ORIGIN',
     'BANK_LINK_LAUNCH_ORIGIN',
   };
@@ -92,6 +94,10 @@ final class AppConfig {
     rawApiBaseUrl: const String.fromEnvironment('API_BASE_URL'),
     rawWebBaseUrl: const String.fromEnvironment('WEB_BASE_URL'),
     rawDeepLinkHost: const String.fromEnvironment('DEEP_LINK_HOST'),
+    rawCountryCode: const String.fromEnvironment(
+      'DEFAULT_COUNTRY_CODE',
+      defaultValue: 'IN',
+    ),
     rawPrivateUploadOrigin: const String.fromEnvironment(
       'PRIVATE_UPLOAD_ORIGIN',
     ),
@@ -115,6 +121,7 @@ final class AppConfig {
       rawApiBaseUrl: defines['API_BASE_URL'] ?? '',
       rawWebBaseUrl: defines['WEB_BASE_URL'] ?? '',
       rawDeepLinkHost: defines['DEEP_LINK_HOST'] ?? '',
+      rawCountryCode: defines['DEFAULT_COUNTRY_CODE'] ?? 'IN',
       rawPrivateUploadOrigin: defines['PRIVATE_UPLOAD_ORIGIN'] ?? '',
       rawBankLinkLaunchOrigin: defines['BANK_LINK_LAUNCH_ORIGIN'] ?? '',
     );
@@ -126,6 +133,7 @@ final class AppConfig {
     required String rawApiBaseUrl,
     String rawWebBaseUrl = '',
     String rawDeepLinkHost = '',
+    String rawCountryCode = 'IN',
     String rawPrivateUploadOrigin = '',
     String rawBankLinkLaunchOrigin = '',
   }) {
@@ -153,6 +161,12 @@ final class AppConfig {
         : rawDeepLinkHost.trim().toLowerCase();
     if (!_isValidHost(deepLinkHost)) {
       throw const FormatException('DEEP_LINK_HOST must be a hostname.');
+    }
+    final countryCode = rawCountryCode;
+    if (!RegExp(r'^[A-Z]{2}$').hasMatch(countryCode)) {
+      throw const FormatException(
+        'DEFAULT_COUNTRY_CODE must be two uppercase letters.',
+      );
     }
     Uri? privateUploadOrigin;
     if (rawPrivateUploadOrigin.trim().isNotEmpty ||
@@ -202,6 +216,7 @@ final class AppConfig {
       apiBaseUrl: apiBaseUrl,
       webBaseUrl: webBaseUrl,
       deepLinkHost: deepLinkHost,
+      countryCode: countryCode,
       privateUploadOrigin: privateUploadOrigin,
       bankLinkLaunchOrigin: bankLinkLaunchOrigin,
     );
@@ -211,6 +226,7 @@ final class AppConfig {
   final Uri apiBaseUrl;
   final Uri webBaseUrl;
   final String deepLinkHost;
+  final String countryCode;
   final Uri? privateUploadOrigin;
   final Uri? bankLinkLaunchOrigin;
 

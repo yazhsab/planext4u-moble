@@ -47,6 +47,7 @@ jobs:
       RELEASE_VERSION: ${{ inputs.version }}
       RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}
       RELEASE_API_BASE_URL: ${{ vars.MOBILE_API_BASE_URL }}
+      RELEASE_COUNTRY_CODE: ${{ vars.MOBILE_COUNTRY_CODE || 'IN' }}
       RELEASE_BANK_LINK_LAUNCH_ORIGIN: ${{ vars.MOBILE_BANK_LINK_LAUNCH_ORIGIN }}
       MOBILE_SIGNING_ROTATION_APPROVED: ${{ vars.MOBILE_SIGNING_ROTATION_APPROVED }}
     steps:
@@ -167,6 +168,7 @@ jobs:
             --split-debug-info="$RUNNER_TEMP/planext4u-symbols/android" \
             --dart-define=APP_ENV=production \
             --dart-define="API_BASE_URL=$RELEASE_API_BASE_URL" \
+            --dart-define="DEFAULT_COUNTRY_CODE=$RELEASE_COUNTRY_CODE" \
             --dart-define="BANK_LINK_LAUNCH_ORIGIN=$RELEASE_BANK_LINK_LAUNCH_ORIGIN"
           flutter build ipa --release --flavor production \
             --build-name="$RELEASE_VERSION" \
@@ -175,6 +177,7 @@ jobs:
             --split-debug-info="$RUNNER_TEMP/planext4u-symbols/ios" \
             --dart-define=APP_ENV=production \
             --dart-define="API_BASE_URL=$RELEASE_API_BASE_URL" \
+            --dart-define="DEFAULT_COUNTRY_CODE=$RELEASE_COUNTRY_CODE" \
             --dart-define="BANK_LINK_LAUNCH_ORIGIN=$RELEASE_BANK_LINK_LAUNCH_ORIGIN" \
             --export-options-plist="$IOS_EXPORT_OPTIONS_PATH"
           test -s build/app/outputs/bundle/productionRelease/app-production-release.aab

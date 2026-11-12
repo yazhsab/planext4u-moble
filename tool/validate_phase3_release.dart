@@ -192,6 +192,7 @@ void _validateAutomation(List<String> failures) {
     r'--build-name="$RELEASE_VERSION"',
     r'--build-number="$RELEASE_BUILD_NUMBER"',
     r'--dart-define="API_BASE_URL=$RELEASE_API_BASE_URL"',
+    r'--dart-define="DEFAULT_COUNTRY_CODE=$RELEASE_COUNTRY_CODE"',
     'ANDROID_KEYSTORE_B64',
     'IOS_DISTRIBUTION_CERTIFICATE_B64',
     'MOBILE_ANDROID_FIREBASE_CONFIG_B64',

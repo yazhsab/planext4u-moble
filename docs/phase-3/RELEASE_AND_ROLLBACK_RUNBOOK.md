@@ -21,7 +21,9 @@ selected customer, vendor or rider environment:
   production package/bundle identifier.
 
 Each role environment also needs the public `MOBILE_API_BASE_URL` variable and
-`MOBILE_SIGNING_ROTATION_APPROVED=true` after the signing owner records retirement
+may set public `MOBILE_COUNTRY_CODE` (default `IN`, exactly two uppercase
+letters) for that release's startup and authentication scope. The environment
+also needs `MOBILE_SIGNING_ROTATION_APPROVED=true` after the signing owner records retirement
 or store-authorized reset of the historically exposed credentials. Setting the
 variable is an owner attestation; it does not perform key rotation. Do not delete
 or replace a published application's signing identity outside the store owner's

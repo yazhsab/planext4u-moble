@@ -41,6 +41,7 @@ final class RoleApplicationRuntime<T extends ChangeNotifier>
     extends StatefulWidget {
   const RoleApplicationRuntime({
     required this.apiBaseUrl,
+    this.country = 'IN',
     required this.applicationRole,
     required this.environmentLabel,
     required this.development,
@@ -61,6 +62,7 @@ final class RoleApplicationRuntime<T extends ChangeNotifier>
   });
 
   final Uri apiBaseUrl;
+  final String country;
   final AppRole applicationRole;
   final String environmentLabel;
   final bool development;
@@ -139,7 +141,7 @@ class _RoleApplicationRuntimeState<T extends ChangeNotifier>
         ),
         applicationRole: widget.applicationRole,
         deviceId: deviceId,
-        country: 'IN',
+        country: widget.country,
       );
       _session = session;
       _subscription = session.states.listen((state) {

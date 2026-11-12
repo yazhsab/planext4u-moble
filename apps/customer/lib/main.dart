@@ -33,6 +33,7 @@ Future<void> main() async {
     PublicStartupGate(
       apiBaseUrl: config.apiBaseUrl,
       role: 'customer',
+      country: config.countryCode,
       initialize: () => _initializeCustomerRuntime(config, observability),
     ),
   );
@@ -151,7 +152,7 @@ class _CustomerRuntimeState extends State<CustomerRuntime>
         ),
         applicationRole: AppRole.customer,
         deviceId: deviceId,
-        country: 'IN',
+        country: widget.config.countryCode,
       );
       _session = session;
       _sessionSubscription = session.states.listen((state) {

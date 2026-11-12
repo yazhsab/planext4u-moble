@@ -29,6 +29,7 @@ Future<void> main() async {
     PublicStartupGate(
       apiBaseUrl: config.apiBaseUrl,
       role: 'rider',
+      country: config.countryCode,
       initialize: () => _initializeRiderRuntime(config, observability),
     ),
   );
@@ -66,6 +67,7 @@ Future<Widget> _initializeRiderRuntime(
         );
   return RoleApplicationRuntime<RiderOperationsController>(
     apiBaseUrl: config.apiBaseUrl,
+    country: config.countryCode,
     applicationRole: AppRole.rider,
     environmentLabel: config.environmentLabel,
     development: config.environment == AppEnvironment.development,
