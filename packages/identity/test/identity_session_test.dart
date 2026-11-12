@@ -124,9 +124,75 @@ void main() {
         'refresh-token-00000000000000000000000000000001',
       ]);
     });
+    test('cross-country sign-in revokes and never persists a token', () async {
+      final remote = FakeRemote(authentication(now));
+      final store = MemorySecureSessionStore();
+      final controller = session(remote, store, now, country: 'NG');
+
+      final result = await controller.signInWithEmail(
+        provider: FakeEmailProvider(),
+        email: 'customer@example.test',
+        secret: 'synthetic-password',
+      );
+
+      expect(result.status, IdentitySessionStatus.roleDenied);
+      expect(store.hasSession, isFalse);
+      expect(await controller.accessToken(), isNull);
+      expect(remote.revokedTokens, [
+        'refresh-token-00000000000000000000000000000001',
+      ]);
+    });
+    test('matching country sign-in persists the session', () async {
+      final remote = FakeRemote(authentication(now, country: 'NG'));
+      final store = MemorySecureSessionStore();
+      final controller = session(remote, store, now, country: 'NG');
+
+      final result = await controller.signInWithEmail(
+        provider: FakeEmailProvider(),
+        email: 'customer@example.test',
+        secret: 'synthetic-password',
+      );
+
+      expect(result.status, IdentitySessionStatus.authenticated);
+      expect(store.hasSession, isTrue);
+      expect(await controller.accessToken(), 'access-token-1');
+    });
   });
 
   group('session lifecycle', () {
+    test('cross-country stored session is purged before restore', () async {
+      final store = MemorySecureSessionStore();
+      await store.write(authentication(now));
+      final remote = FakeRemote(authentication(now));
+      final controller = session(remote, store, now, country: 'NG');
+
+      await controller.initialize();
+
+      expect(controller.state.status, IdentitySessionStatus.roleDenied);
+      expect(store.hasSession, isFalse);
+      expect(await controller.accessToken(), isNull);
+      expect(remote.revokedTokens, [
+        'refresh-token-00000000000000000000000000000001',
+      ]);
+    });
+    test('cross-country device session is purged before restore', () async {
+      final store = MemorySecureSessionStore();
+      await store.write(
+        authentication(now, country: 'NG', sessionCountry: 'IN'),
+      );
+      final controller = session(
+        FakeRemote(authentication(now, country: 'NG')),
+        store,
+        now,
+        country: 'NG',
+      );
+
+      await controller.initialize();
+
+      expect(controller.state.status, IdentitySessionStatus.roleDenied);
+      expect(store.hasSession, isFalse);
+      expect(await controller.accessToken(), isNull);
+    });
     test('restores a valid session while offline', () async {
       final store = MemorySecureSessionStore();
       await store.write(authentication(now));
@@ -271,12 +337,13 @@ IdentitySessionController session(
   SecureSessionStore store,
   DateTime now, {
   bool online = true,
+  String country = 'IN',
 }) => IdentitySessionController(
   remote: remote,
   store: store,
   applicationRole: AppRole.customer,
   deviceId: 'device-install-001',
-  country: 'IN',
+  country: country,
   connectivity: FixedConnectivity(online),
   clock: () => now,
 );
@@ -289,11 +356,13 @@ IdentityAuthentication authentication(
   String accessToken = 'access-token-1',
   String identityId = 'identity-1',
   String sessionId = 'session-1',
+  String country = 'IN',
+  String? sessionCountry,
   String refreshToken = 'refresh-token-00000000000000000000000000000001',
 }) => IdentityAuthentication(
   identityId: identityId,
   tenantId: 'tenant-1',
-  country: 'IN',
+  country: country,
   tokens: IdentityTokens(
     accessToken: accessToken,
     accessExpiresAt: accessExpiresAt ?? now.add(const Duration(minutes: 10)),
@@ -311,7 +380,7 @@ IdentityAuthentication authentication(
   session: IdentityDeviceSession(
     id: sessionId,
     deviceReference: 'device-hash-1',
-    country: 'IN',
+    country: sessionCountry ?? country,
     authenticatedAt: now,
     lastSeenAt: now,
     expiresAt: now.add(const Duration(days: 30)),

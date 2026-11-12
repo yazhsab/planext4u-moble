@@ -483,6 +483,8 @@ final class IdentitySessionController implements ApiAuthSession {
   }
 
   bool _roleAllowed(IdentityAuthentication authentication) =>
+      authentication.country == _country &&
+      authentication.session.country == _country &&
       IdentityRoleRouter.decide(
         applicationRole: _applicationRole,
         grantedRoles: authentication.roles,
