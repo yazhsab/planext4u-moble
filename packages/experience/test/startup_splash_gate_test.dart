@@ -111,6 +111,28 @@ void main() {
       c.dispose();
     },
   );
+  testWidgets('A slow first initializer recovers without requiring a retry', (
+    tester,
+  ) async {
+    final remote = Remote(), c = controller(remote), slow = Completer<Widget>();
+    var calls = 0;
+    await tester.pumpWidget(
+      gate(c, () {
+        calls++;
+        return slow.future;
+      }),
+    );
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(find.text('The app could not start. Try again.'), findsOneWidget);
+
+    slow.complete(runtime);
+    await tester.pumpAndSettle();
+    expect(find.text('Private runtime'), findsOneWidget);
+    expect(calls, 1);
+    await tester.pumpWidget(const SizedBox());
+    c.dispose();
+  });
   testWidgets(
     'Disposal cancels timers and ignores both late runtime and public responses',
     (tester) async {

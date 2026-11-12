@@ -94,7 +94,6 @@ class _PublicStartupGateState extends State<PublicStartupGate> {
     _runtimeTimer?.cancel();
     final timeout = Timer(const Duration(seconds: 5), () {
       if (mounted && generation == _generation) {
-        _generation++;
         setState(() => _failed = true);
       }
     });
@@ -103,7 +102,10 @@ class _PublicStartupGateState extends State<PublicStartupGate> {
     try {
       final runtime = await Future<Widget>.sync(widget.initialize);
       if (mounted && generation == _generation) {
-        setState(() => _runtime = runtime);
+        setState(() {
+          _runtime = runtime;
+          _failed = false;
+        });
       }
     } catch (_) {
       if (mounted && generation == _generation) setState(() => _failed = true);
