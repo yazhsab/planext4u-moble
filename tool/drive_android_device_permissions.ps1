@@ -2,18 +2,19 @@ param(
   [Parameter(Mandatory=$true)][string]$Adb,
   [Parameter(Mandatory=$true)][string]$LogFile,
   [Parameter(Mandatory=$true)][string]$EvidenceDirectory,
-  [ValidatePattern('^emulator-[0-9]+$')][string]$Device='emulator-5554'
+  [ValidatePattern('^emulator-[0-9]+$')][string]$Device='emulator-5554',
+  [ValidateSet('planext4u-phase2-api35','planext4u-phase2-aosp35')][string]$ExpectedAVD='planext4u-phase2-api35'
 )
 $ErrorActionPreference='Stop'
 function Assert-TestAVD {
   $name=@(& $Adb -s $Device emu avd name 2>$null)
-  if($LASTEXITCODE -ne 0 -or $name.Count -lt 1 -or $name[0].Trim() -ne 'planext4u-phase2-api35'){throw 'Only the dedicated synthetic AVD may be operated.'}
+  if($LASTEXITCODE -ne 0 -or $name.Count -lt 1 -or $name[0].Trim() -ne $ExpectedAVD){throw 'Only the selected dedicated synthetic AVD may be operated.'}
 }
 Assert-TestAVD
 $repo=[IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $evidence=[IO.Path]::GetFullPath($EvidenceDirectory)
 if(-not $evidence.StartsWith($repo+'\build\',[StringComparison]::OrdinalIgnoreCase)){throw 'Evidence must stay within the mobile build directory.'}
-$report=[ordered]@{check_id='android-device-access';result='IN_PROGRESS';device=$Device;checks=@();external_provider_verified=$false}
+$report=[ordered]@{check_id='android-device-access';result='IN_PROGRESS';device=$Device;avd=$ExpectedAVD;checks=@();external_provider_verified=$false}
 $reportPath=Join-Path $evidence 'device-access-ui.json'
 function Save-Report { [IO.File]::WriteAllText($reportPath,($report|ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false)) }
 function Wait-Marker([string]$marker) {
