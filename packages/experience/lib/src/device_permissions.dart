@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:planext4u_device_access/planext4u_device_access.dart';
 
@@ -11,11 +12,22 @@ final class DevicePermissionsController extends ChangeNotifier {
   String? error;
   bool busy = false;
   bool _disposed = false;
+  bool _refreshPending = false;
   int _generation = 0;
 
   Future<void> refresh() async {
-    if (_disposed || busy) return;
+    if (_disposed) return;
+    if (busy) {
+      _refreshPending = true;
+      return;
+    }
     await _run(_platform.read);
+  }
+
+  void _runPendingRefresh() {
+    if (_disposed || !_refreshPending) return;
+    _refreshPending = false;
+    unawaited(refresh());
   }
 
   /// The screen must obtain an explicit choice after explaining the feature.
@@ -43,6 +55,7 @@ final class DevicePermissionsController extends ChangeNotifier {
       if (!_disposed && generation == _generation) {
         busy = false;
         notifyListeners();
+        _runPendingRefresh();
       }
     }
   }
@@ -67,6 +80,7 @@ final class DevicePermissionsController extends ChangeNotifier {
       if (!_disposed && generation == _generation) {
         busy = false;
         notifyListeners();
+        _runPendingRefresh();
       }
     }
   }
@@ -74,6 +88,7 @@ final class DevicePermissionsController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _refreshPending = false;
     _generation++;
     super.dispose();
   }

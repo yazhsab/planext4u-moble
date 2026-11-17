@@ -19,6 +19,7 @@ class Platform extends Fake implements DeviceAccessPlatform {
   final requests = <DevicePermission>[];
   final settings = <DeviceSettings>[];
   Future<DeviceAccessSnapshot> Function()? readResult;
+  Future<bool> Function()? settingsResult;
   @override
   Future<DeviceAccessSnapshot> read() {
     reads++;
@@ -34,7 +35,7 @@ class Platform extends Fake implements DeviceAccessPlatform {
   @override
   Future<bool> openSettings(DeviceSettings destination) async {
     settings.add(destination);
-    return true;
+    return await settingsResult?.call() ?? true;
   }
 }
 
@@ -160,4 +161,40 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     controller.dispose();
   });
+  testWidgets(
+    'Early resume during settings launch still rereads revoked access',
+    (tester) async {
+      final launched = Completer<bool>();
+      final platform = Platform();
+      platform.readResult = () async => snapshot(DeviceAccess.precise);
+      platform.settingsResult = () => launched.future;
+      final controller = DevicePermissionsController(platform: platform);
+      await tester.pumpWidget(
+        MaterialApp(home: DevicePermissionsScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Precise location allowed'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('open-device-app-settings')),
+        400,
+      );
+      await tester.tap(find.byKey(const ValueKey('open-device-app-settings')));
+      await tester.pump();
+      expect(controller.busy, isTrue);
+      platform.readResult = () async => snapshot();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(platform.reads, 1);
+      launched.complete(true);
+      await tester.pumpAndSettle();
+      expect(platform.reads, 2);
+      expect(
+        controller.snapshot!.permissions[DevicePermission.location],
+        DeviceAccess.notAllowed,
+      );
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+    },
+  );
 }
