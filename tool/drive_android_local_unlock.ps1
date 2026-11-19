@@ -3,17 +3,18 @@ param(
  [Parameter(Mandatory=$true)][string]$LogFile,
  [Parameter(Mandatory=$true)][string]$EvidenceDirectory,
  [ValidatePattern('^emulator-[0-9]+$')][string]$Device='emulator-5554',
- [ValidatePattern('^[0-9]{4}$')][string]$TestPin='2580'
+ [ValidatePattern('^[0-9]{4}$')][string]$TestPin='2580',
+ [ValidateSet('planext4u-phase2-api35','planext4u-phase2-aosp35')][string]$ExpectedAVD='planext4u-phase2-api35'
 )
 $ErrorActionPreference='Stop'
 function Assert-TestAVD {
  $name=@(& $Adb -s $Device emu avd name 2>$null)
- if($LASTEXITCODE -ne 0 -or $name.Count -lt 1 -or $name[0].Trim() -ne 'planext4u-phase2-api35'){throw 'Only the dedicated synthetic AVD may be operated.'}
+ if($LASTEXITCODE -ne 0 -or $name.Count -lt 1 -or $name[0].Trim() -ne $ExpectedAVD){throw 'Only the selected dedicated synthetic AVD may be operated.'}
 }
 Assert-TestAVD
 $repo=[IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot));$evidence=[IO.Path]::GetFullPath($EvidenceDirectory)
 if(-not $evidence.StartsWith($repo+'\build\',[StringComparison]::OrdinalIgnoreCase)){throw 'Evidence must remain in the mobile build directory.'}
-$report=[ordered]@{check_id='native-local-device-unlock';result='IN_PROGRESS';checks=@();external_provider_verified=$false;fingerprint_hardware_verified=$false}
+$report=[ordered]@{check_id='native-local-device-unlock';result='IN_PROGRESS';avd=$ExpectedAVD;checks=@();external_provider_verified=$false;fingerprint_hardware_verified=$false}
 function Log-Text {if(Test-Path -LiteralPath $LogFile){return [string](Get-Content -LiteralPath $LogFile -Raw)};return ''}
 function Wait-Marker([string]$marker,[int]$Seconds=600) {
  $deadline=[DateTimeOffset]::UtcNow.AddSeconds($Seconds)
