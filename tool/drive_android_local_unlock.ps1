@@ -55,10 +55,11 @@ function Ensure-Initial-Keyguard {
  $window=Window-Text
  if($window -notmatch 'mDreamingLockscreen=true' -or
     $window -notmatch '(?m)mCurrentFocus=Window\{[^\r\n]*NotificationShade' -or
-    $window -notmatch '(?m)mFocusedApp=[^\r\n]*net\.planext4u\.customer\.dev/'){return}
+    $window -notmatch '(?m)mFocusedApp=[^\r\n]*(net\.planext4u\.customer\.dev/|com\.android\.settings/\.FallbackHome)'){return}
  $script:initialKeyguardAttempted=$true
  & $Adb -s $Device shell input keyevent 82|Out-Null
- $path='/sdcard/planext4u-unlock-initial-'+[Guid]::NewGuid().ToString('N')+'.xml'
+ # Emulated /sdcard is unavailable before the synthetic user is unlocked.
+ $path='/data/local/tmp/planext4u-unlock-initial-'+[Guid]::NewGuid().ToString('N')+'.xml'
  & $Adb -s $Device shell uiautomator dump $path *> (Join-Path $evidence 'initial-keyguard-dump.private.log')
  $raw=@(& $Adb -s $Device shell cat $path) -join "`n"
  if($raw -notlike '*<hierarchy*'){throw 'Initial synthetic keyguard hierarchy unavailable.'}
