@@ -1675,6 +1675,9 @@ void main() {
       'deep_link': 'https://evilplanext4u.net/rider/tasks/task-1',
     });
     messaging.opened.add({
+      'deep_link': '//attacker.example/rider/tasks/task-1',
+    });
+    messaging.opened.add({
       'deep_link': 'planext4u-rider-staging-evil://open/rider/tasks/task-1',
     });
     messaging.opened.add({
@@ -1695,6 +1698,17 @@ void main() {
         AppRole.rider,
       ),
       isFalse,
+    );
+    expect(
+      isSafeRoleDeepLink(
+        Uri.parse('//attacker.example/rider/tasks/task-1'),
+        AppRole.rider,
+      ),
+      isFalse,
+    );
+    expect(
+      isSafeRoleDeepLink(Uri.parse('/rider/tasks/task-1'), AppRole.rider),
+      isTrue,
     );
     expect(
       isSafeRoleDeepLink(

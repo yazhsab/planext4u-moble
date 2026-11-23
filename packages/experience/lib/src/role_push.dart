@@ -433,7 +433,8 @@ bool isSafeRoleDeepLink(
   if (!(path == prefix || path.startsWith('$prefix/'))) {
     return false;
   }
-  if (!uri.isAbsolute) return true;
+  // A network-path reference has no scheme but still names an external host.
+  if (!uri.isAbsolute) return !uri.hasAuthority;
   final officialWeb =
       uri.scheme == 'https' &&
       uri.host.toLowerCase() == (allowedHost ?? 'planext4u.net').toLowerCase();
