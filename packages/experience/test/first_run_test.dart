@@ -4,6 +4,38 @@ import 'package:planext4u_experience/planext4u_experience.dart';
 import 'package:planext4u_storage/planext4u_storage.dart';
 
 void main() {
+  testWidgets('skipping introduction persists completion across restart', (
+    tester,
+  ) async {
+    final records = MemoryBinaryRecordStore();
+    final keys = MemoryCacheKeyProvider();
+    Widget gate() => MaterialApp(
+      home: FirstRunGate(
+        config: FirstRunConfig.forRole('customer'),
+        store: EncryptedFirstRunStore(
+          EncryptedRecordStore(
+            records: records,
+            keyProvider: keys,
+            namespace: 'skip.onboarding',
+            maxPlaintextBytes: 4096,
+          ),
+        ),
+        child: const Text('Signed out home'),
+      ),
+    );
+    await tester.pumpWidget(gate());
+    await tester.pumpAndSettle();
+    expect(find.text('Welcome to Planext4u customer'), findsOneWidget);
+    await tester.tap(find.text('Skip introduction'));
+    await tester.pumpAndSettle();
+    expect(find.text('Signed out home'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(gate());
+    await tester.pumpAndSettle();
+    expect(find.text('Welcome to Planext4u customer'), findsNothing);
+    expect(find.text('Signed out home'), findsOneWidget);
+  });
+
   testWidgets('education remains scrollable on landscape at 200 percent text', (
     tester,
   ) async {

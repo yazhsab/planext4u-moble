@@ -140,6 +140,11 @@ class _FirstRunGateState extends State<FirstRunGate> {
       setState(() => _index++);
       return;
     }
+    await _finish();
+  }
+
+  Future<void> _finish() async {
+    if (_saving) return;
     setState(() {
       _saving = true;
       _error = null;
@@ -223,6 +228,11 @@ class _FirstRunGateState extends State<FirstRunGate> {
                                   : 'Continue',
                             ),
                           ),
+                          if (_index < widget.config.steps.length - 1)
+                            TextButton(
+                              onPressed: _saving ? null : _finish,
+                              child: const Text('Skip introduction'),
+                            ),
                         ],
                       ),
                     ),
