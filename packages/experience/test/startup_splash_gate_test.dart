@@ -180,6 +180,9 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(tester.takeException(), isNull);
+      final logo = find.byKey(const ValueKey('public-startup-logo'));
+      expect(logo, findsOneWidget);
+      expect(tester.widget<Image>(logo).semanticLabel, 'Planext4u');
       expect(
         MediaQuery.textScalerOf(
           tester.element(find.byKey(const ValueKey('public-startup-title'))),

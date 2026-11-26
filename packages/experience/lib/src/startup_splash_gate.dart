@@ -200,7 +200,15 @@ class _PublicStartupGateState extends State<PublicStartupGate> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.hub_outlined, size: 56),
+                                Image.asset(
+                                  'assets/planext4u-logo.webp',
+                                  package: 'planext4u_experience',
+                                  key: const ValueKey('public-startup-logo'),
+                                  width: 84,
+                                  height: 84,
+                                  fit: BoxFit.contain,
+                                  semanticLabel: 'Planext4u',
+                                ),
                                 const SizedBox(height: 20),
                                 Text(
                                   document?.title ?? 'Planext4u',
