@@ -96,6 +96,14 @@ class _ContactMatchingCardState extends State<ContactMatchingCard> {
                 child: Text(tamil ? 'மேலும்' : 'Show more'),
               ),
           ],
+          if (controller.canWithdraw)
+            TextButton(
+              key: const ValueKey('stop-contact-matching'),
+              onPressed: controller.busy ? null : controller.withdraw,
+              child: Text(
+                tamil ? 'பொருத்தத்தை நிறுத்து' : 'Stop contact matching',
+              ),
+            ),
           TextButton(
             onPressed: controller.busy ? null : controller.load,
             child: Text(tamil ? 'புதுப்பி' : 'Refresh'),

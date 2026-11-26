@@ -49,9 +49,15 @@ final class ContactMatchingController extends ChangeNotifier {
         _consent.granted(ConsentPurpose.contactMatching, policy);
   }
 
+  bool get canWithdraw =>
+      isActive &&
+      (_consent.evidence[ConsentPurpose.contactMatching]?.granted == true ||
+          _consent.hasUnconfirmedChange(ConsentPurpose.contactMatching));
+
   void _clearMatches() {
     matches = const [];
     nextCursor = null;
+    skipped = 0;
   }
 
   void _consentChanged() {
@@ -59,6 +65,7 @@ final class ContactMatchingController extends ChangeNotifier {
     if (!consentGranted) {
       _clearMatches();
       state = null;
+      message = null;
     }
     notifyListeners();
   }
@@ -111,6 +118,36 @@ final class ContactMatchingController extends ChangeNotifier {
     } catch (_) {
       if (isActive) {
         message = 'Contact choice was not confirmed. Refresh and retry.';
+      }
+    } finally {
+      if (isActive) {
+        busy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> withdraw() async {
+    final policy =
+        _consent.evidence[ConsentPurpose.contactMatching]?.policyVersion ??
+        _policyVersion();
+    if (!canWithdraw || busy || policy == null) return;
+    busy = true;
+    message = null;
+    notifyListeners();
+    try {
+      // setConsent revokes local use immediately, even if the server write
+      // cannot be confirmed. Its denial journal retries after restart.
+      await _consent.setConsent(
+        purpose: ConsentPurpose.contactMatching,
+        granted: false,
+        policyVersion: policy,
+      );
+      if (isActive) message = 'Contact matching stopped.';
+    } catch (_) {
+      if (isActive) {
+        message =
+            'Matching stopped on this device. Server confirmation is pending; retry from privacy settings.';
       }
     } finally {
       if (isActive) {

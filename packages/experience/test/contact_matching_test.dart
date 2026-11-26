@@ -130,7 +130,10 @@ Future<
     _Permissions permissions,
   })
 >
-_fixture({required bool Function() scope}) async {
+_fixture({
+  required bool Function() scope,
+  String? Function()? policyVersion,
+}) async {
   final transport = _Transport();
   final permissions = _Permissions();
   final phones = _Phones();
@@ -147,7 +150,7 @@ _fixture({required bool Function() scope}) async {
   final controller = ContactMatchingController(
     api: api,
     consent: consent,
-    policyVersion: () => 'contacts-v1',
+    policyVersion: policyVersion ?? () => 'contacts-v1',
     freshProviderToken: () async => 'fresh-provider-token',
     scopeIsCurrent: scope,
     permissions: permissions,
@@ -198,15 +201,40 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('show-contact-matches')));
       await tester.pumpAndSettle();
       expect(find.text('Local Member'), findsOneWidget);
-      await f.consent.setConsent(
-        purpose: ConsentPurpose.contactMatching,
-        granted: false,
-        policyVersion: 'contacts-v1',
-      );
+      await tester.tap(find.byKey(const ValueKey('stop-contact-matching')));
       await tester.pumpAndSettle();
       expect(find.text('Local Member'), findsNothing);
       expect(f.controller.matches, isEmpty);
+      expect(f.controller.skipped, 0);
+      expect(f.controller.consentGranted, isFalse);
+      expect(
+        f.consent.evidence[ConsentPurpose.contactMatching]?.granted,
+        isFalse,
+      );
+      expect(find.text('Contact matching stopped.'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
+      f.controller.dispose();
+      f.consent.dispose();
+    },
+  );
+
+  test(
+    'old consent can be withdrawn when the published policy is unavailable',
+    () async {
+      String? policy = 'contacts-v1';
+      final f = await _fixture(scope: () => true, policyVersion: () => policy);
+      await f.controller.load();
+      await f.controller.grant();
+      policy = null;
+      await f.consent.load();
+      expect(f.controller.state, isNull);
+      expect(f.controller.canWithdraw, isTrue);
+      await f.controller.withdraw();
+      expect(f.controller.consentGranted, isFalse);
+      expect(
+        f.consent.evidence[ConsentPurpose.contactMatching]?.granted,
+        isFalse,
+      );
       f.controller.dispose();
       f.consent.dispose();
     },
