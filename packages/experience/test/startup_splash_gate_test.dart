@@ -175,6 +175,7 @@ void main() {
           version: '1',
           title: 'A published public welcome',
           message: 'You can continue without granting any device permission.',
+          visual: 'shopping',
         ),
       );
       await tester.pump();
@@ -183,6 +184,9 @@ void main() {
       final logo = find.byKey(const ValueKey('public-startup-logo'));
       expect(logo, findsOneWidget);
       expect(tester.widget<Image>(logo).semanticLabel, 'Planext4u');
+      final visual = find.byKey(const ValueKey('public-startup-visual'));
+      expect(visual, findsOneWidget);
+      expect(tester.widget<Image>(visual).image, isA<AssetImage>());
       expect(
         MediaQuery.textScalerOf(
           tester.element(find.byKey(const ValueKey('public-startup-title'))),

@@ -9,6 +9,7 @@ PublicStartupDocument doc({
   String country = 'IN',
   String role = 'customer',
   String? title = 'Welcome',
+  String? visual,
 }) => PublicStartupDocument(
   revision: revision,
   publishedAt: DateTime.utc(2026, 10, 25),
@@ -18,6 +19,7 @@ PublicStartupDocument doc({
   version: title == null ? null : '1',
   title: title,
   message: title == null ? null : 'Public message',
+  visual: visual,
 );
 
 class Store implements PublicStartupStore {
@@ -80,6 +82,15 @@ void main() {
         },
         {
           ...doc().toJson(),
+          'splash': {
+            'version': '1',
+            'title': 'Welcome',
+            'message': 'Public',
+            'visual': 'https://untrusted.invalid/image.jpg',
+          },
+        },
+        {
+          ...doc().toJson(),
           'splash': {'version': '1', 'title': 'a' * 121, 'message': 'Public'},
         },
       ]) {
@@ -100,6 +111,24 @@ void main() {
         ).title,
         isNull,
       );
+      for (final visual in [
+        'brand',
+        'shopping',
+        'services',
+        'community',
+        'vendor',
+      ]) {
+        final selected = PublicStartupDocument.decode(
+          doc(visual: visual).toJson(),
+          country: 'IN',
+          role: 'customer',
+        );
+        expect(selected.visual, visual);
+        expect(
+          (selected.toJson()['splash'] as Map<String, Object?>)['visual'],
+          visual,
+        );
+      }
     },
   );
   test(

@@ -36,3 +36,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/planext4u-logo.webp
+    - assets/startup-shopping.jpg
+    - assets/startup-services.jpg
+    - assets/startup-community.jpg
+    - assets/startup-vendor.jpg

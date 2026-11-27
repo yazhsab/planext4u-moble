@@ -209,6 +209,23 @@ class _PublicStartupGateState extends State<PublicStartupGate> {
                                   fit: BoxFit.contain,
                                   semanticLabel: 'Planext4u',
                                 ),
+                                if (_startupVisualAsset(document?.visual)
+                                    case final String asset) ...[
+                                  const SizedBox(height: 16),
+                                  Image.asset(
+                                    asset,
+                                    package: 'planext4u_experience',
+                                    key: const ValueKey(
+                                      'public-startup-visual',
+                                    ),
+                                    width: 240,
+                                    height: 160,
+                                    fit: BoxFit.contain,
+                                    excludeFromSemantics: true,
+                                    errorBuilder: (_, _, _) =>
+                                        const SizedBox.shrink(),
+                                  ),
+                                ],
                                 const SizedBox(height: 20),
                                 Text(
                                   document?.title ?? 'Planext4u',
@@ -273,6 +290,14 @@ class _PublicStartupGateState extends State<PublicStartupGate> {
     );
   }
 }
+
+String? _startupVisualAsset(String? visual) => switch (visual) {
+  'shopping' => 'assets/startup-shopping.jpg',
+  'services' => 'assets/startup-services.jpg',
+  'community' => 'assets/startup-community.jpg',
+  'vendor' => 'assets/startup-vendor.jpg',
+  _ => null,
+};
 
 String _skipLabel(String locale) =>
     const {

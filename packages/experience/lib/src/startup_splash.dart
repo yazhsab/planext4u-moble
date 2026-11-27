@@ -16,6 +16,7 @@ final class PublicStartupDocument {
     this.version,
     this.title,
     this.message,
+    this.visual,
   });
   factory PublicStartupDocument.decode(
     Object? value, {
@@ -47,11 +48,11 @@ final class PublicStartupDocument {
     if (published == null || !published.isAfter(DateTime.utc(2000))) {
       throw const FormatException('Invalid public startup revision.');
     }
-    String? version, title, message;
+    String? version, title, message, visual;
     final splash = value['splash'];
     if (splash != null) {
       if (splash is! Map<String, Object?> ||
-          splash.length != 3 ||
+          (splash.length != 3 && splash.length != 4) ||
           splash['version'] is! String ||
           !RegExp(
             r'^[A-Za-z0-9._-]{1,32}$',
@@ -63,6 +64,20 @@ final class PublicStartupDocument {
       version = splash['version']! as String;
       title = splash['title']! as String;
       message = splash['message']! as String;
+      if (splash.length == 4) {
+        final requestedVisual = splash['visual'];
+        if (requestedVisual is! String ||
+            !const {
+              'brand',
+              'shopping',
+              'services',
+              'community',
+              'vendor',
+            }.contains(requestedVisual)) {
+          throw const FormatException('Invalid public startup visual.');
+        }
+        visual = requestedVisual;
+      }
       if (title.trim().isEmpty ||
           title.runes.length > 120 ||
           message.trim().isEmpty ||
@@ -79,12 +94,13 @@ final class PublicStartupDocument {
       version: version,
       title: title,
       message: message,
+      visual: visual,
     );
   }
   final int revision;
   final DateTime publishedAt;
   final String country, role, locale;
-  final String? version, title, message;
+  final String? version, title, message, visual;
   Map<String, Object?> toJson() => {
     'revision': revision,
     'published_at': publishedAt.toUtc().toIso8601String(),
@@ -93,7 +109,12 @@ final class PublicStartupDocument {
     'locale': locale,
     'splash': version == null
         ? null
-        : {'version': version, 'title': title, 'message': message},
+        : {
+            'version': version,
+            'title': title,
+            'message': message,
+            if (visual != null) 'visual': visual,
+          },
   };
 }
 
